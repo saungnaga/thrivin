@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
@@ -19,11 +19,44 @@ import {
   Zap,
   HelpCircle,
   X,
-  Instagram
+  Instagram,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
+
+const NINA_SLIDES = [
+  {
+    src: "/nina-intro.webp",
+    alt: "Nina - Sapaan Personal Companion Thrivin",
+    title: "Hai, Aku Nina",
+  },
+  {
+    src: "/nina-desc.webp",
+    alt: "Nina - Pendamping Kebugaran Thrivin di WhatsApp",
+    title: "Tentang Nina",
+  },
+  {
+    src: "/nina-motto.webp",
+    alt: "Nina - She's here for the part that's hard to do alone",
+    title: "Motto Nina",
+  },
+];
 
 export default function NinaSalesPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    if (isHovered) return;
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % NINA_SLIDES.length);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [isHovered]);
+
+  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % NINA_SLIDES.length);
+  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + NINA_SLIDES.length) % NINA_SLIDES.length);
 
   const CHECKOUT_URL = "https://digitanest.store/checkout-nina";
 
@@ -158,55 +191,106 @@ export default function NinaSalesPage() {
               </p>
             </motion.div>
 
-            {/* Right: Real Nina Image Card */}
+            {/* Right: Real Nina Image Slideshow Card */}
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 0.1 }}
               className="relative flex justify-center"
             >
-              <div className="relative w-full max-w-[380px] sm:max-w-[420px] rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-white group">
+              <div
+                className="relative w-full max-w-[390px] sm:max-w-[420px] rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-brand-950 group"
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+              >
                 {/* Clickable Instagram Badge */}
                 <a
                   href="https://instagram.com/ninathrivin"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="absolute top-4 right-4 z-20 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-950/80 hover:bg-brand-900 backdrop-blur-md text-white border border-white/20 shadow-lg text-xs font-semibold transition-all hover:scale-105 group/ig"
+                  className="absolute top-3.5 right-3.5 z-30 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-950/80 hover:bg-brand-900 backdrop-blur-md text-white border border-white/20 shadow-lg text-xs font-semibold transition-all hover:scale-105 group/ig"
                   title="Follow Instagram Nina @ninathrivin"
                 >
                   <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover/ig:text-accent transition-colors" />
                   <span className="text-white group-hover/ig:text-accent font-medium transition-colors">@ninathrivin</span>
                 </a>
 
-                <Image
-                  src="/nina-intro.webp"
-                  alt="Nina - Personal Wellness Companion Thrivin"
-                  width={680}
-                  height={1020}
-                  priority
-                  className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105"
-                />
+                {/* Slides Viewport */}
+                <div className="relative aspect-[4/5] w-full overflow-hidden bg-brand-950 select-none">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={currentSlide}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.55 }}
+                      className="absolute inset-0"
+                    >
+                      <Image
+                        src={NINA_SLIDES[currentSlide].src}
+                        alt={NINA_SLIDES[currentSlide].alt}
+                        fill
+                        sizes="(max-width: 640px) 100vw, 420px"
+                        priority={currentSlide === 0}
+                        className="object-cover object-top"
+                      />
+                    </motion.div>
+                  </AnimatePresence>
 
-                {/* Floating WhatsApp Live Status Badge */}
-                <div className="absolute bottom-4 left-4 right-4 p-3.5 rounded-2xl bg-brand-950/85 backdrop-blur-md text-white border border-white/10 shadow-lg flex items-center justify-between">
+                  {/* Manual Arrow Controls */}
+                  <button
+                    onClick={prevSlide}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white flex items-center justify-center backdrop-blur-sm opacity-75 hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-105"
+                    aria-label="Foto sebelumnya"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-white" />
+                  </button>
+                  <button
+                    onClick={nextSlide}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white flex items-center justify-center backdrop-blur-sm opacity-75 hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-105"
+                    aria-label="Foto selanjutnya"
+                  >
+                    <ChevronRight className="w-4 h-4 text-white" />
+                  </button>
+
+                  {/* Slide Indicators / Navigation Pills */}
+                  <div className="absolute bottom-3 left-0 right-0 z-20 flex justify-center items-center gap-1.5">
+                    {NINA_SLIDES.map((slide, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentSlide(idx)}
+                        className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                          currentSlide === idx
+                            ? "w-7 bg-accent shadow-glow"
+                            : "w-2 bg-white/50 hover:bg-white/80"
+                        }`}
+                        title={slide.title}
+                        aria-label={slide.title}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Integrated Card Bottom Bar: WhatsApp Status & Instagram */}
+                <div className="p-3.5 bg-brand-950 border-t border-white/10 text-white flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
-                    <span className="relative flex h-3 w-3">
+                    <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent"></span>
                     </span>
                     <div>
-                      <p className="text-xs font-bold text-white leading-tight">Nina · Online di WhatsApp</p>
-                      <p className="text-[11px] text-brand-200">Same journey. A kinder way.</p>
+                      <p className="text-xs font-bold text-white leading-tight">Nina · Personal Companion</p>
+                      <p className="text-[11px] text-brand-200">Online di WhatsApp 24/7</p>
                     </div>
                   </div>
                   <a
                     href="https://instagram.com/ninathrivin"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white hover:text-accent px-2.5 py-1 rounded-full bg-brand-900/80 hover:bg-brand-800 border border-accent/30 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white hover:text-accent px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all hover:scale-105"
                     title="Kunjungi Instagram @ninathrivin"
                   >
-                    <Instagram className="w-3 h-3 text-pink-400" />
+                    <Instagram className="w-3.5 h-3.5 text-pink-400" />
                     <span>@ninathrivin</span>
                   </a>
                 </div>
