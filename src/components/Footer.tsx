@@ -15,12 +15,12 @@ export function Footer() {
           className="flex flex-wrap items-center justify-center sm:justify-end gap-5 text-sm text-text-muted"
         >
           <Link
-            href="https://instagram.com/thrivin.id"
+            href="https://instagram.com/thrivin_id"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-brand-700 transition-colors"
           >
-            Instagram @thrivin.id
+            Instagram @thrivin_id
           </Link>
           <Link
             href="/privacy"
