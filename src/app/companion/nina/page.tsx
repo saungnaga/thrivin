@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 
 export default function NinaSalesPage() {
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "quarterly">("quarterly");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const CHECKOUT_URL = "https://digitanest.store/checkout-nina";
@@ -46,8 +45,8 @@ export default function NinaSalesPage() {
       a: "Privasimu 100% aman. Datamu digunakan hanya untuk membangun memori kontekstual agar saran Nina semakin akurat untukmu. Datamu tidak pernah dibagikan atau dijual ke pihak ketiga, dan kamu bisa meminta penghapusan riwayat kapan saja."
     },
     {
-      q: "Bisakah saya membatalkan langganan kapan saja?",
-      a: "Tentu saja. Bebas dari kontrak mengikat. Kamu bisa membatalkan kapan saja melalui WhatsApp tanpa syarat berbelit."
+      q: "Apakah ini sistem langganan yang memotong saldo otomatis?",
+      a: "Sama sekali bukan! Semua paket Nina adalah sistem sekali bayar (one-time purchase) untuk durasi 30 hari atau 90 hari. Tidak ada saldo atau kartu yang dipotong otomatis setiap bulan. Jika masa aktif selesai, kamu yang memutuskan secara sadar apakah ingin membeli paket pendampingan lagi atau tidak."
     }
   ];
 
@@ -85,7 +84,7 @@ export default function NinaSalesPage() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-brand-900 text-white px-5 py-2 text-xs sm:text-sm font-bold hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
             >
-              <span className="text-white">Mulai Berlangganan</span>
+              <span className="text-white">Dapatkan Akses Nina</span>
               <ArrowRight className="w-3.5 h-3.5 text-accent" />
             </a>
           </div>
@@ -143,7 +142,7 @@ export default function NinaSalesPage() {
                   href="#pricing"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm shadow-glow transition-all hover:-translate-y-0.5 cursor-pointer"
                 >
-                  <span className="text-white">Pilih Paket Langganan</span>
+                  <span className="text-white">Lihat Pilihan Paket</span>
                   <ArrowRight className="w-4 h-4 text-accent" />
                 </a>
                 <a
@@ -155,7 +154,7 @@ export default function NinaSalesPage() {
               </div>
 
               <p className="mt-4 text-xs text-text-muted">
-                ✓ Sapa langsung di WhatsApp · Tanpa download aplikasi baru · Batal kapan saja
+                ✓ Sapa langsung di WhatsApp · Pembelian sekali bayar tanpa ikatan langganan
               </p>
             </motion.div>
 
@@ -410,11 +409,11 @@ export default function NinaSalesPage() {
                   <td className="p-4 sm:p-5">Hanya chat konfirmasi kehadiran</td>
                 </tr>
                 <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Biaya Bulanan</td>
+                  <td className="p-4 sm:p-5 font-medium text-text-primary">Sistem Pembayaran</td>
                   <td className="p-4 sm:p-5 bg-brand-50/30 text-accent-dark font-black text-base">
-                    Mulai Rp 79.000 / bulan
+                    Sekali bayar mulai Rp 79.000 / bln (Tanpa auto-debit)
                   </td>
-                  <td className="p-4 sm:p-5">Rp 2.000.000 – Rp 4.000.000 / bulan</td>
+                  <td className="p-4 sm:p-5">Rp 2.000.000 – Rp 4.000.000 / bln + ikatan</td>
                 </tr>
                 <tr>
                   <td className="p-4 sm:p-5 font-medium text-text-primary">Tekanan Mental</td>
@@ -429,10 +428,10 @@ export default function NinaSalesPage() {
         </div>
       </section>
 
-      {/* ─── Pricing Section ─── */}
+      {/* ─── Pricing Section (One-Time Purchase) ─── */}
       <section id="pricing" className="py-24 px-4 sm:px-6 lg:px-8 bg-surface-muted relative">
         <div className="max-w-5xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="text-center max-w-2xl mx-auto mb-14">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
               Investasi Pertumbuhanmu
             </span>
@@ -440,65 +439,57 @@ export default function NinaSalesPage() {
               Pilih Paket Pendampingan Nina
             </h2>
             <p className="mt-4 text-text-secondary text-base">
-              Pengetahuan di website gratis untuk semua orang. Pendampingan personal di WhatsApp adalah akseleratornya.
+              Akses personal langsung di WhatsApp pribadimu. Sistem sekali bayar tanpa langganan otomatis.
             </p>
 
-            {/* Billing Toggle */}
-            <div className="mt-8 inline-flex items-center p-1 rounded-full bg-white border border-surface-border shadow-xs">
-              <button
-                onClick={() => setBillingCycle("monthly")}
-                className={`px-5 py-2 rounded-full text-xs font-bold transition-all ${
-                  billingCycle === "monthly"
-                    ? "bg-brand-900 text-white shadow-xs"
-                    : "text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                <span className={billingCycle === "monthly" ? "text-white" : ""}>Bulanan</span>
-              </button>
-              <button
-                onClick={() => setBillingCycle("quarterly")}
-                className={`px-5 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  billingCycle === "quarterly"
-                    ? "bg-brand-900 text-white shadow-xs"
-                    : "text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                <span className={billingCycle === "quarterly" ? "text-white" : ""}>3 Bulan (Rekomendasi)</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-accent text-[#041622] text-[10px] font-black">
-                  HEMAT 20%
-                </span>
-              </button>
+            {/* One-Time Purchase Trust Banner */}
+            <div className="mt-8 inline-flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-5 py-2.5 rounded-full bg-white border border-brand-200/90 text-brand-900 text-xs sm:text-sm font-semibold shadow-xs">
+              <span className="inline-flex items-center gap-1.5 text-accent-dark font-bold">
+                <ShieldCheck className="w-4 h-4 text-accent" />
+                Sekali Bayar (One-Time Purchase)
+              </span>
+              <span className="text-brand-300 hidden sm:inline">•</span>
+              <span className="text-text-secondary">Tanpa Tagihan Otomatis</span>
+              <span className="text-brand-300 hidden sm:inline">•</span>
+              <span className="text-text-secondary">Bebas Perpanjang Sesuai Kebutuhan</span>
             </div>
           </div>
 
           {/* Pricing Cards */}
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            {/* Card 1: Bulanan */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-white border border-surface-border shadow-sm flex flex-col justify-between">
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto items-stretch">
+            {/* Card 1: 1 Bulan (One-Time) */}
+            <div className="p-8 sm:p-10 rounded-3xl bg-white border border-surface-border shadow-sm flex flex-col justify-between hover:border-brand-300 transition-colors">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-serif text-2xl font-bold text-text-primary">
-                    Paket Bulanan
+                    Paket 1 Bulan
                   </h3>
-                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-surface-muted text-text-muted">
-                    Fleksibel
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-brand-50 text-brand-800 border border-brand-100">
+                    Akses 30 Hari
                   </span>
                 </div>
-                <p className="text-xs text-text-secondary mb-6">
-                  Cocok untuk mencoba adaptasi sistem bersama Nina tanpa komitmen panjang.
+                <p className="text-xs text-text-secondary mb-6 leading-relaxed">
+                  Sekali bayar untuk mendampingi adaptasi kebiasaan baru di WhatsApp selama 30 hari penuh. Tanpa komitmen perpanjangan otomatis.
                 </p>
 
-                <div className="flex items-baseline gap-1 mb-8">
-                  <span className="text-4xl sm:text-5xl font-black text-brand-900">
-                    Rp 99.000
-                  </span>
-                  <span className="text-text-muted text-sm">/ bulan</span>
+                <div className="mb-2">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl sm:text-5xl font-black text-brand-900">
+                      Rp 99.000
+                    </span>
+                    <span className="text-text-muted text-sm font-medium">/ sekali bayar</span>
+                  </div>
+                  <p className="text-[11px] font-semibold text-accent-dark mt-1">
+                    ✓ Akses penuh 30 hari · Tidak ada auto-debit
+                  </p>
                 </div>
+
+                <div className="h-px bg-surface-border my-6"></div>
 
                 <ul className="space-y-3.5 text-sm text-text-secondary mb-8">
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Akses WhatsApp penuh ke Nina 24/7</span>
+                    <span>Akses WhatsApp penuh ke Nina 24/7 (30 hari)</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
@@ -510,11 +501,11 @@ export default function NinaSalesPage() {
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Rekomendasi split latihan mingguan personal</span>
+                    <span>Rekomendasi split rutinitas mingguan personal</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Batal kapan saja tanpa penalti</span>
+                    <span className="font-semibold text-brand-900">One-time purchase, tanpa potongan berulang</span>
                   </li>
                 </ul>
               </div>
@@ -523,17 +514,22 @@ export default function NinaSalesPage() {
                 href={CHECKOUT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-sm"
+                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-sm hover:shadow-glow hover:-translate-y-0.5 cursor-pointer"
               >
                 <MessageCircle className="w-4 h-4 text-accent" />
-                <span className="text-white">Pilih Paket Bulanan</span>
+                <span className="text-white">Ambil Paket 1 Bulan</span>
               </a>
             </div>
 
-            {/* Card 2: 3 Bulan (Featured) */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white border-2 border-accent shadow-2xl relative flex flex-col justify-between">
-              <div className="absolute -top-3.5 right-8 px-4 py-1 rounded-full bg-accent text-[#041622] text-xs font-black tracking-wide uppercase shadow-md">
-                Paling Direkomendasikan
+            {/* Card 2: 3 Bulan (Featured One-Time) */}
+            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white border-2 border-accent shadow-2xl relative flex flex-col justify-between mt-4 md:mt-0">
+              {/* Fixed "Paling Direkomendasikan" Badge */}
+              <div 
+                className="absolute -top-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-8 sm:translate-x-0 z-30 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-xl border-2 border-white text-xs font-black tracking-wider uppercase"
+                style={{ backgroundColor: "#38AEC8", color: "#041622" }}
+              >
+                <Sparkles className="w-3.5 h-3.5" style={{ color: "#041622" }} />
+                <span style={{ color: "#041622", fontWeight: 900 }}>PALING DIREKOMENDASIKAN</span>
               </div>
 
               <div>
@@ -541,22 +537,32 @@ export default function NinaSalesPage() {
                   <h3 className="font-serif text-2xl font-bold text-white">
                     Paket 3 Bulan (Siklus Penuh)
                   </h3>
+                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-accent/20 text-accent border border-accent/30">
+                    Akses 90 Hari
+                  </span>
                 </div>
-                <p className="text-xs text-brand-100 mb-6">
-                  Sesuai Bab 3: tubuh butuh 8–12 minggu pada sistem yang sama untuk membangun adaptasi nyata.
+                <p className="text-xs text-brand-100 mb-6 leading-relaxed">
+                  Sesuai Bab 3: tubuh butuh 8–12 minggu pada sistem yang sama untuk membangun adaptasi nyata. Sekali bayar untuk 1 siklus tuntas.
                 </p>
 
-                <div className="flex items-baseline gap-1 mb-8">
-                  <span className="text-4xl sm:text-5xl font-black text-white">
-                    Rp 239.000
-                  </span>
-                  <span className="text-brand-200 text-sm">/ 3 bulan (~Rp 79rb/bln)</span>
+                <div className="mb-2">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl sm:text-5xl font-black text-white">
+                      Rp 239.000
+                    </span>
+                    <span className="text-brand-200 text-sm font-medium">/ sekali bayar</span>
+                  </div>
+                  <p className="text-[11px] font-bold text-accent mt-1">
+                    ✓ Setara ~Rp 79rb/bln · Hemat 20% · Tanpa tagihan otomatis
+                  </p>
                 </div>
+
+                <div className="h-px bg-white/10 my-6"></div>
 
                 <ul className="space-y-3.5 text-sm text-brand-100 mb-8">
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span className="text-white font-medium">Semua fitur Paket Bulanan</span>
+                    <span className="text-white font-medium">Semua fitur Paket 1 Bulan selama 90 hari</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
@@ -572,7 +578,7 @@ export default function NinaSalesPage() {
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Garansi kepuasan 7 hari pertama</span>
+                    <span className="font-semibold text-accent">Sekali bayar — tanpa ikatan & tanpa auto-renewal</span>
                   </li>
                 </ul>
               </div>
@@ -581,10 +587,11 @@ export default function NinaSalesPage() {
                 href={CHECKOUT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
+                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full font-black text-sm transition-all shadow-glow hover:-translate-y-0.5 cursor-pointer"
+                style={{ backgroundColor: "#38AEC8", color: "#041622" }}
               >
-                <MessageCircle className="w-4 h-4 text-accent" />
-                <span className="text-white font-bold">Mulai Siklus 3 Bulan Sekarang</span>
+                <MessageCircle className="w-4 h-4" style={{ color: "#041622" }} />
+                <span style={{ color: "#041622", fontWeight: 900 }}>Ambil Paket 3 Bulan (Hemat 20%)</span>
               </a>
             </div>
           </div>
