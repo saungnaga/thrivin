@@ -90,7 +90,7 @@ export default function NinaSalesPage() {
     },
     {
       q: "Apakah Nina adalah bot kaku yang meminta kita mengetik angka?",
-      a: "Sama sekali bukan. Nina berbicara dalam bahasa manusia yang santai, empatik, dan mengerti lelahnya hari kerjamu. Kamu bahkan bisa mengirim voice note di WhatsApp dan Nina akan merespons dengan konteks yang utuh."
+      a: "Sama sekali bukan. Nina berbicara dalam bahasa manusia yang santai, empatik, dan mengerti lelahnya hari kerjamu. Kamu bisa mengobrol santai seperti dengan teman, dan Nina akan merespons dengan pemahaman konteks yang utuh."
     },
     {
       q: "Bagaimana dengan privasi data dan riwayat percakapanku?",
@@ -644,7 +644,7 @@ export default function NinaSalesPage() {
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Membaca foto makanan & Strava tanpa batas</span>
+                    <span>Analisis foto makanan & screenshot aktivitas Strava</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-accent shrink-0" />

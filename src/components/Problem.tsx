@@ -57,7 +57,7 @@ export function Problem() {
             THE GAP BETWEEN KNOWING & DOING
           </motion.span>
           <motion.h2 variants={itemVariants} className="font-serif text-3xl md:text-5xl lg:text-6xl text-text-primary mb-6 max-w-4xl leading-tight">
-            Internet memberi akses informasi tanpa batas.
+            Internet memberi akses ke lautan informasi yang melimpah.
           </motion.h2>
           <motion.h3 variants={itemVariants} className="font-serif italic text-xl md:text-2xl text-brand-800 max-w-2xl">
             "Masalahnya bukan lagi &quot;Di mana saya bisa belajar?&quot;"
