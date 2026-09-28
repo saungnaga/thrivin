@@ -302,7 +302,7 @@ export default function ExplorePage() {
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
               >
                 <MessageCircle className="w-4 h-4 text-accent" />
-                <span className="text-white">Pelajari Tentang Nina & Harga</span>
+                <span className="text-white">Pelajari Pendampingan Nina</span>
               </Link>
               <Link
                 href="/path/wellness"

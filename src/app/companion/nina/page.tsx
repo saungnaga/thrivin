@@ -58,6 +58,25 @@ export default function NinaSalesPage() {
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % NINA_SLIDES.length);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + NINA_SLIDES.length) % NINA_SLIDES.length);
 
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX - touchEndX;
+
+    if (diff > 45) {
+      nextSlide();
+    } else if (diff < -45) {
+      prevSlide();
+    }
+    setTouchStartX(null);
+  };
+
   const CHECKOUT_URL = "https://digitanest.store/checkout-nina";
 
   const FAQS = [
@@ -203,20 +222,12 @@ export default function NinaSalesPage() {
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
               >
-                {/* Clickable Instagram Badge */}
-                <a
-                  href="https://instagram.com/ninathrivin"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute top-3.5 right-3.5 z-30 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-950/80 hover:bg-brand-900 backdrop-blur-md text-white border border-white/20 shadow-lg text-xs font-semibold transition-all hover:scale-105 group/ig"
-                  title="Follow Instagram Nina @ninathrivin"
+                {/* Slides Viewport with Touch Swipe on Mobile */}
+                <div
+                  className="relative aspect-[4/5] w-full overflow-hidden bg-brand-950 select-none cursor-grab active:cursor-grabbing"
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
                 >
-                  <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover/ig:text-accent transition-colors" />
-                  <span className="text-white group-hover/ig:text-accent font-medium transition-colors">@ninathrivin</span>
-                </a>
-
-                {/* Slides Viewport */}
-                <div className="relative aspect-[4/5] w-full overflow-hidden bg-brand-950 select-none">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={currentSlide}
@@ -232,43 +243,26 @@ export default function NinaSalesPage() {
                         fill
                         sizes="(max-width: 640px) 100vw, 420px"
                         priority={currentSlide === 0}
-                        className="object-cover object-top"
+                        className="object-cover object-top pointer-events-none"
                       />
                     </motion.div>
                   </AnimatePresence>
 
-                  {/* Manual Arrow Controls */}
+                  {/* Manual Arrow Controls (Desktop Hover Only, Hidden on Mobile) */}
                   <button
                     onClick={prevSlide}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white flex items-center justify-center backdrop-blur-sm opacity-75 hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-105"
+                    className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-110 shadow-lg"
                     aria-label="Foto sebelumnya"
                   >
-                    <ChevronLeft className="w-4 h-4 text-white" />
+                    <ChevronLeft className="w-5 h-5 text-white" />
                   </button>
                   <button
                     onClick={nextSlide}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white flex items-center justify-center backdrop-blur-sm opacity-75 hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-105"
+                    className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-110 shadow-lg"
                     aria-label="Foto selanjutnya"
                   >
-                    <ChevronRight className="w-4 h-4 text-white" />
+                    <ChevronRight className="w-5 h-5 text-white" />
                   </button>
-
-                  {/* Slide Indicators / Navigation Pills */}
-                  <div className="absolute bottom-3 left-0 right-0 z-20 flex justify-center items-center gap-1.5">
-                    {NINA_SLIDES.map((slide, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setCurrentSlide(idx)}
-                        className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                          currentSlide === idx
-                            ? "w-7 bg-accent shadow-glow"
-                            : "w-2 bg-white/50 hover:bg-white/80"
-                        }`}
-                        title={slide.title}
-                        aria-label={slide.title}
-                      />
-                    ))}
-                  </div>
                 </div>
 
                 {/* Integrated Card Bottom Bar: WhatsApp Status & Instagram */}

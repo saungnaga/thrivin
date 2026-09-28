@@ -131,9 +131,9 @@ export default function Companion() {
                     title="Instagram @ninathrivin"
                   >
                     <img
-                      src="/nina-intro.webp"
+                      src="/nina-pp.webp"
                       alt="Nina Companion"
-                      className="w-full h-full object-cover scale-[2.5] translate-y-[20%]"
+                      className="w-full h-full object-cover object-top"
                     />
                   </a>
                   <div>

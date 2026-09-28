@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -32,6 +32,13 @@ export default function WellnessPathPage() {
   const [expandedChapterIds, setExpandedChapterIds] = useState<string[]>([
     WELLNESS_CHAPTERS[0].id,
   ]);
+
+  // Scroll to top whenever active chapter changes
+  useEffect(() => {
+    if (activeChapterId && typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [activeChapterId]);
 
   // TDEE Calculator state for interactive widget
   const [tdeeWeight, setTdeeWeight] = useState(65);
@@ -117,7 +124,7 @@ export default function WellnessPathPage() {
               className="inline-flex items-center gap-2 rounded-full bg-brand-900 text-white px-4 py-1.5 text-xs sm:text-sm font-bold hover:bg-brand-800 transition-all shadow-sm"
             >
               <MessageCircle className="w-4 h-4 text-accent" />
-              <span>Kenali Nina & Harga</span>
+              <span>Kenali Nina</span>
             </Link>
           </div>
         </div>
@@ -281,7 +288,7 @@ export default function WellnessPathPage() {
                   href="/companion/nina"
                   className="block text-center text-xs font-bold bg-brand-900 text-white py-2 rounded-lg hover:bg-brand-800 transition-colors shadow-xs"
                 >
-                  Pelajari Nina & Harga &rarr;
+                  Pelajari Pendampingan Nina &rarr;
                 </Link>
               </div>
             </aside>
@@ -545,7 +552,7 @@ export default function WellnessPathPage() {
                       className="inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                     >
                       <Sparkles className="w-4 h-4 text-accent" />
-                      <span className="text-white">Pelajari Pendampingan Nina & Harga</span>
+                      <span className="text-white">Pelajari Pendampingan Nina</span>
                     </Link>
                     <span className="text-xs text-brand-200 text-center sm:text-left">
                       Bisa kirim foto makanan & screenshot Strava di WhatsApp.
@@ -750,7 +757,7 @@ export default function WellnessPathPage() {
                     className="inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                   >
                     <MessageCircle className="w-5 h-5 text-accent" />
-                    <span className="text-white font-bold">Mulai Bersama Nina & Lihat Harga</span>
+                    <span className="text-white font-bold">Pelajari Pendampingan Nina</span>
                   </Link>
                   <span className="text-[11px] text-brand-300">
                     Mulai Rp 79rb/bln · Tanpa instal aplikasi baru
