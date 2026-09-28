@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, ArrowRight } from "lucide-react";
+import { Check, ArrowRight, Instagram } from "lucide-react";
 import Link from "next/link";
 
 export default function Companion() {
@@ -120,19 +120,37 @@ export default function Companion() {
           >
             <div className="relative w-full max-w-[340px] rounded-[2.5rem] bg-slate-100 shadow-2xl ring-8 ring-brand-900 overflow-hidden shadow-brand-900/50 flex flex-col h-[550px]">
               
-              {/* WhatsApp Header with Real Nina Avatar */}
-              <div className="bg-[#075E54] text-white p-4 flex items-center gap-3 shadow-md z-10 shrink-0 rounded-t-[2.2rem]">
-                <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-white/80 shrink-0 relative bg-brand-900 flex items-center justify-center">
-                  <img
-                    src="/nina-intro.webp"
-                    alt="Nina Companion"
-                    className="w-full h-full object-cover scale-[2.5] translate-y-[20%]"
-                  />
+              {/* WhatsApp Header with Real Nina Avatar & Instagram Link */}
+              <div className="bg-[#075E54] text-white p-4 flex items-center justify-between shadow-md z-10 shrink-0 rounded-t-[2.2rem]">
+                <div className="flex items-center gap-3">
+                  <a
+                    href="https://instagram.com/ninathrivin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-11 h-11 rounded-full overflow-hidden border-2 border-white/80 shrink-0 relative bg-brand-900 flex items-center justify-center hover:opacity-90 transition-opacity"
+                    title="Instagram @ninathrivin"
+                  >
+                    <img
+                      src="/nina-intro.webp"
+                      alt="Nina Companion"
+                      className="w-full h-full object-cover scale-[2.5] translate-y-[20%]"
+                    />
+                  </a>
+                  <div>
+                    <h3 className="font-semibold leading-tight text-white">Nina · Thrivin</h3>
+                    <p className="text-xs text-white/80">Online · Personal Companion</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold leading-tight text-white">Nina · Thrivin</h3>
-                  <p className="text-xs text-white/80">Online · Personal Companion</p>
-                </div>
+                <a
+                  href="https://instagram.com/ninathrivin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-white/95 hover:text-white bg-white/15 hover:bg-white/25 px-2.5 py-1 rounded-full border border-white/25 transition-all shadow-xs"
+                  title="Follow Instagram @ninathrivin"
+                >
+                  <Instagram className="w-3 h-3 text-pink-300" />
+                  <span>@ninathrivin</span>
+                </a>
               </div>
 
               {/* Chat Area */}

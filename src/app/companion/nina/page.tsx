@@ -18,7 +18,8 @@ import {
   ShieldCheck,
   Zap,
   HelpCircle,
-  X
+  X,
+  Instagram
 } from "lucide-react";
 
 export default function NinaSalesPage() {
@@ -166,6 +167,18 @@ export default function NinaSalesPage() {
               className="relative flex justify-center"
             >
               <div className="relative w-full max-w-[380px] sm:max-w-[420px] rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-white group">
+                {/* Clickable Instagram Badge */}
+                <a
+                  href="https://instagram.com/ninathrivin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute top-4 right-4 z-20 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-950/80 hover:bg-brand-900 backdrop-blur-md text-white border border-white/20 shadow-lg text-xs font-semibold transition-all hover:scale-105 group/ig"
+                  title="Follow Instagram Nina @ninathrivin"
+                >
+                  <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover/ig:text-accent transition-colors" />
+                  <span className="text-white group-hover/ig:text-accent font-medium transition-colors">@ninathrivin</span>
+                </a>
+
                 <Image
                   src="/nina-intro.webp"
                   alt="Nina - Personal Wellness Companion Thrivin"
@@ -187,9 +200,16 @@ export default function NinaSalesPage() {
                       <p className="text-[11px] text-brand-200">Same journey. A kinder way.</p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-accent px-2.5 py-1 rounded-full bg-brand-900/80 border border-accent/30">
-                    24/7 Saku Celana
-                  </span>
+                  <a
+                    href="https://instagram.com/ninathrivin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white hover:text-accent px-2.5 py-1 rounded-full bg-brand-900/80 hover:bg-brand-800 border border-accent/30 transition-colors"
+                    title="Kunjungi Instagram @ninathrivin"
+                  >
+                    <Instagram className="w-3 h-3 text-pink-400" />
+                    <span>@ninathrivin</span>
+                  </a>
                 </div>
               </div>
             </motion.div>

@@ -1,9 +1,60 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Sparkles } from "lucide-react";
 
+const WORDS = [
+  "dilakukan",
+  "dimulai",
+  "dikerjakan",
+  "diusahakan",
+  "didisiplinkan",
+  "dibiasakan",
+];
+
 export function Hero() {
+  const [wordIndex, setWordIndex] = useState(0);
+  const [subIndex, setSubIndex] = useState(WORDS[0].length);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
+
+  useEffect(() => {
+    if (isPaused) {
+      const pauseTimer = setTimeout(() => {
+        setIsPaused(false);
+        setIsDeleting(true);
+      }, 2200);
+      return () => clearTimeout(pauseTimer);
+    }
+
+    if (isDeleting) {
+      if (subIndex > 0) {
+        const timeout = setTimeout(() => {
+          setSubIndex((prev) => prev - 1);
+        }, 45);
+        return () => clearTimeout(timeout);
+      } else {
+        setIsDeleting(false);
+        setWordIndex((prev) => (prev + 1) % WORDS.length);
+        return;
+      }
+    }
+
+    // Typing
+    const currentFullWord = WORDS[wordIndex];
+    if (subIndex < currentFullWord.length) {
+      const timeout = setTimeout(() => {
+        setSubIndex((prev) => prev + 1);
+      }, 85);
+      return () => clearTimeout(timeout);
+    } else {
+      setIsPaused(true);
+    }
+  }, [subIndex, isDeleting, isPaused, wordIndex]);
+
+  const currentText = WORDS[wordIndex].substring(0, subIndex);
+
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -49,12 +100,19 @@ export function Hero() {
           </span>
         </motion.div>
 
-        {/* Headline */}
+        {/* Headline with Typewriter Animation */}
         <motion.h1 
           className="text-4xl md:text-5xl lg:text-6xl font-serif text-text-primary leading-tight md:leading-tight mb-8"
           variants={itemVariants}
         >
-          <span className="block mb-2">Kamu tahu apa yang harus dilakukan.</span>
+          <span className="block mb-2">
+            Kamu tahu apa yang harus{" "}
+            <span className="relative inline-block text-brand-900 border-b-2 border-accent/40 pb-0.5">
+              <span>{currentText}</span>
+              <span className="inline-block w-[3px] h-[0.85em] bg-accent ml-1 align-baseline animate-pulse rounded-full" />
+            </span>
+            .
+          </span>
           <span className="block text-accent italic font-light">Tapi menjalaninya sendirian itu berat.</span>
         </motion.h1>
 
