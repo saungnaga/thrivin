@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════
+   THRIVIN DESIGN SYSTEM — Brand Tokens
+   100% True to Brand Logo (Navy → Teal / Cyan)
+   ═══════════════════════════════════════════════ */
+
+@theme {
+  /* Primary palette — Deep Navy spectrum from logo */
+  --color-brand-950: #041622;
+  --color-brand-900: #082132;
+  --color-brand-800: #0D2E45;
+  --color-brand-700: #12405C;
+  --color-brand-600: #195679;
+  --color-brand-500: #226F98;
+  --color-brand-400: #2E8BB7;
+  --color-brand-300: #4AA7D3;
+  --color-brand-200: #81C7E8;
+  --color-brand-100: #CEECF8;
+  --color-brand-50: #F0F8FC;
+
+  /* Accent — Luminous Teal / Cyan from logo gradient */
+  --color-accent-DEFAULT: #38AEC8;
+  --color-accent-light: #5ED6F0;
+  --color-accent-dark: #1F7C93;
+
+  /* Surface */
+  --color-surface-DEFAULT: #FFFFFF;
+  --color-surface-muted: #F4F8FA;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-border: #DAEAF0;
+
+  /* Text */
+  --color-text-primary: #071F2D;
+  --color-text-secondary: #426374;
+  --color-text-muted: #7A9AA8;
+
+  /* Fonts */
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+
+  /* Shadows */
+  --shadow-soft: 0 4px 24px rgba(8, 33, 50, 0.05);
+  --shadow-glow: 0 8px 40px rgba(56, 174, 200, 0.18);
+  --shadow-card: 0 2px 12px rgba(8, 33, 50, 0.04);
+  --shadow-card-hover: 0 14px 40px rgba(8, 33, 50, 0.08);
+
+  /* Animations */
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-delayed: float 6s ease-in-out 3s infinite;
+  --animate-pulse-soft: pulse-soft 4s ease-in-out infinite;
+  --animate-gradient-shift: gradient-shift 8s ease infinite;
+  --animate-draw-line: draw-line 1.5s ease-out forwards;
+
+  /* Easing */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ═══ Keyframes ═══ */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-20px) rotate(2deg); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.05); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes draw-line {
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+  30% { opacity: 1; transform: scale(1); }
+}
+
+/* ═══ Global Styles ═══ */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-surface-DEFAULT);
+  color: var(--color-text-primary);
+}
+
+::selection {
+  background-color: var(--color-brand-100);
+  color: var(--color-brand-900);
+}
+
+/* ═══ Utility Classes ═══ */
+
+@utility text-gradient {
+  background: linear-gradient(135deg, var(--color-brand-900) 0%, var(--color-accent-DEFAULT) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@utility text-gradient-accent {
+  background: linear-gradient(135deg, var(--color-brand-600) 0%, var(--color-accent-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@utility bg-gradient-hero {
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(56, 174, 200, 0.16) 0%, transparent 70%),
+              radial-gradient(ellipse 60% 50% at 85% 35%, rgba(13, 46, 69, 0.08) 0%, transparent 65%),
+              var(--color-surface-DEFAULT);
+}
+
+@utility bg-gradient-dark {
+  background: linear-gradient(165deg, var(--color-brand-950) 0%, var(--color-brand-900) 50%, var(--color-brand-800) 100%);
+}
+
+@utility border-gradient {
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  background-origin: border-box;
+}
+
+/* ═══ Scrollbar ═══ */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-200);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-400);
+}
