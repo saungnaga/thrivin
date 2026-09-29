@@ -1,746 +1,527 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import React from "react";
 import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
+import { motion } from "framer-motion";
 import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  MessageCircle,
-  Sparkles,
   Camera,
-  Activity,
   BellRing,
   BrainCircuit,
-  HeartHandshake,
+  MessageCircle,
+  Smartphone,
+  ArrowLeft,
+  ChevronDown,
+  Sparkles,
   ShieldCheck,
-  Zap,
-  HelpCircle,
-  X,
-  Instagram,
-  ChevronLeft,
-  ChevronRight
+  CheckCircle2
 } from "lucide-react";
 
-const NINA_SLIDES = [
-  {
-    src: "/nina-intro.webp",
-    alt: "Nina - Sapaan Personal Companion Thrivin",
-    title: "Hai, Aku Nina",
-  },
-  {
-    src: "/nina-desc.webp",
-    alt: "Nina - Pendamping Kebugaran Thrivin di WhatsApp",
-    title: "Tentang Nina",
-  },
-  {
-    src: "/nina-motto.webp",
-    alt: "Nina - She's here for the part that's hard to do alone",
-    title: "Motto Nina",
-  },
-];
+const fadeInUp = {
+  hidden: { opacity: 0, y: 25 } as const,
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } } as const,
+};
 
-export default function NinaSalesPage() {
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [isHovered, setIsHovered] = useState(false);
-
-  useEffect(() => {
-    if (isHovered) return;
-    const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % NINA_SLIDES.length);
-    }, 4500);
-    return () => clearInterval(interval);
-  }, [isHovered]);
-
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % NINA_SLIDES.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + NINA_SLIDES.length) % NINA_SLIDES.length);
-
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.touches[0].clientX);
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX === null) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const diff = touchStartX - touchEndX;
-
-    if (diff > 45) {
-      nextSlide();
-    } else if (diff < -45) {
-      prevSlide();
-    }
-    setTouchStartX(null);
-  };
-
-  const CHECKOUT_URL = "https://digitanest.store/checkout-nina";
-
-  const FAQS = [
-    {
-      q: "Bagaimana cara kerja Nina membaca foto makanan dan Strava?",
-      a: "Tinggal kirim foto langsung di ruang obrolan WhatsApp seperti mengirim foto ke teman! Kirim foto piring makan siangmu di warteg atau kafe, dan Nina akan memperkirakan porsi protein dan kalorinya. Kirim screenshot aktivitas lari dari Strava/Garmin, dan Nina akan menganalisis pace, zona detak jantung (HR zone), dan memberi feedback recovery."
+const staggerContainer = {
+  hidden: { opacity: 0 } as const,
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.15,
     },
-    {
-      q: "Apa bedanya Nina dengan ChatGPT biasa?",
-      a: "ChatGPT adalah kotak teks pasif di website yang menunggu kamu mengetik, lupa konteks begitu sesi berakhir, dan tidak hidup di rutinitas harianmu. Nina adalah pendamping hidup di WhatsApp yang reach out duluan, mengingat riwayat cedera dan energimu berminggu-minggu, serta memahami konteks makanan dan kehidupan nyata di Indonesia."
-    },
-    {
-      q: "Apakah Nina adalah bot kaku yang meminta kita mengetik angka?",
-      a: "Sama sekali bukan. Nina berbicara dalam bahasa manusia yang santai, empatik, dan mengerti lelahnya hari kerjamu. Kamu bisa mengobrol santai seperti dengan teman, dan Nina akan merespons dengan pemahaman konteks yang utuh."
-    },
-    {
-      q: "Bagaimana dengan privasi data dan riwayat percakapanku?",
-      a: "Privasimu 100% aman. Datamu digunakan hanya untuk membangun memori kontekstual agar saran Nina semakin akurat untukmu. Datamu tidak pernah dibagikan atau dijual ke pihak ketiga, dan kamu bisa meminta penghapusan riwayat kapan saja."
-    },
-    {
-      q: "Apakah ini sistem langganan yang memotong saldo otomatis?",
-      a: "Sama sekali bukan! Semua paket Nina adalah sistem sekali bayar (one-time purchase) untuk durasi 30 hari atau 90 hari. Tidak ada saldo atau kartu yang dipotong otomatis setiap bulan. Jika masa aktif selesai, kamu yang memutuskan secara sadar apakah ingin membeli paket pendampingan lagi atau tidak."
-    }
-  ];
+  } as const,
+};
 
+const WAMockup = ({ children }: { children: React.ReactNode }) => (
+  <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col h-[520px]">
+    {/* WA Header */}
+    <div className="bg-[#075E54] px-4 py-3.5 flex items-center justify-between text-white z-10 shrink-0 shadow-md">
+      <div className="flex items-center gap-3">
+        <ArrowLeft className="w-5 h-5 text-white/90" />
+        <div className="relative w-10 h-10 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
+          <Image
+            src="/nina-pp.webp"
+            alt="Nina"
+            fill
+            className="object-cover object-top"
+          />
+        </div>
+        <div>
+          <div className="font-semibold text-sm leading-tight text-white">Nina · Thrivin</div>
+          <div className="text-[11px] text-white/80">Online · Personal Companion</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-accent animate-pulse"></span>
+      </div>
+    </div>
+    
+    {/* Chat Area */}
+    <div className="relative flex-1 bg-[#efeae2] p-4 flex flex-col gap-3 overflow-y-auto z-0 bg-[url('https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg')] bg-cover bg-blend-soft-light bg-center">
+      <div className="absolute inset-0 bg-[#efeae2]/85 z-0 pointer-events-none" />
+      <div className="relative z-10 flex flex-col gap-3 mt-auto">
+        {children}
+      </div>
+    </div>
+
+    {/* Input Area */}
+    <div className="p-2.5 bg-[#f0f2f5] flex items-center gap-2 z-10 shrink-0 border-t border-slate-200">
+      <div className="flex-1 bg-white rounded-full h-10 px-4 flex items-center text-gray-400 text-xs sm:text-sm shadow-xs">
+        Ketik pesan...
+      </div>
+      <div className="w-10 h-10 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs shrink-0">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+        </svg>
+      </div>
+    </div>
+  </div>
+);
+
+const BubbleNina = ({ children, time = "08:15" }: { children: React.ReactNode; time?: string }) => (
+  <motion.div 
+    variants={fadeInUp}
+    className="bg-[#DCF8C6] rounded-2xl rounded-tl-none px-3.5 py-2.5 text-[14px] text-gray-800 shadow-xs self-start max-w-[88%] relative z-10 leading-snug"
+  >
+    <div>{children}</div>
+    <span className="text-[10px] text-gray-500 block text-right mt-1 opacity-70 font-mono">
+      {time}
+    </span>
+  </motion.div>
+);
+
+const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; time?: string }) => (
+  <motion.div 
+    variants={fadeInUp}
+    className="bg-white rounded-2xl rounded-tr-none px-3.5 py-2.5 text-[14px] text-gray-800 shadow-xs self-end max-w-[88%] relative z-10 leading-snug"
+  >
+    <div>{children}</div>
+    <span className="text-[10px] text-gray-500 block text-right mt-1 opacity-70 font-mono">
+      {time}
+    </span>
+  </motion.div>
+);
+
+export default function NinaPage() {
   return (
-    <div className="min-h-screen bg-surface-muted text-text-primary selection:bg-brand-100 selection:text-brand-900">
-      {/* ─── Top Header ─── */}
-      <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-surface-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Beranda</span>
-            </Link>
-            <div className="h-4 w-px bg-surface-border hidden sm:block" />
-            <Link href="/" className="hidden sm:flex items-center">
-              <span className="font-black tracking-[0.2em] text-gradient text-lg">
-                THRIVIN
-              </span>
-            </Link>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Link
-              href="/path/wellness"
-              className="text-xs sm:text-sm font-semibold text-text-secondary hover:text-brand-900 transition-colors"
-            >
-              Silabus Wellness
-            </Link>
-            <a
-              href={CHECKOUT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-full bg-brand-900 text-white px-5 py-2 text-xs sm:text-sm font-bold hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
-            >
-              <span className="text-white">Dapatkan Akses Nina</span>
-              <ArrowRight className="w-3.5 h-3.5 text-accent" />
-            </a>
-          </div>
+    <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900">
+      {/* ─── 1. Header (Sticky) ─── */}
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-surface-border">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <Link
+            href="/"
+            className="text-xs sm:text-sm font-semibold text-text-secondary hover:text-brand-900 transition-colors flex items-center gap-1.5"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Beranda</span>
+          </Link>
+          <Link href="/" className="font-serif font-black text-lg sm:text-xl tracking-[0.2em] text-gradient">
+            THRIVIN
+          </Link>
+          <Link
+            href="/onboarding"
+            className="text-xs sm:text-sm font-bold bg-brand-900 text-white px-5 py-2 rounded-full hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
+          >
+            Mulai Perjalanan
+          </Link>
         </div>
       </header>
 
-      {/* ─── Hero Section with Real Nina Photo ─── */}
-      <section className="relative pt-12 pb-20 sm:pt-20 sm:pb-28 px-4 sm:px-6 lg:px-8 overflow-hidden bg-gradient-hero">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-12 lg:gap-16 items-center">
-            {/* Left Content */}
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="text-center lg:text-left"
-            >
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-brand-800 shadow-xs mb-6">
-                <Sparkles className="w-3.5 h-3.5 text-accent" />
-                Personal AI Companion · Di WhatsApp Kamu
-              </div>
+      <main>
+        {/* ─── 2. Section: Opening — Filosofi ─── */}
+        <section className="relative min-h-[92vh] flex flex-col items-center justify-center bg-gradient-dark py-20 px-4 sm:px-6 text-white overflow-hidden">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-accent/10 rounded-full blur-[140px] pointer-events-none" />
 
-              <h1 className="font-serif text-4xl sm:text-6xl font-bold text-text-primary tracking-tight leading-[1.12] mb-6">
-                You&apos;ve met Thrivin. <br />
-                Now, meet <span className="text-gradient">Nina.</span>
-              </h1>
-
-              <p className="text-base sm:text-lg text-text-secondary leading-relaxed mb-8 max-w-xl mx-auto lg:mx-0">
-                Bukan sekadar ChatGPT atau chatbot pasif. Nina hadir di WhatsApp pribadimu: bisa <strong className="text-brand-900">membaca foto makananmu</strong>, <strong className="text-brand-900">menganalisis screenshot Strava</strong>, <strong className="text-brand-900">reach out duluan</strong> sebagai reminder, dan mengingat kondisimu dengan sangat personal.
-              </p>
-
-              {/* Quick Feature Badges */}
-              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 mb-10 max-w-md mx-auto lg:mx-0 text-left">
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-white border border-brand-100 shadow-xs text-xs font-semibold text-brand-900">
-                  <Camera className="w-4 h-4 text-accent shrink-0" />
-                  <span>Baca Foto Makanan & Strava</span>
-                </div>
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-white border border-brand-100 shadow-xs text-xs font-semibold text-brand-900">
-                  <BellRing className="w-4 h-4 text-accent shrink-0" />
-                  <span>Proaktif Reach Out Duluan</span>
-                </div>
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-white border border-brand-100 shadow-xs text-xs font-semibold text-brand-900">
-                  <BrainCircuit className="w-4 h-4 text-accent shrink-0" />
-                  <span>Ingat Riwayat & Cedera</span>
-                </div>
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-white border border-brand-100 shadow-xs text-xs font-semibold text-brand-900">
-                  <MessageCircle className="w-4 h-4 text-accent shrink-0" />
-                  <span>Obrolan Hangat di WhatsApp</span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                <a
-                  href="#pricing"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm shadow-glow transition-all hover:-translate-y-0.5 cursor-pointer"
-                >
-                  <span className="text-white">Lihat Pilihan Paket</span>
-                  <ArrowRight className="w-4 h-4 text-accent" />
-                </a>
-                <a
-                  href="#differentiation"
-                  className="w-full sm:w-auto inline-flex items-center justify-center px-7 py-4 rounded-full bg-white border border-brand-200 text-brand-900 font-semibold text-sm hover:border-accent hover:bg-surface-muted transition-all shadow-xs cursor-pointer"
-                >
-                  Kenapa Nina Berbeda?
-                </a>
-              </div>
-
-              <p className="mt-4 text-xs text-text-muted">
-                ✓ Sapa langsung di WhatsApp · Pembelian sekali bayar tanpa ikatan langganan
-              </p>
-            </motion.div>
-
-            {/* Right: Real Nina Image Slideshow Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="relative flex justify-center"
-            >
-              <div
-                className="relative w-full max-w-[390px] sm:max-w-[420px] rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-brand-950 group"
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-              >
-                {/* Slides Viewport with Touch Swipe on Mobile */}
-                <div
-                  className="relative aspect-[4/5] w-full overflow-hidden bg-brand-950 select-none cursor-grab active:cursor-grabbing"
-                  onTouchStart={handleTouchStart}
-                  onTouchEnd={handleTouchEnd}
-                >
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={currentSlide}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.55 }}
-                      className="absolute inset-0"
-                    >
-                      <Image
-                        src={NINA_SLIDES[currentSlide].src}
-                        alt={NINA_SLIDES[currentSlide].alt}
-                        fill
-                        sizes="(max-width: 640px) 100vw, 420px"
-                        priority={currentSlide === 0}
-                        className="object-cover object-top pointer-events-none"
-                      />
-                    </motion.div>
-                  </AnimatePresence>
-
-                  {/* Manual Arrow Controls (Desktop Hover Only, Hidden on Mobile) */}
-                  <button
-                    onClick={prevSlide}
-                    className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-110 shadow-lg"
-                    aria-label="Foto sebelumnya"
-                  >
-                    <ChevronLeft className="w-5 h-5 text-white" />
-                  </button>
-                  <button
-                    onClick={nextSlide}
-                    className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-brand-950/70 hover:bg-brand-950 text-white items-center justify-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer border border-white/20 hover:scale-110 shadow-lg"
-                    aria-label="Foto selanjutnya"
-                  >
-                    <ChevronRight className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-
-                {/* Integrated Card Bottom Bar: WhatsApp Status & Instagram */}
-                <div className="p-3.5 bg-brand-950 border-t border-white/10 text-white flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent"></span>
-                    </span>
-                    <div>
-                      <p className="text-xs font-bold text-white leading-tight">Nina · Personal Companion</p>
-                      <p className="text-[11px] text-brand-200">Online di WhatsApp 24/7</p>
-                    </div>
-                  </div>
-                  <a
-                    href="https://instagram.com/ninathrivin"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white hover:text-accent px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition-all hover:scale-105"
-                    title="Kunjungi Instagram @ninathrivin"
-                  >
-                    <Instagram className="w-3.5 h-3.5 text-pink-400" />
-                    <span>@ninathrivin</span>
-                  </a>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Differentiator Section: Nina vs ChatGPT / Chatbot Lain ─── */}
-      <section id="differentiation" className="py-24 px-4 sm:px-6 lg:px-8 bg-surface border-y border-surface-border">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
-              Bukan Sekadar AI Biasa
-            </span>
-            <h2 className="font-serif text-3xl sm:text-5xl font-bold text-text-primary">
-              Kenapa Nina Berbeda Jauh dari Sekadar ChatGPT atau Chatbot Lain?
-            </h2>
-            <p className="mt-4 text-text-secondary text-base sm:text-lg">
-              Sebagian besar orang berhenti berolahraga bukan karena kekurangan teori, melainkan karena tidak ada yang mendampingi dan mengingatkan di dunia nyata.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-8 mb-16">
-            {/* Box 1: ChatGPT / Generic Bot */}
-            <div className="p-8 rounded-3xl bg-surface-muted border border-surface-border flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-text-muted mb-4">
-                  <X className="w-4 h-4 text-red-500" />
-                  <span>ChatGPT & Chatbot Generik</span>
-                </div>
-                <h3 className="font-serif text-2xl font-bold text-text-primary mb-4">
-                  Kotak Teks Pasif di Tab Browser
-                </h3>
-                <ul className="space-y-4 text-sm text-text-secondary">
-                  <li className="flex items-start gap-3">
-                    <span className="text-red-500 font-bold">✕</span>
-                    <span><strong>100% Pasif:</strong> Tidak pernah menghubungimu duluan. Jika kamu lupa atau malas, dia ikut diam berbulan-bulan.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-red-500 font-bold">✕</span>
-                    <span><strong>Amnesia Sesi:</strong> Begitu percakapan baru dibuka, dia lupa berat badanmu, riwayat cedera lututmu, dan jadwal kerjamu.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-red-500 font-bold">✕</span>
-                    <span><strong>Bahasa Ensiklopedia:</strong> Menjawab dengan artikel panjang 10 paragraf yang kaku dan tidak membumi.</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-red-500 font-bold">✕</span>
-                    <span><strong>Terpisah dari Keseharian:</strong> Harus sengaja membuka website atau login ke aplikasi terpisah.</span>
-                  </li>
-                </ul>
-              </div>
-              <div className="pt-6 mt-6 border-t border-surface-border text-xs text-text-muted italic">
-                Alat bantu riset yang baik, tetapi bukan teman bertumbuh.
-              </div>
-            </div>
-
-            {/* Box 2: Nina Companion */}
-            <div className="p-8 rounded-3xl bg-brand-950 text-white relative overflow-hidden shadow-2xl border-2 border-accent">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative z-10 flex flex-col justify-between h-full">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-accent mb-4">
-                    <Sparkles className="w-4 h-4 text-accent" />
-                    <span>Nina · AI Companion Thrivin</span>
-                  </div>
-                  <h3 className="font-serif text-2xl font-bold text-white mb-4">
-                    Pendamping Aktif di Saku Celanamu
-                  </h3>
-                  <ul className="space-y-4 text-sm text-brand-100">
-                    <li className="flex items-start gap-3">
-                      <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                      <span><strong>Bisa Baca Foto & Strava:</strong> Cukup kirim foto piring warteg atau screenshot lari Strava di WA — Nina langsung baca data dan nutrisinya!</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                      <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                      <span><strong>Reach Out Duluan (Proaktif):</strong> Menyapa ringan di pagi hari, mengecek jam workout sore, dan mengingatkan tidur di malam hari.</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                      <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                      <span><strong>Memori Personal Hidup:</strong> Ingat cedera lama, jadwal lembur hari Rabu, makanan favoritmu, dan rekor angkatan terakhirmu.</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                      <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-                      <span><strong>Bahasa Hangat & Empatik:</strong> Berbicara layaknya manusia asli, santai tanpa penghakiman saat kamu gagal konsisten.</span>
-                    </li>
-                  </ul>
-                </div>
-                <div className="pt-6 mt-6 border-t border-brand-800/80 text-xs text-accent font-semibold">
-                  Hadir di WhatsApp yang kamu buka setiap hari — tanpa instal aplikasi baru.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Visual Feature Deep-Dive: Foto Makanan & Strava ─── */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-surface-muted">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
-              Vision & Data Intelligence
-            </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-text-primary">
-              Tinggal Jepret Foto. Nina yang Urus Angkanya.
-            </h2>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* Feature 1: Foto Makanan */}
-            <div className="bg-white p-8 rounded-3xl border border-surface-border shadow-xs">
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-800 mb-6">
-                <Camera className="w-6 h-6 text-brand-800" />
-              </div>
-              <h3 className="font-serif text-2xl font-bold text-text-primary mb-3">
-                1. Foto Makanan Lokal & Estimasi Nutrisi
-              </h3>
-              <p className="text-sm text-text-secondary leading-relaxed mb-6">
-                Tidak perlu menimbang makanan dengan timbangan gram setiap mau makan. Kirim foto piring makanmu — nasi padang, warteg, bekal kantor, atau salad kafe.
-              </p>
-              <div className="bg-surface-muted p-4 rounded-2xl text-xs space-y-2 border border-surface-border">
-                <p className="font-semibold text-brand-900">📲 Kamu kirim foto piring ayam bakar & tempe:</p>
-                <p className="text-text-secondary italic bg-white p-3 rounded-xl border border-brand-100">
-                  &ldquo;Ayam bakar (~120g) + 2 potong tempe = sekitar ~38g protein. Porsi nasinya pas untuk kebutuhan energi sore ini. Mantap, protein harianmu sisa 40g lagi ya!&rdquo;
-                </p>
-              </div>
-            </div>
-
-            {/* Feature 2: Screenshot Strava & Jam Pintar */}
-            <div className="bg-white p-8 rounded-3xl border border-surface-border shadow-xs">
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-800 mb-6">
-                <Activity className="w-6 h-6 text-brand-800" />
-              </div>
-              <h3 className="font-serif text-2xl font-bold text-text-primary mb-3">
-                2. Baca Screenshot Strava & Smartwatch
-              </h3>
-              <p className="text-sm text-text-secondary leading-relaxed mb-6">
-                Selesai jogging atau treadmill? Kirim screenshot hasil Strava, Garmin, atau Apple Watch-mu ke WhatsApp. Nina membaca pace, detak jantung, dan evaluasi pemulihan.
-              </p>
-              <div className="bg-surface-muted p-4 rounded-2xl text-xs space-y-2 border border-surface-border">
-                <p className="font-semibold text-brand-900">📲 Kamu kirim screenshot lari 5 km:</p>
-                <p className="text-text-secondary italic bg-white p-3 rounded-xl border border-brand-100">
-                  &ldquo;Lari 5.2 km di pace 6:15 dengan HR rata-rata 142 bpm (Zone 2). Aerobic base-mu makin stabil! Besok jadwal istirahat aktif ya, jangan lupa minum 2.5 liter air.&rdquo;
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Comparison: Nina vs Personal Trainer Konvensional ─── */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-surface border-y border-surface-border">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center max-w-xl mx-auto mb-12">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
-              Perbandingan Nilai Nyata
-            </span>
-            <h2 className="font-serif text-3xl font-bold text-text-primary">
-              Nina vs Personal Trainer Konvensional
-            </h2>
-            <p className="mt-2 text-sm text-text-secondary">
-              Nina bukan pengganti total PT gym, namun untuk pendampingan harian yang konsisten di dunia nyata, Nina adalah solusi paling efisien.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto rounded-3xl border border-surface-border shadow-xs bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-surface-muted border-b border-surface-border text-text-primary font-semibold">
-                <tr>
-                  <th className="p-4 sm:p-5">Aspek</th>
-                  <th className="p-4 sm:p-5 bg-brand-50/50 text-brand-900 font-bold">
-                    Nina (AI Companion)
-                  </th>
-                  <th className="p-4 sm:p-5 text-text-muted">Personal Trainer Gym</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border text-text-secondary">
-                <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Ketersediaan</td>
-                  <td className="p-4 sm:p-5 bg-brand-50/30 text-brand-900 font-semibold">
-                    24/7 di WhatsApp saku celana
-                  </td>
-                  <td className="p-4 sm:p-5">Hanya 1 jam saat sesi gym</td>
-                </tr>
-                <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Cek Makanan & Data</td>
-                  <td className="p-4 sm:p-5 bg-brand-50/30 text-brand-900 font-semibold">
-                    Langsung baca foto piring & screenshot Strava
-                  </td>
-                  <td className="p-4 sm:p-5">Jarang sempat memantau tiap makan</td>
-                </tr>
-                <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Inisiatif Reminder</td>
-                  <td className="p-4 sm:p-5 bg-brand-50/30 text-brand-900 font-semibold">
-                    Proaktif reach out di jam-jam genting
-                  </td>
-                  <td className="p-4 sm:p-5">Hanya chat konfirmasi kehadiran</td>
-                </tr>
-                <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Sistem Pembayaran</td>
-                  <td className="p-4 sm:p-5 bg-brand-50/30 text-accent-dark font-black text-base">
-                    Sekali bayar mulai Rp 79.000 / bln (Tanpa auto-debit)
-                  </td>
-                  <td className="p-4 sm:p-5">Rp 2.000.000 – Rp 4.000.000 / bln + ikatan</td>
-                </tr>
-                <tr>
-                  <td className="p-4 sm:p-5 font-medium text-text-primary">Tekanan Mental</td>
-                  <td className="p-4 sm:p-5 bg-brand-50/30 text-brand-900 font-semibold">
-                    Empatik, tidak menghakimi saat kamu lelah
-                  </td>
-                  <td className="p-4 sm:p-5">Sering menimbulkan rasa segan/bersalah</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Pricing Section (One-Time Purchase) ─── */}
-      <section id="pricing" className="py-24 px-4 sm:px-6 lg:px-8 bg-surface-muted relative">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center max-w-2xl mx-auto mb-14">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
-              Investasi Pertumbuhanmu
-            </span>
-            <h2 className="font-serif text-3xl sm:text-5xl font-bold text-text-primary">
-              Pilih Paket Pendampingan Nina
-            </h2>
-            <p className="mt-4 text-text-secondary text-base">
-              Akses personal langsung di WhatsApp pribadimu. Sistem sekali bayar tanpa langganan otomatis.
-            </p>
-
-            {/* One-Time Purchase Trust Banner */}
-            <div className="mt-8 inline-flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-5 py-2.5 rounded-full bg-white border border-brand-200/90 text-brand-900 text-xs sm:text-sm font-semibold shadow-xs">
-              <span className="inline-flex items-center gap-1.5 text-accent-dark font-bold">
-                <ShieldCheck className="w-4 h-4 text-accent" />
-                Sekali Bayar (One-Time Purchase)
-              </span>
-              <span className="text-brand-300 hidden sm:inline">•</span>
-              <span className="text-text-secondary">Tanpa Tagihan Otomatis</span>
-              <span className="text-brand-300 hidden sm:inline">•</span>
-              <span className="text-text-secondary">Bebas Perpanjang Sesuai Kebutuhan</span>
-            </div>
-          </div>
-
-          {/* Pricing Cards */}
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto items-stretch">
-            {/* Card 1: 1 Bulan (One-Time) */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-white border border-surface-border shadow-sm flex flex-col justify-between hover:border-brand-300 transition-colors">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-serif text-2xl font-bold text-text-primary">
-                    Paket 1 Bulan
-                  </h3>
-                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-brand-50 text-brand-800 border border-brand-100">
-                    Akses 30 Hari
-                  </span>
-                </div>
-                <p className="text-xs text-text-secondary mb-6 leading-relaxed">
-                  Sekali bayar untuk mendampingi adaptasi kebiasaan baru di WhatsApp selama 30 hari penuh. Tanpa komitmen perpanjangan otomatis.
-                </p>
-
-                <div className="mb-2">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl sm:text-5xl font-black text-brand-900">
-                      Rp 99.000
-                    </span>
-                    <span className="text-text-muted text-sm font-medium">/ sekali bayar</span>
-                  </div>
-                  <p className="text-[11px] font-semibold text-accent-dark mt-1">
-                    ✓ Akses penuh 30 hari · Tidak ada auto-debit
-                  </p>
-                </div>
-
-                <div className="h-px bg-surface-border my-6"></div>
-
-                <ul className="space-y-3.5 text-sm text-text-secondary mb-8">
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Akses WhatsApp penuh ke Nina 24/7 (30 hari)</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Bisa kirim foto makanan & screenshot Strava</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Check-in proaktif & pengingat konsistensi harian</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Rekomendasi split rutinitas mingguan personal</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span className="font-semibold text-brand-900">One-time purchase, tanpa potongan berulang</span>
-                  </li>
-                </ul>
-              </div>
-
-              <a
-                href={CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-sm hover:shadow-glow hover:-translate-y-0.5 cursor-pointer"
-              >
-                <MessageCircle className="w-4 h-4 text-accent" />
-                <span className="text-white">Ambil Paket 1 Bulan</span>
-              </a>
-            </div>
-
-            {/* Card 2: 3 Bulan (Featured One-Time) */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white border-2 border-accent shadow-2xl relative flex flex-col justify-between mt-4 md:mt-0">
-              {/* Fixed "Paling Direkomendasikan" Badge */}
-              <div 
-                className="absolute -top-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-8 sm:translate-x-0 z-30 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-xl border-2 border-white text-xs font-black tracking-wider uppercase"
-                style={{ backgroundColor: "#38AEC8", color: "#041622" }}
-              >
-                <Sparkles className="w-3.5 h-3.5" style={{ color: "#041622" }} />
-                <span style={{ color: "#041622", fontWeight: 900 }}>PALING DIREKOMENDASIKAN</span>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-serif text-2xl font-bold text-white">
-                    Paket 3 Bulan (Siklus Penuh)
-                  </h3>
-                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-accent/20 text-accent border border-accent/30">
-                    Akses 90 Hari
-                  </span>
-                </div>
-                <p className="text-xs text-brand-100 mb-6 leading-relaxed">
-                  Sesuai Bab 3: tubuh butuh 8–12 minggu pada sistem yang sama untuk membangun adaptasi nyata. Sekali bayar untuk 1 siklus tuntas.
-                </p>
-
-                <div className="mb-2">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl sm:text-5xl font-black text-white">
-                      Rp 239.000
-                    </span>
-                    <span className="text-brand-200 text-sm font-medium">/ sekali bayar</span>
-                  </div>
-                  <p className="text-[11px] font-bold text-accent mt-1">
-                    ✓ Setara ~Rp 79rb/bln · Hemat 20% · Tanpa tagihan otomatis
-                  </p>
-                </div>
-
-                <div className="h-px bg-white/10 my-6"></div>
-
-                <ul className="space-y-3.5 text-sm text-brand-100 mb-8">
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span className="text-white font-medium">Semua fitur Paket 1 Bulan selama 90 hari</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Analisis foto makanan & screenshot aktivitas Strava</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Audit berkala siklus Plateau & Deload mingguan</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span>Memori jangka panjang untuk progres 12 minggu penuh</span>
-                  </li>
-                  <li className="flex items-center gap-2.5">
-                    <Check className="w-4 h-4 text-accent shrink-0" />
-                    <span className="font-semibold text-accent">Sekali bayar — tanpa ikatan & tanpa auto-renewal</span>
-                  </li>
-                </ul>
-              </div>
-
-              <a
-                href={CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 py-4 rounded-full font-black text-sm transition-all shadow-glow hover:-translate-y-0.5 cursor-pointer"
-                style={{ backgroundColor: "#38AEC8", color: "#041622" }}
-              >
-                <MessageCircle className="w-4 h-4" style={{ color: "#041622" }} />
-                <span style={{ color: "#041622", fontWeight: 900 }}>Ambil Paket 3 Bulan (Hemat 20%)</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── FAQ Section ─── */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-surface border-t border-surface-border">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-12">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-2">
-              Pertanyaan yang Sering Diajukan
-            </span>
-            <h2 className="font-serif text-3xl font-bold text-text-primary">
-              FAQ tentang Nina
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            {FAQS.map((faq, index) => {
-              const isOpen = openFaq === index;
-              return (
-                <div
-                  key={index}
-                  className="rounded-2xl border border-surface-border bg-white overflow-hidden"
-                >
-                  <button
-                    onClick={() => setOpenFaq(isOpen ? null : index)}
-                    className="w-full p-5 text-left flex items-center justify-between gap-4 font-serif text-base sm:text-lg font-bold text-text-primary hover:text-brand-900 transition-colors"
-                  >
-                    <span>{faq.q}</span>
-                    <span className="p-1 text-text-muted shrink-0 font-mono text-xl">
-                      {isOpen ? "−" : "+"}
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <div className="px-5 pb-5 text-sm text-text-secondary leading-relaxed border-t border-surface-border/50 pt-3">
-                      {faq.a}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── Final CTA ─── */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-brand-950 text-white text-center relative overflow-hidden">
-        <div className="max-w-3xl mx-auto relative z-10">
-          <span className="text-accent text-3xl mb-4 block">✳</span>
-          <h2 className="font-serif text-3xl sm:text-5xl font-bold leading-tight mb-4">
-            Tidak ada yang perlu bertumbuh sendirian lagi.
-          </h2>
-          <p className="text-brand-100 text-base sm:text-lg max-w-xl mx-auto mb-8">
-            Hubungkan WhatsApp-mu dengan Nina hari ini. Mulai dari satu percakapan sederhana dan biarkan sistem bekerja untukmu.
-          </p>
-          <a
-            href={CHECKOUT_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2.5 px-10 py-5 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-base shadow-glow hover:-translate-y-0.5 transition-all"
+          <motion.div 
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={staggerContainer}
+            className="max-w-3xl mx-auto text-center relative z-10"
           >
-            <MessageCircle className="w-5 h-5 text-accent" />
-            <span className="text-white font-bold">Mulai Bersama Nina di WhatsApp</span>
-          </a>
-        </div>
-      </section>
+            <motion.div variants={fadeInUp} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 text-accent text-xs font-bold uppercase tracking-[0.2em] mb-8 border border-white/10 backdrop-blur-md">
+              <Sparkles className="w-3.5 h-3.5 text-accent" />
+              Filosofi Thrivin
+            </motion.div>
 
-      {/* ─── Footer ─── */}
-      <footer className="border-t border-surface-border py-8 text-center text-xs text-text-muted bg-surface">
+            <motion.h1 variants={fadeInUp} className="font-serif text-3xl sm:text-5xl lg:text-6xl text-white font-medium leading-[1.18] mb-8 tracking-tight">
+              Pertumbuhan yang paling sering gagal bukan karena rencananya buruk. <br />
+              <span className="text-accent font-bold">Tapi karena dijalani sendirian.</span>
+            </motion.h1>
+            
+            <motion.p variants={fadeInUp} className="text-base sm:text-lg text-brand-100/90 max-w-2xl mx-auto leading-relaxed mb-8">
+              Lo pernah di titik itu. Niat udah bulat, plan udah ada, tapi minggu ketiga semuanya mulai kendor. Bukan karena lo lemah. Karena manusia memang tidak dirancang untuk konsisten dalam ruang kosong — tanpa siapa pun yang tahu apa yang sedang lo perjuangkan.
+            </motion.p>
+            
+            <motion.p variants={fadeInUp} className="text-lg sm:text-xl text-accent font-medium max-w-xl mx-auto mb-12">
+              Thrivin percaya satu hal sederhana: pertumbuhan bukan sesuatu yang harus dijalani sendiri.
+            </motion.p>
+            
+            <motion.div variants={fadeInUp} className="pt-2">
+              <a
+                href="#riset"
+                className="inline-flex flex-col items-center gap-2 text-brand-200 hover:text-white transition-colors cursor-pointer"
+              >
+                <span className="text-xs font-semibold tracking-wider uppercase">Temukan Alasannya</span>
+                <ChevronDown className="w-5 h-5 animate-bounce text-accent" />
+              </a>
+            </motion.div>
+          </motion.div>
+        </section>
+
+        {/* ─── 3. Section: Riset — The Proof ─── */}
+        <section id="riset" className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
+          <div className="max-w-6xl mx-auto">
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-80px" }}
+              variants={staggerContainer}
+              className="text-center max-w-2xl mx-auto mb-16"
+            >
+              <motion.span variants={fadeInUp} className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-3">
+                The Proof · Riset Ilmiah
+              </motion.span>
+              <motion.h2 variants={fadeInUp} className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4">
+                Ini bukan opini. Ini yang ditemukan sains.
+              </motion.h2>
+              <motion.p variants={fadeInUp} className="text-text-secondary text-sm sm:text-base">
+                Kenapa kehadiran seorang &ldquo;teman&rdquo; mengubah segalanya dalam psikologi komitmen manusia.
+              </motion.p>
+            </motion.div>
+
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center mb-16">
+              {/* Left: Research Cards */}
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={staggerContainer}
+                className="flex flex-col gap-6"
+              >
+                {/* Stat Card 1: Matthews Study */}
+                <motion.div variants={fadeInUp} className="bg-surface-muted p-7 sm:p-8 rounded-3xl border border-surface-border shadow-xs hover:border-brand-200 transition-colors">
+                  <div className="flex items-baseline gap-4 mb-3">
+                    <span className="text-4xl sm:text-5xl font-bold text-gray-300 line-through decoration-red-400">43%</span>
+                    <span className="text-4xl sm:text-5xl font-black text-accent-dark">76%</span>
+                  </div>
+                  <h3 className="font-serif font-bold text-lg text-brand-900 mb-2">
+                    Dominican University (Dr. Gail Matthews)
+                  </h3>
+                  <p className="text-text-secondary text-sm leading-relaxed mb-3">
+                    Meneliti 267 orang dari berbagai profesi. Orang yang cuma memikirkan tujuannya hanya <strong className="text-brand-900">43%</strong> yang berhasil. Namun orang yang menuliskan tujuan dan mengirim laporan progres mingguan ke orang lain berhasil mencapai <strong className="text-accent-dark">76%</strong> targetnya.
+                  </p>
+                  <p className="text-xs text-text-muted italic border-t border-surface-border pt-3">
+                    Hampir dua kali lipat. Bukan karena orangnya berbeda, tapi karena ada yang tahu — dan itu mengubah cara otak memperlakukan komitmen.
+                  </p>
+                </motion.div>
+
+                {/* Stat Card 2: Duke University */}
+                <motion.div variants={fadeInUp} className="bg-surface-muted p-7 sm:p-8 rounded-3xl border border-surface-border shadow-xs hover:border-brand-200 transition-colors">
+                  <div className="text-4xl sm:text-5xl font-black text-accent-dark mb-3">
+                    3,5× Lebih Besar
+                  </div>
+                  <h3 className="font-serif font-bold text-lg text-brand-900 mb-2">
+                    Duke University Study
+                  </h3>
+                  <p className="text-text-secondary text-sm leading-relaxed mb-3">
+                    Menemukan bahwa individu dengan dukungan akuntabilitas eksternal punya kemungkinan 3,5 kali lebih besar untuk berhasil keluar dari kebiasaan buruk, dibanding yang mengandalkan motivasi internal sepenuhnya.
+                  </p>
+                  <p className="text-xs text-text-muted italic border-t border-surface-border pt-3">
+                    Bukan soal lo kurang niat. Soal lo butuh orang yang tahu apa yang sedang lo perjuangkan.
+                  </p>
+                </motion.div>
+              </motion.div>
+
+              {/* Right: Mockup WA (Accountability check-in) */}
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={staggerContainer}
+                className="flex justify-center"
+              >
+                <WAMockup>
+                  <BubbleNina time="08:20">
+                    Eh, gimana latihan hari ini? Kemarin bilang mau coba deadlift 50kg kan? 💪
+                  </BubbleNina>
+                  <BubbleUser time="08:24">
+                    Belum sempet nih Nina, keburu meeting maraton sampe sore tadi 😅
+                  </BubbleUser>
+                  <BubbleNina time="08:25">
+                    Wajar banget, hari kerja emang suka unpredictable. Besok pagi sebelum ngantor gimana? 30 menit aja cukup. Aku ingetin jam 06:00 ya 🌅
+                  </BubbleNina>
+                  <BubbleUser time="08:26">
+                    Boleh deh! Siap, pasang alarm sekalian 👍
+                  </BubbleUser>
+                </WAMockup>
+              </motion.div>
+            </div>
+
+            {/* Closing Line */}
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={fadeInUp}
+              className="max-w-3xl mx-auto text-center p-8 rounded-3xl bg-brand-50 border border-brand-100"
+            >
+              <p className="text-lg sm:text-xl text-brand-900 leading-relaxed font-serif">
+                &ldquo;Bukan motivasi yang mengubah hidup. Bukan juga tumpukan teori. Yang mengubah hidup adalah ketika ada seseorang yang tahu apa yang sedang lo kerjakan — dan secara konsisten hadir di sana.&rdquo;
+              </p>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ─── 4. Section: The Gap ─── */}
+        <section className="py-24 sm:py-32 bg-surface-muted px-4 sm:px-6 border-b border-surface-border">
+          <div className="max-w-6xl mx-auto">
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+              className="text-center max-w-2xl mx-auto mb-16"
+            >
+              <motion.span variants={fadeInUp} className="text-xs font-bold uppercase tracking-[0.2em] text-accent block mb-3">
+                The Reality Gap
+              </motion.span>
+              <motion.h2 variants={fadeInUp} className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4">
+                Masalahnya, hidup modern tidak dirancang untuk itu.
+              </motion.h2>
+              <motion.p variants={fadeInUp} className="text-text-secondary text-sm sm:text-base">
+                Kenapa mencari pendampingan konsistensi terasa begitu sulit di kehidupan sehari-hari:
+              </motion.p>
+            </motion.div>
+
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+              {/* Left Mockup (Personal Memory Check-in) */}
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={staggerContainer}
+                className="order-2 lg:order-1 flex justify-center"
+              >
+                <WAMockup>
+                  <BubbleNina time="07:15">
+                    Pagi! Hari ini Rabu — biasanya jadwal lo lembur kantor kan? Aku siapin opsi workout 20 menit yang bisa dilakuin di kamar nanti malam ya 🏠
+                  </BubbleNina>
+                  <BubbleUser time="07:18">
+                    Kok tau aja sih 😂 iya bener lagi closing bulanan
+                  </BubbleUser>
+                  <BubbleNina time="07:19">
+                    Hehe, aku catat dong 😊 Oh iya, lutut kiri kemarin gimana? Masih agak ngilu ga habis squat hari Senin?
+                  </BubbleNina>
+                  <BubbleUser time="07:21">
+                    Udah enakan kok, cuma agak pegel aja
+                  </BubbleUser>
+                </WAMockup>
+              </motion.div>
+
+              {/* Right: Pain Points */}
+              <div className="order-1 lg:order-2 flex flex-col justify-center">
+                <motion.div 
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  variants={staggerContainer}
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8"
+                >
+                  {[
+                    {
+                      title: "Teman dekat sibuk",
+                      desc: "Punya rutinitas & masalah sendiri, canggung jika harus terus diminta laporan."
+                    },
+                    {
+                      title: "Personal Trainer mahal",
+                      desc: "Biaya jutaan per bulan dan interaksi cuma sebatas 1 jam di sesi gym."
+                    },
+                    {
+                      title: "Aplikasi fitness pasif",
+                      desc: "Dingin, cuma grafik dan angka tanpa empati saat kamu skip 3 hari berturut-turut."
+                    },
+                    {
+                      title: "Komunitas terlalu ramai",
+                      desc: "Suaramu tenggelam di grup besar, tanpa ada yang benar-benar mengenal kondisimu."
+                    }
+                  ].map((pain, i) => (
+                    <motion.div key={i} variants={fadeInUp} className="bg-white p-5 rounded-2xl shadow-xs border border-surface-border">
+                      <div className="w-2 h-2 rounded-full bg-accent mb-2" />
+                      <h4 className="font-serif font-bold text-sm text-brand-900 mb-1">{pain.title}</h4>
+                      <p className="text-xs text-text-secondary leading-relaxed">{pain.desc}</p>
+                    </motion.div>
+                  ))}
+                </motion.div>
+
+                <motion.div 
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  variants={fadeInUp}
+                  className="p-6 rounded-2xl bg-white border border-surface-border shadow-xs"
+                >
+                  <p className="text-base text-brand-900 leading-relaxed font-serif">
+                    Lo butuh sesuatu yang ada setiap saat, mengenal kondisi lo, dan cukup jujur untuk bilang ketika lo perlu didorong — atau ketika lo perlu istirahat.
+                  </p>
+                </motion.div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 5. Section: Introducing Nina ─── */}
+        <section className="py-24 sm:py-32 bg-gradient-dark px-4 sm:px-6 text-white overflow-hidden relative">
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-accent/15 rounded-full blur-[140px] pointer-events-none" />
+          
+          <div className="max-w-6xl mx-auto relative z-10">
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+              className="text-center max-w-2xl mx-auto mb-16 sm:mb-20"
+            >
+              <motion.div variants={fadeInUp} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 text-accent text-xs font-bold uppercase tracking-[0.2em] mb-6 border border-white/10 backdrop-blur-sm">
+                <Sparkles className="w-3.5 h-3.5 text-accent" />
+                Meet Your Companion
+              </motion.div>
+              <motion.h2 variants={fadeInUp} className="font-serif text-4xl sm:text-6xl font-bold mb-4">
+                Meet <span className="text-accent">Nina.</span>
+              </motion.h2>
+              <motion.p variants={fadeInUp} className="text-lg sm:text-xl text-brand-100 font-medium mb-6">
+                Teman yang tumbuh bareng lo, ada di WhatsApp lo.
+              </motion.p>
+              <motion.p variants={fadeInUp} className="text-sm sm:text-base text-brand-200/90 leading-relaxed">
+                Bukan aplikasi baru yang harus lo install dan buka tiap hari. Bukan tracker kaku yang cuma nyimpen angka. Nina ada di WhatsApp yang lo buka setiap hari — dan dia ingat apa yang pernah lo ceritakan.
+              </motion.p>
+            </motion.div>
+
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+              {/* Left: Capability List */}
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={staggerContainer}
+                className="flex flex-col gap-6"
+              >
+                {[
+                  {
+                    icon: Camera,
+                    title: "Bisa Baca Foto Makanan & Strava",
+                    desc: "Tinggal kirim foto piring makan siang atau screenshot lari Strava di WA — Nina estimasi nutrisi dan evaluasi pace pemulihanmu."
+                  },
+                  {
+                    icon: BellRing,
+                    title: "Proaktif Reach Out Duluan",
+                    desc: "Menyapa santai di pagi hari, mengecek di jam-jam genting sebelum kamu menyerah, dan mengingatkan istirahat saat lelah."
+                  },
+                  {
+                    icon: BrainCircuit,
+                    title: "Memori Personal Jangka Panjang",
+                    desc: "Ingat cedera lama, jadwal lembur hari Rabu, makanan favorit, dan progres beban mingguan tanpa perlu kamu ulangi."
+                  },
+                  {
+                    icon: MessageCircle,
+                    title: "Bahasa Hangat & Empatik",
+                    desc: "Lo cerita, dia dengar. Lo stuck, dia bantu cari kenapa. Lo hilang seminggu, dia sambut balik tanpa membuat lo merasa bersalah."
+                  },
+                  {
+                    icon: Smartphone,
+                    title: "100% Hidup di WhatsApp",
+                    desc: "Bebas dari kerumitan login atau buka aplikasi terpisah. Praktis langsung dari kontak WhatsApp pribadimu."
+                  }
+                ].map((feature, i) => (
+                  <motion.div key={i} variants={fadeInUp} className="flex items-start gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                    <div className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center shrink-0 border border-accent/30 text-accent">
+                      <feature.icon className="w-5 h-5 text-accent" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white mb-1">{feature.title}</h3>
+                      <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">{feature.desc}</p>
+                    </div>
+                  </motion.div>
+                ))}
+
+                <motion.div variants={fadeInUp} className="pt-2">
+                  <div className="font-serif italic text-accent text-lg">
+                    &ldquo;Never Grow Alone.&rdquo;
+                  </div>
+                </motion.div>
+              </motion.div>
+
+              {/* Right: Mockup WA (Photo analysis) */}
+              <motion.div 
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                variants={staggerContainer}
+                className="flex justify-center"
+              >
+                <WAMockup>
+                  <BubbleUser time="12:30">
+                    <div className="bg-brand-900/10 rounded-xl p-2.5 mb-2 border border-brand-900/20 flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-brand-900" />
+                      <span className="text-xs font-semibold text-brand-900">foto_nasi_padang.jpg</span>
+                    </div>
+                    Makan siang hari ini Nina!
+                  </BubbleUser>
+                  <BubbleNina time="12:31">
+                    Wah nasi padang! 😍 Aku estimasi porsinya ya:<br /><br />
+                    • Nasi putih (~150g): ~180 kkal<br />
+                    • Rendang sapi (~80g): ~22g protein<br />
+                    • Daun singkong: serat bagus!<br /><br />
+                    Total sekitar ~450 kkal, 28g protein. Sisa target protein hari ini masih 42g — makan malam nanti tambahin telur atau tempe ya!
+                  </BubbleNina>
+                  <BubbleUser time="12:32">
+                    Siap, mantap infonya! 🙏
+                  </BubbleUser>
+                </WAMockup>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 6. Section: CTA — Commitment ─── */}
+        <section className="py-24 sm:py-32 bg-accent px-4 sm:px-6 relative overflow-hidden text-brand-950">
+          <div className="max-w-3xl mx-auto text-center relative z-10">
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+            >
+              <motion.span variants={fadeInUp} className="text-xs font-black uppercase tracking-[0.2em] text-brand-900 block mb-3">
+                Langkah Berikutnya
+              </motion.span>
+              <motion.h2 variants={fadeInUp} className="font-serif text-3xl sm:text-5xl font-extrabold leading-tight mb-6 text-brand-950">
+                Riset itu jelas: konsistensi naik hampir dua kali lipat ketika ada yang menemani prosesnya.
+              </motion.h2>
+              <motion.p variants={fadeInUp} className="text-base sm:text-xl text-brand-900/90 font-medium mb-10 max-w-xl mx-auto">
+                Sekarang tinggal satu langkah — komitmen sederhana bersama Nina.
+              </motion.p>
+              
+              <motion.div variants={fadeInUp} className="flex flex-col items-center gap-4">
+                <Link 
+                  href="/onboarding" 
+                  className="inline-flex items-center justify-center gap-2 px-9 py-5 text-base sm:text-lg font-black text-white bg-brand-950 rounded-full hover:bg-brand-900 hover:scale-105 transition-all shadow-2xl"
+                >
+                  <span>Mulai Perjalanan Lo Bareng Nina</span>
+                  <Sparkles className="w-5 h-5 text-accent" />
+                </Link>
+                <div className="text-xs sm:text-sm font-semibold text-brand-950/80 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-brand-900" />
+                  <span>Setup 3 menit · Hitung kebutuhan kalori personalmu</span>
+                </div>
+              </motion.div>
+            </motion.div>
+          </div>
+        </section>
+      </main>
+
+      {/* ─── 7. Footer ─── */}
+      <footer className="bg-brand-950 text-brand-200/60 py-10 px-4 sm:px-6 border-t border-white/10 text-center text-xs">
         <p>© 2026 Thrivin. Never Grow Alone.</p>
       </footer>
     </div>
