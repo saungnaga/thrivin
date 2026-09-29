@@ -100,7 +100,7 @@ export default function Companion() {
               </p>
               <div>
                 <Link
-                  href="/companion/nina/onboarding"
+                  href="/companion/nina"
                   className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                 >
                   <span className="text-white">Kenali Nina & Ambil Akses</span>

@@ -764,7 +764,7 @@ export default function WellnessPathPage() {
                     <span className="text-white font-bold">Pelajari Pendampingan Nina</span>
                   </Link>
                   <span className="text-[11px] text-brand-300">
-                    Mulai Rp 79rb/bln · Tanpa instal aplikasi baru
+                    Tanpa instal aplikasi baru · Langsung di WhatsApp
                   </span>
                 </div>
               </div>

@@ -240,7 +240,7 @@ export default function NinaPage() {
                 <ArrowRight className="w-5 h-5 text-white" />
               </Link>
               <span className="text-xs sm:text-sm text-brand-200/80 font-medium">
-                gaperlu install, cukup whatsapp
+                gaperlu download aplikasi baru, 100% di WhatsApp lo
               </span>
             </motion.div>
 
@@ -383,7 +383,7 @@ export default function NinaPage() {
                     <ArrowRight className="w-4 h-4 text-accent" />
                   </Link>
                   <span className="text-[11px] text-text-muted mt-1.5">
-                    gaperlu install, cukup whatsapp
+                    setup 2 menit · teman akuntabilitas harian di kontak lo
                   </span>
                 </div>
               </motion.div>
@@ -460,7 +460,7 @@ export default function NinaPage() {
                     <ArrowRight className="w-4 h-4 text-accent" />
                   </Link>
                   <span className="text-[11px] text-text-muted mt-1.5">
-                    gaperlu install, cukup whatsapp
+                    bebas login ribet · hadir di tempat lo biasa chatting
                   </span>
                 </div>
               </motion.div>
@@ -636,7 +636,7 @@ export default function NinaPage() {
                 <ArrowRight className="w-5 h-5 text-accent" />
               </Link>
               <span className="text-xs text-brand-200/80 mt-2 font-medium">
-                gaperlu install, cukup whatsapp
+                cukup kirim foto & chat santai layaknya ke teman
               </span>
             </div>
           </div>
@@ -755,7 +755,7 @@ export default function NinaPage() {
                 </Link>
                 <div className="text-xs sm:text-sm font-semibold text-brand-950/80 flex items-center gap-2 mb-4">
                   <ShieldCheck className="w-4 h-4 text-brand-900" />
-                  <span>gaperlu install, cukup whatsapp</span>
+                  <span>Setup singkat 2 menit · 100% hidup di WhatsApp lo</span>
                 </div>
 
                 {/* Secondary Option: Free Learning Hub */}
