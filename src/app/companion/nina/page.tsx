@@ -10,12 +10,15 @@ import {
   BrainCircuit,
   MessageCircle,
   Smartphone,
-  ArrowLeft,
   ArrowRight,
   ChevronDown,
   Sparkles,
   ShieldCheck,
-  CheckCircle2
+  Activity,
+  BookOpen,
+  CheckCircle2,
+  ExternalLink,
+  GraduationCap
 } from "lucide-react";
 
 const fadeInUp = {
@@ -49,7 +52,6 @@ const WAMockup = ({ children }: { children: React.ReactNode }) => (
     {/* WA Header */}
     <div className="bg-[#075E54] px-4 py-3.5 flex items-center justify-between text-white z-10 shrink-0 shadow-md">
       <div className="flex items-center gap-3">
-        <ArrowLeft className="w-5 h-5 text-white/90" />
         <div className="relative w-10 h-10 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
           <Image
             src="/nina-pp.webp"
@@ -126,31 +128,43 @@ export default function NinaPage() {
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900">
-      {/* ─── 1. Header (Sticky) ─── */}
+      {/* ─── 1. Header: Thrivin Logo (Home) + Learning Hub (Free) + CTA ─── */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-surface-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link
-            href="/"
-            className="text-xs sm:text-sm font-semibold text-text-secondary hover:text-brand-900 transition-colors flex items-center gap-1.5"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Beranda</span>
+          {/* Brand Logo that links to homepage */}
+          <Link href="/" className="flex items-center gap-2 group">
+            <span className="font-serif font-black text-xl sm:text-2xl tracking-[0.2em] text-gradient group-hover:opacity-90 transition-opacity">
+              THRIVIN
+            </span>
           </Link>
-          <Link href="/" className="font-serif font-black text-lg sm:text-xl tracking-[0.2em] text-gradient">
-            THRIVIN
-          </Link>
-          <Link
-            href="/onboarding"
-            className="text-xs sm:text-sm font-bold bg-brand-900 text-white px-5 py-2 rounded-full hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
-          >
-            Mulai Perjalanan
-          </Link>
+
+          {/* Center/Right Nav Links */}
+          <div className="flex items-center gap-3 sm:gap-5">
+            {/* Learning Hub with FREE badge */}
+            <Link
+              href="/path/wellness"
+              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-text-secondary hover:text-brand-900 transition-colors py-1 px-3 rounded-full hover:bg-surface-muted"
+            >
+              <span>Learning Hub</span>
+              <span className="px-2 py-0.5 rounded-full bg-brand-50 border border-brand-200 text-accent-dark text-[10px] font-black uppercase tracking-wider">
+                Free
+              </span>
+            </Link>
+
+            {/* CTA to Onboarding */}
+            <Link
+              href="/companion/nina/onboarding"
+              className="text-xs sm:text-sm font-bold bg-brand-900 text-white px-5 py-2 rounded-full hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
+            >
+              Mulai Perjalanan
+            </Link>
+          </div>
         </div>
       </header>
 
       <main>
         {/* ─── 2. Hero Section: Direct "Never Grow Alone" + Vertical Rolling Words ─── */}
-        <section className="relative min-h-[92vh] flex flex-col items-center justify-center bg-gradient-dark py-20 px-4 sm:px-6 text-white overflow-hidden">
+        <section className="relative min-h-[90vh] flex flex-col items-center justify-center bg-gradient-dark py-20 px-4 sm:px-6 text-white overflow-hidden">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[650px] h-[650px] bg-accent/12 rounded-full blur-[140px] pointer-events-none" />
 
           <motion.div 
@@ -195,11 +209,11 @@ export default function NinaPage() {
             {/* CTA Button & Small Helper */}
             <motion.div variants={fadeInUp} className="flex flex-col items-center gap-3">
               <Link
-                href="/onboarding"
+                href="/companion/nina/onboarding"
                 className="inline-flex items-center justify-center gap-2.5 px-9 py-5 text-base sm:text-lg font-black text-white bg-accent-dark hover:bg-accent hover:text-brand-950 rounded-full transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <span>Mulai Perjalanan Lo Bareng Nina</span>
-                <ArrowRight className="w-5 h-5 text-white group-hover:text-brand-950" />
+                <ArrowRight className="w-5 h-5 text-white" />
               </Link>
               <span className="text-xs sm:text-sm text-brand-200/80 font-medium">
                 gaperlu install, cukup whatsapp
@@ -311,7 +325,7 @@ export default function NinaPage() {
                 </motion.div>
               </motion.div>
 
-              {/* Right: Mockup WA (Daily Push Check-in) with CTA Button Below */}
+              {/* Right: Mockup WA (Reminder Santai Harian) with CTA Button Below */}
               <motion.div 
                 initial="hidden"
                 whileInView="visible"
@@ -327,7 +341,7 @@ export default function NinaPage() {
                     Belum sempet nih Nina, keburu capek meeting seharian di kantor 😅
                   </BubbleUser>
                   <BubbleNina time="08:25">
-                    Santai, wajar banget kok! Hari kerja emang suka padat. Hari ini istirahat dulu biar badan pulih, besok kita mulai lagi dari yang ringan ya. Nanti pas push harian aku sapa lagi 🔥
+                    Santai, wajar banget kok! Hari kerja emang suka padat. Hari ini istirahat dulu biar badan pulih, besok kita mulai lagi dari yang ringan ya. Nanti pas reminder berikutnya aku sapa lagi 🔥
                   </BubbleNina>
                   <BubbleUser time="08:26">
                     Sip Nina, thanks pengertiannya! Gak bikin ngerasa bersalah 🙏
@@ -337,7 +351,7 @@ export default function NinaPage() {
                 {/* CTA Button Under WhatsApp Mockup */}
                 <div className="mt-5 w-full max-w-[340px] sm:max-w-[360px] flex flex-col items-center">
                   <Link
-                    href="/onboarding"
+                    href="/companion/nina/onboarding"
                     className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                   >
                     <span>Mulai Ngobrol Bareng Nina</span>
@@ -413,7 +427,7 @@ export default function NinaPage() {
                 {/* CTA Button Under WhatsApp Mockup */}
                 <div className="mt-5 w-full max-w-[340px] sm:max-w-[360px] flex flex-col items-center">
                   <Link
-                    href="/onboarding"
+                    href="/companion/nina/onboarding"
                     className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                   >
                     <span>Dapatkan Pendampingan Nina</span>
@@ -476,8 +490,8 @@ export default function NinaPage() {
           </div>
         </section>
 
-        {/* ─── 6. Section: Introducing Nina ─── */}
-        <section className="py-24 sm:py-32 bg-gradient-dark px-4 sm:px-6 text-white overflow-hidden relative">
+        {/* ─── 6. Section: Introducing Nina & Visual Fitur (Nasi Padang + Strava) ─── */}
+        <section id="features" className="py-24 sm:py-32 bg-gradient-dark px-4 sm:px-6 text-white overflow-hidden relative">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-accent/15 rounded-full blur-[140px] pointer-events-none" />
           
           <div className="max-w-6xl mx-auto relative z-10">
@@ -503,71 +517,66 @@ export default function NinaPage() {
               </motion.p>
             </motion.div>
 
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-              {/* Left: Capability List */}
-              <motion.div 
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                variants={staggerContainer}
-                className="flex flex-col gap-6"
-              >
-                {[
-                  {
-                    icon: Camera,
-                    title: "Bisa Baca Foto Makanan & Strava",
-                    desc: "Tinggal kirim foto piring makan siang atau screenshot lari Strava di WA — Nina estimasi nutrisi dan evaluasi pace pemulihanmu."
-                  },
-                  {
-                    icon: BellRing,
-                    title: "Proaktif Reach Out Duluan",
-                    desc: "Push harian santai yang menyapa dan mengingatkan konsistensi di jam-jam genting sebelum kamu menyerah."
-                  },
-                  {
-                    icon: BrainCircuit,
-                    title: "Memori Personal Jangka Panjang",
-                    desc: "Ingat cedera lama, makanan favorit, ritme lelahmu, dan progres tanpa perlu kamu jelaskan ulang."
-                  },
-                  {
-                    icon: MessageCircle,
-                    title: "Bahasa Hangat & Empatik",
-                    desc: "Lo cerita, dia dengar. Lo stuck, dia bantu cari kenapa. Lo hilang seminggu, dia sambut balik tanpa membuat lo merasa bersalah."
-                  },
-                  {
-                    icon: Smartphone,
-                    title: "100% Hidup di WhatsApp",
-                    desc: "Bebas dari kerumitan login atau buka aplikasi baru. Praktis langsung dari WhatsApp pribadimu."
-                  }
-                ].map((feature, i) => (
-                  <motion.div key={i} variants={fadeInUp} className="flex items-start gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
-                    <div className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center shrink-0 border border-accent/30 text-accent">
-                      <feature.icon className="w-5 h-5 text-accent" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-white mb-1">{feature.title}</h3>
-                      <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">{feature.desc}</p>
-                    </div>
-                  </motion.div>
-                ))}
-
-                <motion.div variants={fadeInUp} className="pt-2">
-                  <div className="font-serif italic text-accent text-lg">
-                    &ldquo;Never Grow Alone.&rdquo;
+            {/* 5 Core Capabilities */}
+            <motion.div 
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true }}
+              variants={staggerContainer}
+              className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-20"
+            >
+              {[
+                {
+                  icon: Camera,
+                  title: "Bisa Baca Foto Makanan & Strava",
+                  desc: "Kirim foto piring makan atau screenshot lari Strava di WA — Nina estimasi nutrisi & evaluasi pace."
+                },
+                {
+                  icon: BellRing,
+                  title: "Proaktif Reminder Santai",
+                  desc: "Sapaan ramah berkala yang menjaga konsistensi tanpa menimbulkan rasa tertekan atau bersalah."
+                },
+                {
+                  icon: BrainCircuit,
+                  title: "Memori Personal Jangka Panjang",
+                  desc: "Ingat cedera lama, makanan favorit, ritme lelahmu, dan progres mingguan tanpa perlu diulang."
+                },
+                {
+                  icon: MessageCircle,
+                  title: "Bahasa Hangat & Empatik",
+                  desc: "Lo cerita, dia dengar. Lo stuck, dia bantu cari kenapa. Lo hilang seminggu, dia sambut hangat."
+                },
+                {
+                  icon: Smartphone,
+                  title: "100% Hidup di WhatsApp",
+                  desc: "Bebas dari kerumitan login atau unduh aplikasi baru. Praktis langsung dari kontak WhatsApp."
+                },
+                {
+                  icon: Sparkles,
+                  title: "Science-Based Adaptation",
+                  desc: "Saran latihan dan porsi makan disesuaikan dengan kurva adaptasi fisiologis tubuhmu."
+                }
+              ].map((feature, i) => (
+                <motion.div key={i} variants={fadeInUp} className="p-5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                  <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center mb-3 text-accent border border-accent/30">
+                    <feature.icon className="w-5 h-5 text-accent" />
                   </div>
+                  <h3 className="text-base font-bold text-white mb-1.5">{feature.title}</h3>
+                  <p className="text-xs text-brand-100/80 leading-relaxed">{feature.desc}</p>
                 </motion.div>
-              </motion.div>
+              ))}
+            </motion.div>
 
-              {/* Right: Mockup WA (Photo analysis of Real Nasi Padang: Ayam, Telur, Perkedel) with CTA Below */}
-              <motion.div 
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                variants={staggerContainer}
-                className="flex flex-col items-center"
-              >
+            {/* Visual Deep Dive: 2 Side-by-Side WA Mockups (Foto Nasi Padang & Foto Strava) */}
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-start">
+              {/* Mockup 1: Foto Nasi Padang (Ayam, Telur, Perkedel) */}
+              <div className="flex flex-col items-center">
+                <div className="text-center mb-4">
+                  <span className="text-xs font-bold uppercase tracking-wider text-accent block">Fitur 1</span>
+                  <h4 className="font-serif text-xl font-bold text-white">Analisis Foto Makanan Lokal</h4>
+                </div>
                 <WAMockup>
                   <BubbleUser time="12:30">
-                    {/* Real Nasi Padang Image */}
                     <div className="relative w-full h-36 rounded-xl overflow-hidden mb-2 border border-brand-900/20 shadow-xs">
                       <Image
                         src="/nasi-padang.webp"
@@ -590,26 +599,146 @@ export default function NinaPage() {
                     Wah praktis banget, makasih Nina! 🙏
                   </BubbleUser>
                 </WAMockup>
+              </div>
 
-                {/* CTA Button Under WhatsApp Mockup */}
-                <div className="mt-5 w-full max-w-[340px] sm:max-w-[360px] flex flex-col items-center">
-                  <Link
-                    href="/onboarding"
-                    className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-accent text-brand-950 hover:bg-white font-black text-sm transition-all shadow-glow hover:-translate-y-0.5"
-                  >
-                    <span>Coba Bareng Nina Sekarang</span>
-                    <ArrowRight className="w-4 h-4 text-brand-950" />
-                  </Link>
-                  <span className="text-[11px] text-brand-200/80 mt-1.5">
-                    gaperlu install, cukup whatsapp
-                  </span>
+              {/* Mockup 2: Screenshot Strava Activity */}
+              <div className="flex flex-col items-center">
+                <div className="text-center mb-4">
+                  <span className="text-xs font-bold uppercase tracking-wider text-accent block">Fitur 2</span>
+                  <h4 className="font-serif text-xl font-bold text-white">Evaluasi Screenshot Lari Strava</h4>
                 </div>
-              </motion.div>
+                <WAMockup>
+                  <BubbleUser time="06:50">
+                    <div className="relative w-full h-36 rounded-xl overflow-hidden mb-2 border border-brand-900/20 shadow-xs">
+                      <Image
+                        src="/strava.webp"
+                        alt="Screenshot Aktivitas Strava"
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    Lari pagi ini beres Nina! 🏃‍♂️💨
+                  </BubbleUser>
+                  <BubbleNina time="06:52">
+                    Keren! Lari 5.4 km di pace 6:12/km 🔥<br /><br />
+                    • Total waktu: 33 menit 38 detik<br />
+                    • Kalori terbakar: ~380 kkal<br />
+                    • Detak jantung: 144 bpm (stabil di Zone 2)<br /><br />
+                    Aerobic base kamu makin kuat dibanding minggu lalu. Besok jadwal istirahat aktif ya, cukup jalan santai 15 menit dan minum 2.5 liter air 💧
+                  </BubbleNina>
+                  <BubbleUser time="06:54">
+                    Mantap evaluasinya, noted istirahat besok 👍
+                  </BubbleUser>
+                </WAMockup>
+              </div>
+            </div>
+
+            {/* High-Contrast Standout CTA in Meet Nina Section */}
+            <div className="mt-14 flex flex-col items-center">
+              <Link
+                href="/companion/nina/onboarding"
+                className="inline-flex items-center justify-center gap-2.5 py-4 px-9 rounded-full bg-accent hover:bg-white text-brand-950 font-black text-base transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer border-2 border-white/30"
+              >
+                <span>Coba Bareng Nina Sekarang</span>
+                <ArrowRight className="w-5 h-5 text-brand-950" />
+              </Link>
+              <span className="text-xs text-brand-200/80 mt-2 font-medium">
+                gaperlu install, cukup whatsapp
+              </span>
             </div>
           </div>
         </section>
 
-        {/* ─── 7. Section: CTA — Commitment ─── */}
+        {/* ─── 7. Section: Science-Based Knowledge & Free Learning Hub ─── */}
+        <section className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center max-w-3xl mx-auto mb-14">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-4 shadow-xs">
+                <GraduationCap className="w-4 h-4 text-accent-dark" />
+                100% Science-Based Wellness
+              </div>
+              <h2 className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4 leading-tight">
+                Nina Dibekali Pengetahuan Kebugaran Berbasis Sains.
+              </h2>
+              <p className="text-base sm:text-lg text-text-secondary leading-relaxed">
+                Bukan tips mitos dari media sosial. Seluruh pemahaman Nina dibangun dari prinsip metabolisme, hipertrofi, dan sains kebiasaan teruji — yang seluruh materinya kami sediakan <strong>100% GRATIS</strong> di Learning Hub.
+              </p>
+            </div>
+
+            {/* 3 Pillars of Science */}
+            <div className="grid md:grid-cols-3 gap-6 mb-12">
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Activity className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Metabolisme & Energi (CICO)
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Perhitungan kebutuhan energi harian realistis yang menjaga komposisi tubuh tanpa diet ekstrem atau rasa tersiksa.
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Sparkles className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Progressive Overload
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Prinsip adaptasi beban berkala agar kamu tidak lagi terjebak di fase jalan di tempat (plateau).
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <BookOpen className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Sleep & Recovery Rhythm
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Regulasi hormon pemulihan dan kualitas tidur sebagai fondasi utama konsistensi energi harianmu.
+                </p>
+              </div>
+            </div>
+
+            {/* Free Learning Hub Banner Card */}
+            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-accent shadow-xl">
+              <div className="max-w-xl text-center md:text-left">
+                <span className="text-xs font-bold text-accent uppercase tracking-widest block mb-2">
+                  Bebas Akses Siapa Saja
+                </span>
+                <h3 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
+                  Baca Seluruh Kurikulum Sains Kami — 100% Gratis.
+                </h3>
+                <p className="text-sm text-brand-100 leading-relaxed">
+                  Kamu bisa mempelajari semua silabus dan teori kebugaran tanpa bayar sepeser pun di Learning Hub. Nina hadir bagi kamu yang ingin didampingi eksekusinya setiap hari di WhatsApp.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
+                <Link
+                  href="/path/wellness"
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-white hover:bg-brand-50 text-brand-950 font-bold text-sm transition-all shadow-md"
+                >
+                  <BookOpen className="w-4 h-4 text-brand-950" />
+                  <span>Buka Learning Hub (Free)</span>
+                </Link>
+                <Link
+                  href="/companion/nina/onboarding"
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-accent hover:bg-white text-brand-950 font-black text-sm transition-all shadow-glow"
+                >
+                  <span>Mulai Bareng Nina</span>
+                  <ArrowRight className="w-4 h-4 text-brand-950" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 8. Section: CTA — Commitment (With Free Learning Hub Option) ─── */}
         <section className="py-24 sm:py-32 bg-accent px-4 sm:px-6 relative overflow-hidden text-brand-950">
           <div className="max-w-3xl mx-auto text-center relative z-10">
             <motion.div 
@@ -628,17 +757,32 @@ export default function NinaPage() {
                 Sekarang tinggal satu langkah — komitmen sederhana bersama Nina.
               </motion.p>
               
-              <motion.div variants={fadeInUp} className="flex flex-col items-center gap-3">
+              {/* Primary Nina CTA & Free Learning Hub Option */}
+              <motion.div variants={fadeInUp} className="flex flex-col items-center gap-4">
                 <Link 
-                  href="/onboarding" 
-                  className="inline-flex items-center justify-center gap-2 px-9 py-5 text-base sm:text-lg font-black text-white bg-brand-950 rounded-full hover:bg-brand-900 hover:scale-105 transition-all shadow-2xl"
+                  href="/companion/nina/onboarding" 
+                  className="inline-flex items-center justify-center gap-2 px-10 py-5 text-base sm:text-lg font-black text-white bg-brand-950 rounded-full hover:bg-brand-900 hover:scale-105 active:scale-95 transition-all shadow-2xl cursor-pointer"
                 >
                   <span>Mulai Perjalanan Lo Bareng Nina</span>
                   <Sparkles className="w-5 h-5 text-accent" />
                 </Link>
-                <div className="text-xs sm:text-sm font-semibold text-brand-950/80 flex items-center gap-2">
+                <div className="text-xs sm:text-sm font-semibold text-brand-950/80 flex items-center gap-2 mb-4">
                   <ShieldCheck className="w-4 h-4 text-brand-900" />
                   <span>gaperlu install, cukup whatsapp</span>
+                </div>
+
+                {/* Secondary Option: Free Learning Hub */}
+                <div className="pt-6 border-t border-brand-900/15 max-w-md mx-auto">
+                  <p className="text-xs text-brand-950/80 mb-3 leading-relaxed">
+                    Mau pelajari ilmunya dulu sebelum mulai? Kami percaya edukasi sains kebugaran harus bisa diakses siapa saja secara bebas.
+                  </p>
+                  <Link
+                    href="/path/wellness"
+                    className="inline-flex items-center gap-2 text-xs sm:text-sm font-black text-brand-950 hover:text-white transition-colors underline underline-offset-4"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>Baca Seluruh Materi di Learning Hub Wellness (100% Gratis) →</span>
+                  </Link>
                 </div>
               </motion.div>
             </motion.div>
@@ -646,7 +790,7 @@ export default function NinaPage() {
         </section>
       </main>
 
-      {/* ─── 8. Footer ─── */}
+      {/* ─── 9. Footer ─── */}
       <footer className="bg-brand-950 text-brand-200/60 py-10 px-4 sm:px-6 border-t border-white/10 text-center text-xs">
         <p>© 2026 Thrivin. Never Grow Alone.</p>
       </footer>
