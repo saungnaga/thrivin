@@ -139,7 +139,7 @@ export default function WellnessPathPage() {
             transition={{ duration: 0.5 }}
           >
             <span className="inline-block text-xs font-bold uppercase tracking-[0.25em] text-accent mb-3">
-              The Odin Project Style · Open Curriculum
+              Open Curriculum
             </span>
             <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold text-text-primary tracking-tight mb-4">
               Smarter, Not Harder.
@@ -602,7 +602,7 @@ export default function WellnessPathPage() {
           </div>
         ) : (
           /* ═══════════════════════════════════════════════
-             ODIN PROJECT SYLLABUS ROADMAP VIEW
+             OPEN SYLLABUS ROADMAP VIEW
              ═══════════════════════════════════════════════ */
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="flex items-center justify-between mb-2">
