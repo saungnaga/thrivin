@@ -130,8 +130,12 @@ export default function NinaPage() {
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-surface-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Brand Logo that links to homepage */}
-          <Link href="/" className="flex items-center gap-2 group">
-            <span className="font-serif font-black text-xl sm:text-2xl tracking-[0.2em] text-gradient group-hover:opacity-90 transition-opacity">
+          <Link
+            href="/"
+            className="flex items-center transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 rounded-sm"
+            aria-label="Thrivin Homepage"
+          >
+            <span className="font-black tracking-[0.22em] text-gradient text-xl sm:text-2xl">
               THRIVIN
             </span>
           </Link>

@@ -104,19 +104,23 @@ export default function ExplorePage() {
       {/* ─── Top Header Navigation ─── */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-surface-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 sm:gap-6">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors"
+              className="flex items-center transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 rounded-sm"
+              aria-label="Thrivin Homepage"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Kembali ke Beranda</span>
-            </Link>
-            <div className="h-4 w-px bg-surface-border hidden sm:block" />
-            <Link href="/" className="hidden sm:flex items-center">
-              <span className="font-black tracking-[0.2em] text-gradient text-lg">
+              <span className="font-black tracking-[0.22em] text-gradient text-xl sm:text-2xl">
                 THRIVIN
               </span>
+            </Link>
+            <div className="h-4 w-px bg-surface-border hidden sm:block" />
+            <Link
+              href="/"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Kembali ke Beranda</span>
             </Link>
           </div>
 
