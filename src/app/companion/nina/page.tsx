@@ -17,7 +17,8 @@ import {
   ShieldCheck,
   Activity,
   BookOpen,
-  GraduationCap
+  GraduationCap,
+  PlayCircle
 } from "lucide-react";
 
 const fadeInUp = {
@@ -558,6 +559,11 @@ export default function NinaPage() {
                   desc: "Kirim foto piring makan atau screenshot lari Strava di WA — Nina estimasi nutrisi & evaluasi pace."
                 },
                 {
+                  icon: PlayCircle,
+                  title: "Kurasi Referensi Video & Form Guide",
+                  desc: "Bingung form gerakan (misal RDL/Squat) atau konsep latihan? Nina kurasi video YouTube terpercaya yang to-the-point."
+                },
+                {
                   icon: BellRing,
                   title: "Proaktif Reminder Santai",
                   desc: "Sapaan ramah berkala yang menjaga konsistensi tanpa menimbulkan rasa tertekan atau bersalah."
@@ -576,11 +582,6 @@ export default function NinaPage() {
                   icon: Smartphone,
                   title: "100% Hidup di WhatsApp",
                   desc: "Bebas dari kerumitan login atau unduh aplikasi baru. Praktis langsung dari kontak WhatsApp."
-                },
-                {
-                  icon: Sparkles,
-                  title: "Science-Based Adaptation",
-                  desc: "Saran latihan dan porsi makan disesuaikan dengan kurva adaptasi fisiologis tubuhmu."
                 }
               ].map((feature, i) => (
                 <motion.div key={i} variants={fadeInUp} className="p-5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">

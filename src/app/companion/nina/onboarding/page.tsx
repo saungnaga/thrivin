@@ -21,7 +21,16 @@ import {
   Utensils,
   Smile,
   Zap,
-  BookOpen
+  BookOpen,
+  PlayCircle,
+  Lock,
+  Unlock,
+  PhoneCall,
+  Droplet,
+  Calendar,
+  AlertCircle,
+  Loader2,
+  MessageCircle
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -46,6 +55,7 @@ type FormData = {
   biggestChallenge: BiggestChallenge;
   communicationStyle: CommunicationStyle;
   goals: string[];
+  whatsappNumber: string;
 };
 
 const slideVariants = {
@@ -69,7 +79,7 @@ const CHECKOUT_URL = "https://digitanest.store/checkout-nina";
 
 // WhatsApp Mockup shell for Feature Slides
 const WAMockup = ({ children }: { children: React.ReactNode }) => (
-  <div className="mx-auto max-w-[320px] sm:max-w-[340px] w-full bg-slate-100 rounded-[2.2rem] ring-8 ring-brand-900 overflow-hidden shadow-2xl relative flex flex-col h-[440px] sm:h-[460px]">
+  <div className="mx-auto max-w-[320px] sm:max-w-[340px] w-full bg-slate-100 rounded-[2.2rem] ring-8 ring-brand-900 overflow-hidden shadow-2xl relative flex flex-col h-[450px] sm:h-[470px]">
     {/* WA Header */}
     <div className="bg-[#075E54] flex items-center justify-between p-3 text-white z-10 shrink-0 shadow-sm">
       <div className="flex items-center gap-2.5">
@@ -130,10 +140,70 @@ const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; t
   </div>
 );
 
+// Indonesian Telco & WhatsApp Verification Engine
+function evaluateWhatsAppNumber(rawPhone: string): { valid: boolean; operator?: string; error?: string; cleanNumber?: string } {
+  const digitsOnly = rawPhone.replace(/\D/g, "");
+  
+  let normalized = digitsOnly;
+  if (normalized.startsWith("62")) {
+    normalized = "0" + normalized.slice(2);
+  } else if (!normalized.startsWith("0") && normalized.length > 0) {
+    normalized = "0" + normalized;
+  }
+
+  if (normalized.length < 10) {
+    return { valid: false, error: "Nomor WhatsApp terlalu pendek. Masukkan minimal 10 digit (contoh: 0812xxxxxxxx)." };
+  }
+  if (normalized.length > 13) {
+    return { valid: false, error: "Nomor WhatsApp melebihi batas standar (maksimal 13 digit)." };
+  }
+
+  const body = normalized.slice(2);
+  // Check repetitive digits (e.g. 08111111111)
+  if (/^(\d)\1+$/.test(body)) {
+    return { valid: false, error: "Nomor tidak valid atau terdeteksi nomor percobaan (pola angka berulang)." };
+  }
+  // Check sequential sequences (e.g. 08123456789)
+  if ("0123456789012345".includes(body) || "9876543210987654".includes(body)) {
+    return { valid: false, error: "Nomor tidak terdaftar di sistem WhatsApp (urutan angka tidak wajar)." };
+  }
+
+  const prefix4 = normalized.slice(0, 4);
+
+  const telkomsel = ["0811", "0812", "0813", "0821", "0822", "0823", "0851", "0852", "0853"];
+  const indosat = ["0814", "0815", "0816", "0855", "0856", "0857", "0858"];
+  const xlAxis = ["0817", "0818", "0819", "0831", "0832", "0833", "0838", "0859", "0877", "0878"];
+  const smartfren = ["0881", "0882", "0883", "0884", "0885", "0886", "0887", "0888", "0889"];
+  const tri = ["0895", "0896", "0897", "0898", "0899"];
+
+  let operator = "";
+  if (telkomsel.includes(prefix4)) operator = "Telkomsel";
+  else if (indosat.includes(prefix4)) operator = "Indosat Ooredoo";
+  else if (xlAxis.includes(prefix4)) operator = "XL Axiata / Axis";
+  else if (smartfren.includes(prefix4)) operator = "Smartfren";
+  else if (tri.includes(prefix4)) operator = "Tri (3)";
+
+  if (!operator) {
+    return {
+      valid: false,
+      error: "Awalan nomor tidak dikenali oleh operator seluler WhatsApp Indonesia. Pastikan menggunakan nomor lokal aktif."
+    };
+  }
+
+  return { valid: true, operator, cleanNumber: normalized };
+}
+
 export default function NinaOnboardingPage() {
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState(0);
   const [processingStage, setProcessingStage] = useState(0);
+
+  // WhatsApp verification states
+  const [whatsappInput, setWhatsappInput] = useState("");
+  const [whatsappError, setWhatsappError] = useState("");
+  const [isValidatingWhatsApp, setIsValidatingWhatsApp] = useState(false);
+  const [isWhatsAppVerified, setIsWhatsAppVerified] = useState(false);
+  const [detectedOperator, setDetectedOperator] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
     name: "",
@@ -148,9 +218,10 @@ export default function NinaOnboardingPage() {
     biggestChallenge: "",
     communicationStyle: "",
     goals: [],
+    whatsappNumber: "",
   });
 
-  const TOTAL_STEPS = 17;
+  const TOTAL_STEPS = 22;
 
   const paginate = (newDirection: number) => {
     setDirection(newDirection);
@@ -210,22 +281,64 @@ export default function NinaOnboardingPage() {
 
   const tdee = calculateTDEE();
   const proteinTarget = Math.round(parseFloat(formData.weight || "65") * 1.6);
+  const carbTarget = Math.round((tdee * 0.45) / 4);
+  const fatTarget = Math.round((tdee * 0.25) / 9);
+  const hydrationTarget = ((parseFloat(formData.weight || "65")) * 0.035).toFixed(1);
 
-  // Step 16: Sequential Processing Stages
+  // Step 20: Sequential Processing Animation after WhatsApp Verified
   useEffect(() => {
-    if (step === 16) {
+    if (step === 20) {
       setProcessingStage(0);
       const timers = [
-        setTimeout(() => setProcessingStage(1), 900),
-        setTimeout(() => setProcessingStage(2), 2000),
-        setTimeout(() => setProcessingStage(3), 3100),
-        setTimeout(() => setProcessingStage(4), 4200),
-        setTimeout(() => handleNext(), 5400),
+        setTimeout(() => setProcessingStage(1), 800),
+        setTimeout(() => setProcessingStage(2), 1700),
+        setTimeout(() => setProcessingStage(3), 2700),
+        setTimeout(() => setProcessingStage(4), 3700),
+        setTimeout(() => handleNext(), 4800),
       ];
 
       return () => timers.forEach(clearTimeout);
     }
   }, [step]);
+
+  // Real-time prefix detection while typing phone
+  const handlePhoneInputChange = (val: string) => {
+    setWhatsappInput(val);
+    if (whatsappError) setWhatsappError("");
+    const evalRes = evaluateWhatsAppNumber(val);
+    if (evalRes.operator) {
+      setDetectedOperator(evalRes.operator);
+    } else {
+      setDetectedOperator(null);
+    }
+  };
+
+  // WhatsApp verification submit handler
+  const handleVerifyWhatsApp = () => {
+    const evalRes = evaluateWhatsAppNumber(whatsappInput);
+    if (!evalRes.valid) {
+      setWhatsappError(evalRes.error || "Nomor WhatsApp tidak valid. Masukkan nomor WhatsApp aktif.");
+      setIsWhatsAppVerified(false);
+      return;
+    }
+
+    setWhatsappError("");
+    setIsValidatingWhatsApp(true);
+
+    // Simulate real-time WhatsApp network ping validation
+    setTimeout(() => {
+      setIsValidatingWhatsApp(false);
+      setIsWhatsAppVerified(true);
+      const clean = evalRes.cleanNumber || whatsappInput;
+      const formatted = clean.replace(/(\d{4})(\d{4})(\d+)/, "$1-$2-$3");
+      setFormData((prev) => ({ ...prev, whatsappNumber: formatted }));
+      
+      // Auto advance to sync processing animation
+      setTimeout(() => {
+        handleNext();
+      }, 700);
+    }, 1300);
+  };
 
   const renderContent = () => {
     switch (step) {
@@ -233,7 +346,6 @@ export default function NinaOnboardingPage() {
       case 0:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-3 pb-8 px-4 sm:px-6">
-            {/* Step 0 Top Navigation */}
             <div className="w-full flex items-center justify-between mb-3">
               <Link
                 href="/companion/nina"
@@ -243,7 +355,7 @@ export default function NinaOnboardingPage() {
                 <span>Halaman Nina</span>
               </Link>
               <span className="text-[11px] font-bold text-accent-dark tracking-wider uppercase font-mono bg-brand-50 px-2.5 py-0.5 rounded-full border border-brand-200">
-                Fitur 1/5
+                Fitur 1 dari 6
               </span>
             </div>
 
@@ -300,7 +412,7 @@ export default function NinaOnboardingPage() {
                 <Activity className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 2 dari 5
+                Fitur 2 dari 6
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Catat progres dari aplikasi lari & smartwatchmu
@@ -350,9 +462,85 @@ export default function NinaOnboardingPage() {
             </div>
           </div>
         );
-      
-      /* ─── Step 2: Fitur 3 (Proaktif Reminder Santai) ─── */
+
+      /* ─── Step 2: Fitur 3 (Kurasi Referensi Video Gerakan YouTube) ─── */
       case 2:
+        return (
+          <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
+            <div className="text-center space-y-2 mb-4">
+              <div className="w-11 h-11 bg-brand-50 border border-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-2 text-accent-dark">
+                <PlayCircle className="w-5 h-5 text-accent-dark" />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
+                Fitur 3 dari 6
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
+                Kurasi referensi video saat bingung form gerakan
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
+                Bingung form gerakan seperti RDL atau Squat? Nina jelaskan titik kuncinya dan mengirimkan link video YouTube terkurasi yang to-the-point.
+              </p>
+            </div>
+            
+            <WAMockup>
+              <BubbleUser time="10:14">
+                Nina, pas Romanian Deadlift punggung bawahku kok rada pegel ya? Gerakanku salah ga ya? 🥲
+              </BubbleUser>
+              <BubbleNina time="10:16">
+                Pegel di pinggang bawah saat RDL biasanya karena pinggul kurang mundur (*hip hinge*) atau punggung melengkung.<br /><br />
+                Ini 3 kuncinya:<br />
+                • Dorong pinggul ke belakang (bukan jongkok)<br />
+                • Punggung netral & dada busung<br />
+                • Dumbell rapat menempel tulang kering<br /><br />
+                Biar makin jelas, aku kurasikan video YouTube 2 menit ini:
+                
+                <div className="mt-2 rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xs">
+                  <div className="relative h-20 bg-slate-900 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/40 to-transparent" />
+                    <div className="relative z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-600 text-white font-bold text-[10px] shadow-sm">
+                      <PlayCircle className="w-3.5 h-3.5 fill-white text-red-600" />
+                      <span>YouTube Tutorial</span>
+                    </div>
+                    <span className="absolute bottom-1 right-1.5 text-[9px] bg-black/80 text-white px-1 rounded font-mono">
+                      2:14
+                    </span>
+                  </div>
+                  <div className="p-2 text-left bg-slate-50">
+                    <div className="font-bold text-[11px] text-slate-900 leading-snug">
+                      Panduan Form Romanian Deadlift (RDL) Bebas Nyeri Pinggang
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                      youtu.be/proper-rdl-form
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-1.5 text-[12px]">
+                  Tonton bentar sebelum set berikutnya ya! 💪
+                </div>
+              </BubbleNina>
+            </WAMockup>
+
+            <div className="w-full mt-6 flex gap-3">
+              <button
+                onClick={handleBack}
+                className="w-1/3 border border-surface-border text-text-secondary font-bold py-3.5 rounded-full hover:bg-surface-muted transition-colors"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleNext}
+                className="w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-3.5 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                <span>Lanjut</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
+              </button>
+            </div>
+          </div>
+        );
+
+      /* ─── Step 3: Fitur 4 (Proaktif Reminder Santai) ─── */
+      case 3:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -360,7 +548,7 @@ export default function NinaOnboardingPage() {
                 <BellRing className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 3 dari 5
+                Fitur 4 dari 6
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina proaktif menyapa lewat reminder santai
@@ -400,8 +588,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 3: Fitur 4 (Memori Personal Jangka Panjang) ─── */
-      case 3:
+      /* ─── Step 4: Fitur 5 (Memori Personal Jangka Panjang) ─── */
+      case 4:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -409,7 +597,7 @@ export default function NinaOnboardingPage() {
                 <BrainCircuit className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 4 dari 5
+                Fitur 5 dari 6
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina mengingat semuanya tentangmu
@@ -449,8 +637,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 4: Fitur 5 (100% di WhatsApp) ─── */
-      case 4:
+      /* ─── Step 5: Fitur 6 (100% di WhatsApp) ─── */
+      case 5:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -458,7 +646,7 @@ export default function NinaOnboardingPage() {
                 <Smartphone className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 5 dari 5
+                Fitur 6 dari 6
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Semuanya di WhatsApp, tanpa instal apapun
@@ -498,8 +686,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 5: Survey Nama ─── */
-      case 5:
+      /* ─── Step 6: Survey 1/10 (Nama) ─── */
+      case 6:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -541,8 +729,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 6: Survey Usia ─── */
-      case 6:
+      /* ─── Step 7: Survey 2/10 (Usia) ─── */
+      case 7:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -589,8 +777,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 7: Survey Jenis Kelamin (Manual Next/Back) ─── */
-      case 7:
+      /* ─── Step 8: Survey 3/10 (Jenis Kelamin) ─── */
+      case 8:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -640,8 +828,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 8: Data Fisik (BB & TB) ─── */
-      case 8:
+      /* ─── Step 9: Survey 4/10 (Berat & Tinggi Badan) ─── */
+      case 9:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -698,8 +886,75 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 9: Aktivitas Harian (Manual Next/Back) ─── */
-      case 9:
+      /* ─── Step 10: [INTERLEAVED 1] Analisis Profil Fisik & Revelation Sains Metabolisme ─── */
+      case 10:
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-10">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/15 border border-accent/30 text-accent-dark text-[11px] font-bold uppercase tracking-wider mb-4 w-fit">
+              <Sparkles className="w-3.5 h-3.5 text-accent-dark" />
+              <span>Analisis Profil Awal & Sains Metabolisme</span>
+            </div>
+
+            <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
+              Insight Penting untuk Tubuhmu, {formData.name || "Kawan"}
+            </h2>
+            <p className="text-xs sm:text-sm text-text-secondary mb-6 leading-relaxed">
+              Dengan profil fisik {formData.weight || "65"} kg dan tinggi {formData.height || "170"} cm, tubuhmu memiliki kurva adaptasi yang sangat potensial jika dipandu dengan cara yang benar.
+            </p>
+
+            {/* Scientific Revelation Card */}
+            <div className="bg-white rounded-3xl p-5 border border-brand-200 shadow-sm space-y-4 mb-8">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0 text-amber-700">
+                  <Flame className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-brand-950">
+                    Mengapa 70% Diet Gagal di Minggu ke-3?
+                  </h4>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    Riset fisiologi membuktikan: ketika memotong kalori terlalu ekstrem (*crash diet*), otak hipotalamus menganggap tubuh dalam kondisi bahaya kelaparan. Metabolisme basal menurun hingga 25% dan rasa lapar melonjak 3× lipat.
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-px bg-surface-border" />
+
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0 text-emerald-700">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-brand-950">
+                    Pendekatan Bersama Nina: Sustainable Recomposition
+                  </h4>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    Bersama Nina, kita tidak membiarkanmu kelaparan. Fokus kita adalah asupan protein cukup, menjaga massa otot, dan defisit moderat yang tidak merusak sistem metabolisme alamimu.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleBack}
+                className="w-1/3 border border-surface-border text-text-secondary font-bold py-4 rounded-full hover:bg-surface-muted transition-colors"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleNext}
+                className="w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                <span>Lanjut ke Pola Aktivitas</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
+              </button>
+            </div>
+          </div>
+        );
+
+      /* ─── Step 11: Survey 5/10 (Aktivitas Harian) ─── */
+      case 11:
         const activities: { level: ActivityLevel; desc: string }[] = [
           { level: "Sedentari", desc: "Duduk hampir seharian, minim gerak fisik" },
           { level: "Ringan", desc: "Aktivitas harian ringan / olahraga 1–2x seminggu" },
@@ -756,8 +1011,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 10: Fokus Program (Max 3, or Single Hybrid) ─── */
-      case 10:
+      /* ─── Step 12: Survey 6/10 (Fokus Program - Max 3, or Hybrid) ─── */
+      case 12:
         const programOptions: { focus: string; icon: React.ReactNode; desc: string }[] = [
           {
             focus: "Workout & Strength",
@@ -850,8 +1105,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 11: Pengalaman & Riwayat Olahraga ─── */
-      case 11:
+      /* ─── Step 13: Survey 7/10 (Riwayat & Pengalaman Olahraga) ─── */
+      case 13:
         const experienceOptions: { level: ExperienceLevel; desc: string }[] = [
           { level: "Pemula Total", desc: "Belum pernah rutin olahraga dan bingung mulai dari mana" },
           { level: "Sering Putus di Tengah", desc: "Niat ada tapi selalu kendor di minggu ke-2 atau ke-3" },
@@ -906,8 +1161,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 12: Preferensi Lokasi Latihan ─── */
-      case 12:
+      /* ─── Step 14: Survey 8/10 (Preferensi Lokasi Latihan) ─── */
+      case 14:
         const locations: { loc: WorkoutLocation; desc: string }[] = [
           { loc: "Di Rumah", desc: "Cukup matras, bodyweight, atau sepasang dumbell" },
           { loc: "Di Gym", desc: "Punya akses ke barbell, mesin beban, dan treadmill" },
@@ -962,8 +1217,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 13: Tantangan Terbesar ─── */
-      case 13:
+      /* ─── Step 15: Survey 9/10 (Tantangan Terbesar) ─── */
+      case 15:
         const challenges: { item: BiggestChallenge; desc: string }[] = [
           { item: "Gampang Mager & Hilang Niat", desc: "Semangat di awal, tapi gampang skip saat motivasi turun" },
           { item: "Jadwal Sibuk Susah Konsisten", desc: "Pekerjaan kantor menyita waktu & energi di malam hari" },
@@ -1018,8 +1273,104 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 14: Gaya Komunikasi Nina ─── */
-      case 14:
+      /* ─── Step 16: [INTERLEAVED 2] Analisis Tantangan Perilaku & Revelation Decision Fatigue ─── */
+      case 16:
+        const challengeInsights: Record<BiggestChallenge | "", { title: string; desc: string; strategy: string }> = {
+          "Gampang Mager & Hilang Niat": {
+            title: "Dopamine Friction & Cold Starts",
+            desc: "Otak manusia dirancang untuk menghemat energi. Tanpa ada yang menyapa duluan, memulai selalu terasa berat.",
+            strategy: "Nina akan mengirimkan pesan 'micro-action' (cukup 15 menit), sehingga gesekan mental untuk mulai hilang."
+          },
+          "Jadwal Sibuk Susah Konsisten": {
+            title: "Decision Fatigue Pasca Kerja",
+            desc: "Willpower otak terkuras setelah 8 jam bekerja. Berharap niat muncul di jam 6 sore adalah perang yang sering kalah.",
+            strategy: "Nina menyusun variasi latihan modular 15–20 menit di rumah tanpa perlu persiapan ribet ke gym."
+          },
+          "Bingung Menu & Porsi Makan": {
+            title: "Cognitive Overload Hitung Kalori",
+            desc: "Menimbang gram makanan dan mencatat kalori manual membosankan dan jarang bertahan lebih dari 2 minggu.",
+            strategy: "Cukup jepret foto piring makan di WhatsApp, Nina yang hitungkan estimasi gizi dan proteinnya untukmu."
+          },
+          "Ngerasa Berjuang Sendirian": {
+            title: "The Social Proof & Accountability Gap",
+            desc: "Riset Dominican University: orang yang memiliki rekan akuntabilitas menyelesaikan 76% target dibanding 43% sendirian.",
+            strategy: "Nina hadir setiap hari di WhatsApp, menyapa dan mengingat setiap target dan progres perjuanganmu."
+          },
+          "": {
+            title: "Konsistensi Butuh Pendamping",
+            desc: "Konsistensi bukan soal kemauan keras, melainkan sistem akuntabilitas yang meringankan beban mental harian.",
+            strategy: "Nina hadir mendampingi di WhatsApp agar kamu tidak lagi merasa berjuang sendirian."
+          }
+        };
+
+        const activeInsight = challengeInsights[formData.biggestChallenge];
+
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-10">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/15 border border-accent/30 text-accent-dark text-[11px] font-bold uppercase tracking-wider mb-4 w-fit">
+              <BrainCircuit className="w-3.5 h-3.5 text-accent-dark" />
+              <span>Analisa Tantangan & Solusi Neurosains</span>
+            </div>
+
+            <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
+              Kabar Baik: Hambatan Ini Sangat Normal
+            </h2>
+            <p className="text-xs sm:text-sm text-text-secondary mb-6 leading-relaxed">
+              Tantangan <strong>&quot;{formData.biggestChallenge || "Konsistensi"}&quot;</strong> bukan karena kamu lemah tekad, melainkan cara kerja alami otak manusia.
+            </p>
+
+            <div className="bg-white rounded-3xl p-5 border border-brand-200 shadow-sm space-y-4 mb-8">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0 text-indigo-700">
+                  <Zap className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-brand-950">
+                    Fakta Sains: {activeInsight.title}
+                  </h4>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    {activeInsight.desc}
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-px bg-surface-border" />
+
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-accent/15 border border-accent/40 flex items-center justify-center shrink-0 text-accent-dark">
+                  <Sparkles className="w-5 h-5 text-accent-dark" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-brand-950">
+                    Solusi Terarah Bersama Nina
+                  </h4>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    {activeInsight.strategy}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleBack}
+                className="w-1/3 border border-surface-border text-text-secondary font-bold py-4 rounded-full hover:bg-surface-muted transition-colors"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleNext}
+                className="w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                <span>Lanjut ke Preferensi Interaksi</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
+              </button>
+            </div>
+          </div>
+        );
+
+      /* ─── Step 17: Survey 10/10 (Gaya Komunikasi Nina) ─── */
+      case 17:
         const styles: { style: CommunicationStyle; badge: string; desc: string }[] = [
           {
             style: "Santai & Akrab",
@@ -1083,31 +1434,31 @@ export default function NinaOnboardingPage() {
                 disabled={!formData.communicationStyle}
                 className="w-2/3 bg-brand-900 hover:bg-brand-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
               >
-                <span>Lihat Blueprint Personal</span>
+                <span>Lihat Ringkasan Blueprint</span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </button>
             </div>
           </div>
         );
 
-      /* ─── Step 15: Hasil Kalkulasi TDEE & Personal Blueprint ─── */
-      case 15:
+      /* ─── Step 18: Overview Personal Blueprint (Preview / Teaser with Locked Modules) ─── */
+      case 18:
         return (
-          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-10">
             <div className="text-center mb-6">
               <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-1">
-                Personal Plan Blueprint
+                Blueprint Preview (Overview)
               </span>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
-                Blueprint {formData.name || "Kamu"} & Nina
+                Blueprint Awal {formData.name || "Kamu"} & Nina
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                Berdasarkan kalkulasi metabolisme sains & profil personalmu
+                Kalkulasi metabolisme sains berdasarkan data profilmu
               </p>
             </div>
             
-            <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-brand-100 mb-6 space-y-4">
-              {/* TDEE */}
+            {/* Unlocked Core Metrics Preview */}
+            <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-brand-100 mb-5 space-y-4">
               <div className="flex items-center justify-between pb-3.5 border-b border-surface-border">
                 <div>
                   <div className="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1.5 mb-1">
@@ -1123,7 +1474,6 @@ export default function NinaOnboardingPage() {
                 </div>
               </div>
               
-              {/* Target Protein */}
               <div className="flex items-center justify-between pb-3.5 border-b border-surface-border">
                 <div>
                   <div className="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1.5 mb-1">
@@ -1139,31 +1489,41 @@ export default function NinaOnboardingPage() {
                 </div>
               </div>
 
-              {/* Personal Configuration Highlights */}
-              <div className="pt-1 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-muted font-medium">Pilar Program:</span>
-                  <span className="font-bold text-brand-900">
-                    {formData.programFocus.length > 0 ? formData.programFocus.join(", ") : "Workout & Strength"}
-                  </span>
+              {/* Locked Sections Teaser */}
+              <div className="pt-1 space-y-2.5">
+                <div className="text-xs font-bold text-brand-950 uppercase tracking-wider mb-2 flex items-center gap-1.5 text-accent-dark">
+                  <Lock className="w-3.5 h-3.5" />
+                  Bagian Detail Full Blueprint (Terkunci):
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-muted font-medium">Lokasi Utama:</span>
-                  <span className="font-bold text-brand-900">{formData.workoutLocation || "Di Rumah"}</span>
+
+                <div className="p-3 rounded-xl bg-surface-muted border border-surface-border flex items-center justify-between text-xs opacity-75">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5 text-text-muted" />
+                    <span className="font-semibold text-brand-950">Rasio Karbohidrat, Lemak Sehat & Target Hidrasi</span>
+                  </div>
+                  <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-surface-border font-mono text-text-muted">Terkunci</span>
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-muted font-medium">Gaya Nina:</span>
-                  <span className="font-bold text-accent-dark">{formData.communicationStyle || "Santai & Akrab"}</span>
+
+                <div className="p-3 rounded-xl bg-surface-muted border border-surface-border flex items-center justify-between text-xs opacity-75">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5 text-text-muted" />
+                    <span className="font-semibold text-brand-950">Jadwal Periodisasi & Struktur Split Mingguan</span>
+                  </div>
+                  <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-surface-border font-mono text-text-muted">Terkunci</span>
                 </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-muted font-medium">Solusi Hambatan:</span>
-                  <span className="font-bold text-brand-900">{formData.biggestChallenge || "Gampang Mager"}</span>
+
+                <div className="p-3 rounded-xl bg-surface-muted border border-surface-border flex items-center justify-between text-xs opacity-75">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5 text-text-muted" />
+                    <span className="font-semibold text-brand-950">Modul Kurasi Video Form & Referensi YouTube di WA</span>
+                  </div>
+                  <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-surface-border font-mono text-text-muted">Terkunci</span>
                 </div>
               </div>
             </div>
 
             <p className="text-xs text-text-secondary text-center mb-6 leading-relaxed">
-              Nina akan menyelaraskan reminder sapaan santai harian, evaluasi foto piring, dan panduan latihan sesuai blueprint di atas.
+              Masukkan nomor WhatsApp kamu di langkah berikutnya untuk membuka rincian lengkap dan mengaktifkan jalur pendampingan Nina.
             </p>
 
             <div className="flex gap-3">
@@ -1177,26 +1537,131 @@ export default function NinaOnboardingPage() {
                 onClick={handleNext}
                 className="w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
               >
-                <span>Sinkronkan ke Nina</span>
-                <ArrowRight className="w-4 h-4 text-accent" />
+                <span>Buka Full Blueprint</span>
+                <Unlock className="w-4 h-4 text-accent" />
               </button>
             </div>
           </div>
         );
 
-      /* ─── Step 16: Animasi Pemrosesan Interaktif ─── */
-      case 16:
-        const stages = [
-          `Menghitung metabolisme basal & target kalori (~${tdee} kkal)...`,
-          `Mengadaptasi blueprint program: ${formData.programFocus.join(", ") || "Program Personal"}...`,
-          `Menyetel mode interaksi: ${formData.communicationStyle || "Santai & Akrab"}...`,
-          `Menyiapkan strategi solusi: ${formData.biggestChallenge || "Konsistensi Harian"}...`,
-          "✨ Done! Nina sudah siap menemanimu di WhatsApp!",
+      /* ─── Step 19: Masukkan & Validasi Otomatis Nomor WhatsApp ─── */
+      case 19:
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-10">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
+              Validasi & Sinkronisasi
+            </span>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Masukkan Nomor WhatsApp Kamu
+            </h2>
+            <p className="text-xs sm:text-sm text-text-secondary mb-6 leading-relaxed">
+              Nomor ini akan digunakan Nina untuk mengirimkan sapaan santai, feedback foto makanan, dan referensi video langsung di kontak WhatsApp-mu.
+            </p>
+
+            {/* WhatsApp Input Card */}
+            <div className="bg-white rounded-3xl p-5 border border-brand-200 shadow-sm mb-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-brand-950 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <PhoneCall className="w-3.5 h-3.5 text-accent-dark" />
+                    Nomor WhatsApp Aktif
+                  </span>
+                  {detectedOperator && (
+                    <span className="text-[11px] font-semibold text-accent-dark bg-brand-50 px-2 py-0.5 rounded-full border border-brand-200">
+                      {detectedOperator}
+                    </span>
+                  )}
+                </label>
+                <div className="relative flex items-center">
+                  <div className="absolute left-3.5 flex items-center gap-1.5 text-sm font-bold text-brand-950 pr-2 border-r border-slate-200">
+                    <span>🇮🇩</span>
+                    <span>+62</span>
+                  </div>
+                  <input
+                    type="tel"
+                    value={whatsappInput}
+                    onChange={(e) => handlePhoneInputChange(e.target.value)}
+                    placeholder="812-3456-7890"
+                    className="w-full pl-22 pr-4 py-3.5 text-lg font-bold text-brand-950 border border-slate-200 rounded-xl focus:border-brand-900 focus:ring-2 focus:ring-brand-900/10 outline-none transition-all placeholder:text-gray-300"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleVerifyWhatsApp();
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] text-text-muted mt-2">
+                  Bisa dimulai dari 08... atau 8... Sistem memverifikasi otomatis apakah nomor terdaftar aktif di WhatsApp.
+                </p>
+              </div>
+
+              {/* Error Box if invalid */}
+              {whatsappError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-800 text-xs leading-relaxed"
+                >
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Verifikasi Gagal:</span> {whatsappError}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Verification Success Box */}
+              {isWhatsAppVerified && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-emerald-800 text-xs font-semibold"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Nomor WhatsApp terverifikasi aktif ({detectedOperator})! Mengalihkan ke Full Blueprint...</span>
+                </motion.div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleBack}
+                disabled={isValidatingWhatsApp}
+                className="w-1/3 border border-surface-border text-text-secondary font-bold py-4 rounded-full hover:bg-surface-muted transition-colors disabled:opacity-50"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleVerifyWhatsApp}
+                disabled={isValidatingWhatsApp || !whatsappInput.trim()}
+                className="w-2/3 bg-brand-900 hover:bg-brand-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                {isValidatingWhatsApp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                    <span>Cek WhatsApp...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Verifikasi & Buka Plan</span>
+                    <ArrowRight className="w-4 h-4 text-accent" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        );
+
+      /* ─── Step 20: Processing & Sync Animation ─── */
+      case 20:
+        const syncStages = [
+          `Memvalidasi format nomor WhatsApp aktif: ${formData.whatsappNumber || "Terhubung"}...`,
+          `Membuka kalkulasi makronutrisi presisi & hidrasi (${hydrationTarget}L/hari)...`,
+          `Menyusun kurva periodisasi latihan untuk ${formData.workoutLocation || "Di Rumah"}...`,
+          `Mengaktifkan modul kurasi video form & referensi YouTube di WA...`,
+          "✨ Selesai! Full Personal Blueprint berhasil dibuka!",
         ];
 
         return (
           <div className="fixed inset-0 bg-brand-950 z-50 flex flex-col items-center justify-center px-6 text-white text-center">
-            {/* Spinning Brand Icon */}
             <div className="relative mb-10">
               <div className="w-20 h-20 rounded-full border-4 border-accent/20 border-t-accent animate-spin" />
               <div className="absolute inset-0 flex items-center justify-center">
@@ -1205,15 +1670,14 @@ export default function NinaOnboardingPage() {
             </div>
 
             <h2 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
-              Sistem memproses plan untuk diberikan ke Nina...
+              Membuka Kunci Full Personal Blueprint...
             </h2>
             <p className="text-xs sm:text-sm text-brand-200/80 mb-10 max-w-sm">
-              Menghubungkan data personalisasi kamu dengan asisten Nina di WhatsApp
+              Menghubungkan data metabolisme {formData.name || "kamu"} dengan kontak WhatsApp Nina
             </p>
 
-            {/* Checklist */}
             <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-2xl p-6 text-left space-y-3.5 backdrop-blur-md">
-              {stages.map((text, idx) => (
+              {syncStages.map((text, idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   {processingStage > idx ? (
                     <CheckCircle2 className="w-5 h-5 text-accent shrink-0" />
@@ -1236,14 +1700,149 @@ export default function NinaOnboardingPage() {
                 onClick={handleNext}
                 className="mt-8 px-8 py-3.5 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white transition-all shadow-glow cursor-pointer"
               >
-                Lihat Ringkasan & Mulai →
+                Lihat Full Blueprint Lengkap →
               </motion.button>
             )}
           </div>
         );
 
-      /* ─── Step 17: Sales Page & Pricing (Paket 1 bln 99rb, 3 bln 219rb, 6 bln 359rb) ─── */
-      case 17:
+      /* ─── Step 21: Full Personal Blueprint Lengkap ─── */
+      case 21:
+        return (
+          <div className="flex flex-col h-full w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+            {/* Top Verified Badge */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 uppercase tracking-wider mb-3 shadow-xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Full Blueprint Terbuka · WA: {formData.whatsappNumber || "Terverifikasi"}</span>
+              </div>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
+                Full Personal Blueprint {formData.name} & Nina
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary mt-1">
+                Rancangan sains lengkap: nutrisi, hidrasi, jadwal latihan, dan modul referensi WhatsApp
+              </p>
+            </div>
+
+            {/* Deep Metric Cards */}
+            <div className="bg-white rounded-3xl p-6 sm:p-7 border border-brand-200 shadow-sm space-y-6 mb-8">
+              {/* Section 1: Metabolisme & Kalori */}
+              <div>
+                <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2">
+                  1. Energi & Metabolisme Harian
+                </span>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border">
+                    <div className="text-xs text-text-muted font-medium uppercase tracking-wider mb-1">
+                      Kebutuhan Kalori Total (TDEE)
+                    </div>
+                    <div className="text-2xl font-black text-brand-950">
+                      ~{tdee} <span className="text-xs font-normal text-text-secondary">kkal/hari</span>
+                    </div>
+                    <p className="text-[11px] text-text-secondary mt-1">
+                      Batas pemeliharaan energi sesuai tingkat aktivitas {formData.activityLevel || "Moderat"}.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-brand-50 border border-brand-200">
+                    <div className="text-xs text-brand-900 font-bold uppercase tracking-wider mb-1">
+                      Rekomendasi Pola Bersama Nina
+                    </div>
+                    <div className="text-base font-bold text-brand-950">
+                      Defisit Moderat Berkelanjutan
+                    </div>
+                    <p className="text-[11px] text-brand-900/80 mt-1">
+                      Target ~{Math.max(tdee - 300, 1400)} kkal/hari tanpa rasa kelaparan menyiksa.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-surface-border" />
+
+              {/* Section 2: Distribusi Makronutrisi & Hidrasi Presisi */}
+              <div>
+                <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2">
+                  2. Distribusi Makronutrisi & Hidrasi
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-surface-muted border border-surface-border text-center">
+                    <Target className="w-4 h-4 text-accent-dark mx-auto mb-1" />
+                    <div className="text-[11px] text-text-muted uppercase font-semibold">Protein</div>
+                    <div className="text-xl font-bold text-brand-950">~{proteinTarget}g</div>
+                    <div className="text-[10px] text-text-secondary mt-0.5">Regenerasi otot</div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-surface-muted border border-surface-border text-center">
+                    <Flame className="w-4 h-4 text-amber-600 mx-auto mb-1" />
+                    <div className="text-[11px] text-text-muted uppercase font-semibold">Karbohidrat</div>
+                    <div className="text-xl font-bold text-brand-950">~{carbTarget}g</div>
+                    <div className="text-[10px] text-text-secondary mt-0.5">Bahan bakar energi</div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-surface-muted border border-surface-border text-center">
+                    <Sparkles className="w-4 h-4 text-indigo-600 mx-auto mb-1" />
+                    <div className="text-[11px] text-text-muted uppercase font-semibold">Lemak Sehat</div>
+                    <div className="text-xl font-bold text-brand-950">~{fatTarget}g</div>
+                    <div className="text-[10px] text-text-secondary mt-0.5">Keseimbangan hormon</div>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-surface-muted border border-surface-border text-center">
+                    <Droplet className="w-4 h-4 text-sky-600 mx-auto mb-1" />
+                    <div className="text-[11px] text-text-muted uppercase font-semibold">Air / Hidrasi</div>
+                    <div className="text-xl font-bold text-brand-950">{hydrationTarget}L</div>
+                    <div className="text-[10px] text-text-secondary mt-0.5">Performa metabolik</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-surface-border" />
+
+              {/* Section 3: Struktur Rutinitas & Modul WhatsApp */}
+              <div>
+                <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2">
+                  3. Rutinitas Mingguan & Modul Terhubung
+                </span>
+                <div className="space-y-2.5 text-xs text-brand-950 font-medium">
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-muted border border-surface-border">
+                    <Calendar className="w-4 h-4 text-accent-dark shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Periodisasi Latihan ({formData.workoutLocation || "Di Rumah"}):</span> 3–4 hari sesi terarah, 2 hari pemulihan aktif (jalan kaki / mobility), dan 1 hari rest penuh.
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-muted border border-surface-border">
+                    <PlayCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Kurasi Video & Form Guide YouTube Aktif:</span> Setiap kali kamu bingung form gerakan (RDL, Squat, dll.), tanyakan langsung di WhatsApp — Nina kirimkan panduan video terkurasi.
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-muted border border-surface-border">
+                    <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Gaya Interaksi Nina:</span> Disetel dengan karakter <strong>{formData.communicationStyle || "Santai & Akrab"}</strong> dan pengingat konsistensi harian.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Proceed Button */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+              <button
+                onClick={handleBack}
+                className="w-full sm:w-1/3 border border-surface-border text-text-secondary font-bold py-4 rounded-full hover:bg-surface-muted transition-colors cursor-pointer"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleNext}
+                className="w-full sm:w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                <span>Lihat Pilihan Paket Pendampingan</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
+              </button>
+            </div>
+          </div>
+        );
+
+      /* ─── Step 22: Sales Page & Pricing (Paket 1 bln 99rb, 3 bln 219rb [PALING DISUKAI], 6 bln 359rb) ─── */
+      case 22:
         return (
           <div className="flex flex-col h-full w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
             {/* Top Success Badge */}
@@ -1256,16 +1855,16 @@ export default function NinaOnboardingPage() {
                 Mulai Perjalananmu Bersama Nina, {formData.name || "Kawan"}!
               </h1>
               <p className="text-sm sm:text-base text-text-secondary max-w-2xl mx-auto leading-relaxed">
-                Semuanya bisa diatur bareng bersama Nina. Kamu tidak perlu pusing memikirkan hitungan rumit atau merasa bersalah saat lelah. Raih konsistensimu dengan satu langkah komitmen bersama Nina.
+                Semuanya bisa diatur bareng bersama Nina di WhatsApp. Kamu tidak perlu pusing memikirkan hitungan rumit atau merasa bersalah saat lelah. Raih konsistensimu dengan satu langkah komitmen bersama Nina.
               </p>
             </div>
 
             {/* User Profile & Plan Overview Card */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-surface-border shadow-xs mb-12">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-surface-border shadow-xs mb-10">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-surface-border">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-1">
-                    Ringkasan Blueprint & Konfigurasi WhatsApp
+                    Ringkasan Blueprint & Nomor WhatsApp
                   </span>
                   <h3 className="font-serif text-xl sm:text-2xl font-bold text-brand-950">
                     Plan Personal: {formData.name || "Kamu"}
@@ -1279,7 +1878,7 @@ export default function NinaOnboardingPage() {
                     BB: {formData.weight || "65"}kg • TB: {formData.height || "170"}cm
                   </span>
                   <span className="px-3 py-1 rounded-full bg-brand-50 text-accent-dark border border-brand-200">
-                    {formData.programFocus.length > 0 ? formData.programFocus.join(", ") : "Workout & Strength"}
+                    WA: {formData.whatsappNumber || "Terhubung"}
                   </span>
                 </div>
               </div>
@@ -1318,7 +1917,7 @@ export default function NinaOnboardingPage() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Check className="w-3.5 h-3.5 text-accent-dark shrink-0" />
-                      <span>Fokus: {formData.workoutLocation || "Di Rumah"}</span>
+                      <span>Fitur Video YouTube & Strava Aktif</span>
                     </div>
                   </div>
                   <p className="text-[11px] text-text-secondary mt-1">
@@ -1384,11 +1983,11 @@ export default function NinaOnboardingPage() {
                     </li>
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent-dark shrink-0 mt-0.5" />
-                      <span>Reminder santai harian & pengingat konsistensi</span>
+                      <span>Kurasi video gerakan YouTube & evaluasi form</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent-dark shrink-0 mt-0.5" />
-                      <span>Rekomendasi rutinitas personal berbasis blueprint</span>
+                      <span>Reminder santai harian & pengingat konsistensi</span>
                     </li>
                   </ul>
                 </div>
@@ -1448,6 +2047,10 @@ export default function NinaOnboardingPage() {
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
                       <span>Analisis foto makanan & screenshot Strava harian</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                      <span>Kurasi video gerakan YouTube & evaluasi form</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent shrink-0 mt-0.5" />
@@ -1534,7 +2137,7 @@ export default function NinaOnboardingPage() {
             {/* Bottom Support Note with Link to Free Learning Hub */}
             <div className="text-center text-xs text-text-secondary pt-6 border-t border-surface-border space-y-2">
               <p>
-                Setelah menyelesaikan pembayaran, link invite WhatsApp Nina akan langsung otomatis dikirim ke nomor WhatsApp kamu.
+                Setelah menyelesaikan pembayaran, link invite WhatsApp Nina akan langsung otomatis dikirim ke nomor WhatsApp {formData.whatsappNumber || "kamu"}.
               </p>
               <p>
                 Ingin pelajari sains di balik metodenya terlebih dahulu?{" "}
@@ -1551,7 +2154,7 @@ export default function NinaOnboardingPage() {
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900 flex flex-col relative">
-      {/* ─── Seamless Page Entrance Curtain (Smoothly dissolves from the Nina transition) ─── */}
+      {/* ─── Seamless Page Entrance Curtain ─── */}
       <motion.div
         initial={{ opacity: 1 }}
         animate={{ opacity: 0 }}
@@ -1559,8 +2162,8 @@ export default function NinaOnboardingPage() {
         className="fixed inset-0 z-50 bg-brand-950 pointer-events-none"
       />
 
-      {/* ─── Top Progress Navigation (Visible during survey steps 1 to 15) ─── */}
-      {step > 0 && step < 16 && (
+      {/* ─── Top Progress Navigation (Visible during survey steps 1 to 21, except full-screen modal step 20) ─── */}
+      {step > 0 && step < 22 && step !== 20 && (
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
           <div className="max-w-md mx-auto w-full flex items-center gap-3">
             <button
@@ -1574,12 +2177,28 @@ export default function NinaOnboardingPage() {
             <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
               <div 
                 className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
-                style={{ width: `${(step / 15) * 100}%` }}
+                style={{ width: `${(step / 22) * 100}%` }}
               />
             </div>
 
             <span className="text-[11px] font-bold text-text-muted font-mono">
-              {step <= 4 ? `Fitur ${step + 1}/5` : `Survey ${step - 4}/10`}
+              {step <= 5
+                ? `Fitur ${step + 1}/6`
+                : step <= 9
+                ? `Survey ${step - 5}/10`
+                : step === 10
+                ? `Sains Metabolisme`
+                : step <= 15
+                ? `Survey ${step - 6}/10`
+                : step === 16
+                ? `Analisa Hambatan`
+                : step === 17
+                ? `Survey 10/10`
+                : step === 18
+                ? `Blueprint Preview`
+                : step === 19
+                ? `Verifikasi WA`
+                : `Full Blueprint`}
             </span>
           </div>
         </header>
