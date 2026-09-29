@@ -232,14 +232,25 @@ export default function NinaOnboardingPage() {
       /* ─── Step 0: Fitur 1 (Foto Makanan dengan Nasi Padang Asli) ─── */
       case 0:
         return (
-          <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
+          <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-3 pb-8 px-4 sm:px-6">
+            {/* Step 0 Top Navigation */}
+            <div className="w-full flex items-center justify-between mb-3">
+              <Link
+                href="/companion/nina"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-brand-900 transition-colors py-1 px-2 -ml-2 rounded-lg hover:bg-surface-muted"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Halaman Nina</span>
+              </Link>
+              <span className="text-[11px] font-bold text-accent-dark tracking-wider uppercase font-mono bg-brand-50 px-2.5 py-0.5 rounded-full border border-brand-200">
+                Fitur 1/5
+              </span>
+            </div>
+
             <div className="text-center space-y-2 mb-4">
-              <div className="w-11 h-11 bg-brand-50 border border-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-2 text-accent-dark">
+              <div className="w-11 h-11 bg-brand-50 border border-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-2 text-accent-dark shadow-xs">
                 <Camera className="w-5 h-5 text-accent-dark" />
               </div>
-              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 1 dari 5
-              </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina bisa membaca foto makananmu
               </h2>
@@ -1539,7 +1550,15 @@ export default function NinaOnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900 flex flex-col">
+    <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900 flex flex-col relative">
+      {/* ─── Seamless Page Entrance Curtain (Smoothly dissolves from the Nina transition) ─── */}
+      <motion.div
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed inset-0 z-50 bg-brand-950 pointer-events-none"
+      />
+
       {/* ─── Top Progress Navigation (Visible during survey steps 1 to 15) ─── */}
       {step > 0 && step < 16 && (
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
@@ -1566,8 +1585,13 @@ export default function NinaOnboardingPage() {
         </header>
       )}
 
-      {/* ─── Main Animated Content ─── */}
-      <main className="flex-1 relative flex flex-col overflow-x-hidden">
+      {/* ─── Main Animated Content with Smooth Entrance ─── */}
+      <motion.main
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.48, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+        className="flex-1 relative flex flex-col overflow-x-hidden"
+      >
         <AnimatePresence initial={false} custom={direction} mode="wait">
           <motion.div
             key={step}
@@ -1585,7 +1609,7 @@ export default function NinaOnboardingPage() {
             {renderContent()}
           </motion.div>
         </AnimatePresence>
-      </main>
+      </motion.main>
     </div>
   );
 }

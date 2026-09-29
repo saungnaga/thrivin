@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera,
@@ -115,7 +116,24 @@ const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; t
 );
 
 export default function NinaPage() {
+  const router = useRouter();
   const [wordIndex, setWordIndex] = useState(0);
+  const [isNavigating, setIsNavigating] = useState(false);
+
+  // Prefetch onboarding page for instant transition
+  useEffect(() => {
+    router.prefetch("/companion/nina/onboarding");
+  }, [router]);
+
+  const handleStartOnboarding = (e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    if (isNavigating) return;
+    setIsNavigating(true);
+    setTimeout(() => {
+      router.push("/companion/nina/onboarding");
+    }, 420);
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -158,7 +176,8 @@ export default function NinaPage() {
             {/* CTA to Onboarding */}
             <Link
               href="/companion/nina/onboarding"
-              className="text-xs sm:text-sm font-bold bg-brand-900 text-white px-5 py-2 rounded-full hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5"
+              onClick={handleStartOnboarding}
+              className="text-xs sm:text-sm font-bold bg-brand-900 text-white px-5 py-2 rounded-full hover:bg-brand-800 transition-all shadow-glow hover:-translate-y-0.5 cursor-pointer"
             >
               Mulai Perjalanan
             </Link>
@@ -214,6 +233,7 @@ export default function NinaPage() {
             <motion.div variants={fadeInUp} className="flex flex-col items-center gap-3">
               <Link
                 href="/companion/nina/onboarding"
+                onClick={handleStartOnboarding}
                 className="inline-flex items-center justify-center gap-2.5 px-9 py-5 text-base sm:text-lg font-black text-white bg-accent-dark hover:bg-accent hover:text-brand-950 rounded-full transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <span>Mulai Perjalanan Lo Bareng Nina</span>
@@ -356,7 +376,8 @@ export default function NinaPage() {
                 <div className="mt-5 w-full max-w-[340px] sm:max-w-[360px] flex flex-col items-center">
                   <Link
                     href="/companion/nina/onboarding"
-                    className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
+                    onClick={handleStartOnboarding}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5 cursor-pointer"
                   >
                     <span>Mulai Ngobrol Bareng Nina</span>
                     <ArrowRight className="w-4 h-4 text-accent" />
@@ -432,7 +453,8 @@ export default function NinaPage() {
                 <div className="mt-5 w-full max-w-[340px] sm:max-w-[360px] flex flex-col items-center">
                   <Link
                     href="/companion/nina/onboarding"
-                    className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
+                    onClick={handleStartOnboarding}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5 cursor-pointer"
                   >
                     <span>Dapatkan Pendampingan Nina</span>
                     <ArrowRight className="w-4 h-4 text-accent" />
@@ -607,6 +629,7 @@ export default function NinaPage() {
             <div className="mt-14 flex flex-col items-center">
               <Link
                 href="/companion/nina/onboarding"
+                onClick={handleStartOnboarding}
                 className="inline-flex items-center justify-center gap-2.5 py-4 px-10 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white hover:text-accent font-bold text-base transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer"
               >
                 <span className="text-white font-bold">Coba Bareng Nina Sekarang</span>
@@ -724,6 +747,7 @@ export default function NinaPage() {
               <motion.div variants={fadeInUp} className="flex flex-col items-center gap-4">
                 <Link 
                   href="/companion/nina/onboarding" 
+                  onClick={handleStartOnboarding}
                   className="inline-flex items-center justify-center gap-2 px-10 py-5 text-base sm:text-lg font-black text-white bg-brand-950 rounded-full hover:bg-brand-900 hover:scale-105 active:scale-95 transition-all shadow-2xl cursor-pointer"
                 >
                   <span>Mulai Perjalanan Lo Bareng Nina</span>
@@ -757,6 +781,67 @@ export default function NinaPage() {
       <footer className="bg-brand-950 text-brand-200/60 py-10 px-4 sm:px-6 border-t border-white/10 text-center text-xs">
         <p>© 2026 Thrivin. Never Grow Alone.</p>
       </footer>
+
+      {/* ─── Seamless Transition Overlay to Nina Onboarding ─── */}
+      <AnimatePresence>
+        {isNavigating && (
+          <motion.div
+            key="onboarding-transition"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed inset-0 z-[100] bg-brand-950 flex flex-col items-center justify-center text-white px-6"
+          >
+            {/* Ambient Background Glow */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-accent/20 rounded-full blur-[100px] pointer-events-none" />
+
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ delay: 0.04, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col items-center text-center relative z-10 max-w-sm"
+            >
+              {/* Nina Avatar with Glowing Cyan Rings */}
+              <div className="relative mb-6">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-accent shadow-glow ring-4 ring-accent/30 relative z-10">
+                  <Image
+                    src="/nina-pp.webp"
+                    alt="Nina"
+                    fill
+                    priority
+                    className="object-cover object-top"
+                  />
+                </div>
+                <div className="absolute -inset-2.5 rounded-full bg-accent/30 animate-ping opacity-60 pointer-events-none" />
+              </div>
+
+              {/* Status Badge */}
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/10 text-accent text-xs font-bold uppercase tracking-wider mb-3 border border-white/15 backdrop-blur-sm">
+                <span className="w-2 h-2 rounded-full bg-[#00A884] animate-pulse" />
+                WhatsApp Companion
+              </span>
+
+              <h3 className="font-serif text-2xl sm:text-3xl font-bold text-white mb-2">
+                Menghubungkan ke Nina
+              </h3>
+              <p className="text-xs sm:text-sm text-brand-100/80 mb-6 leading-relaxed">
+                Membuka ruang onboarding dan sesi kenalan bareng Nina...
+              </p>
+
+              {/* Animated Dots / Status */}
+              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
+                <span className="text-xs text-accent font-semibold">Menyiapkan Ruang</span>
+                <div className="flex gap-1.5 items-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
