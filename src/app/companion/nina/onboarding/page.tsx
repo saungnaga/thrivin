@@ -150,7 +150,7 @@ export default function NinaOnboardingPage() {
     goals: [],
   });
 
-  const TOTAL_STEPS = 16;
+  const TOTAL_STEPS = 17;
 
   const paginate = (newDirection: number) => {
     setDirection(newDirection);
@@ -211,9 +211,9 @@ export default function NinaOnboardingPage() {
   const tdee = calculateTDEE();
   const proteinTarget = Math.round(parseFloat(formData.weight || "65") * 1.6);
 
-  // Step 15: Sequential Processing Stages
+  // Step 16: Sequential Processing Stages
   useEffect(() => {
-    if (step === 15) {
+    if (step === 16) {
       setProcessingStage(0);
       const timers = [
         setTimeout(() => setProcessingStage(1), 900),
@@ -238,7 +238,7 @@ export default function NinaOnboardingPage() {
                 <Camera className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 1 dari 4
+                Fitur 1 dari 5
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina bisa membaca foto makananmu
@@ -279,9 +279,69 @@ export default function NinaOnboardingPage() {
             </button>
           </div>
         );
-      
-      /* ─── Step 1: Fitur 2 (Proaktif Reminder Santai) ─── */
+
+      /* ─── Step 1: Fitur 2 (Catat Progres Lari Strava & Smartwatch) ─── */
       case 1:
+        return (
+          <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
+            <div className="text-center space-y-2 mb-4">
+              <div className="w-11 h-11 bg-brand-50 border border-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-2 text-accent-dark">
+                <Activity className="w-5 h-5 text-accent-dark" />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
+                Fitur 2 dari 5
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
+                Catat progres dari aplikasi lari & smartwatchmu
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
+                Cukup kirim screenshot hasil lari dari Strava, Garmin, atau smartwatch. Nina membaca data performa dan memandu pemulihan fisikmu.
+              </p>
+            </div>
+            
+            <WAMockup>
+              <BubbleUser time="06:50">
+                <div className="relative w-full h-32 rounded-xl overflow-hidden mb-1.5 border border-brand-900/20 shadow-xs">
+                  <Image
+                    src="/strava.webp"
+                    alt="Screenshot Aktivitas Strava"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+                Lari pagi ini beres Nina! 🏃‍♂️💨
+              </BubbleUser>
+              <BubbleNina time="06:52">
+                Keren lari 5.11 km pagi ini! 🔥 Analisis datanya:<br />
+                • Jarak: 5.11 km<br />
+                • Pace: 6:20 /km<br />
+                • Waktu: 32:25 (Elev gain 16 m)<br />
+                • Kalori: ~274 Cal<br />
+                • HR rata-rata: 177 bpm<br /><br />
+                Pace kamu stabil! Namun detak jantung rata-rata 177 bpm tergolong intensitas tinggi (Threshold). Besok disarankan pemulihan aktif (active recovery) atau peregangan ringan, dan jangan lupa penuhi asupan cairan ya 💧
+              </BubbleNina>
+            </WAMockup>
+
+            <div className="w-full mt-6 flex gap-3">
+              <button
+                onClick={handleBack}
+                className="w-1/3 border border-surface-border text-text-secondary font-bold py-3.5 rounded-full hover:bg-surface-muted transition-colors"
+              >
+                Kembali
+              </button>
+              <button
+                onClick={handleNext}
+                className="w-2/3 bg-brand-900 hover:bg-brand-800 text-white font-bold py-3.5 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
+              >
+                <span>Lanjut</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
+              </button>
+            </div>
+          </div>
+        );
+      
+      /* ─── Step 2: Fitur 3 (Proaktif Reminder Santai) ─── */
+      case 2:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -289,7 +349,7 @@ export default function NinaOnboardingPage() {
                 <BellRing className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 2 dari 4
+                Fitur 3 dari 5
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina proaktif menyapa lewat reminder santai
@@ -329,8 +389,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 2: Fitur 3 (Memori Personal Jangka Panjang) ─── */
-      case 2:
+      /* ─── Step 3: Fitur 4 (Memori Personal Jangka Panjang) ─── */
+      case 3:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -338,7 +398,7 @@ export default function NinaOnboardingPage() {
                 <BrainCircuit className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 3 dari 4
+                Fitur 4 dari 5
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Nina mengingat semuanya tentangmu
@@ -378,8 +438,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 3: Fitur 4 (100% di WhatsApp) ─── */
-      case 3:
+      /* ─── Step 4: Fitur 5 (100% di WhatsApp) ─── */
+      case 4:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
             <div className="text-center space-y-2 mb-4">
@@ -387,7 +447,7 @@ export default function NinaOnboardingPage() {
                 <Smartphone className="w-5 h-5 text-accent-dark" />
               </div>
               <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-dark block">
-                Fitur 4 dari 4
+                Fitur 5 dari 5
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
                 Semuanya di WhatsApp, tanpa instal apapun
@@ -427,8 +487,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 4: Survey Nama ─── */
-      case 4:
+      /* ─── Step 5: Survey Nama ─── */
+      case 5:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -470,8 +530,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 5: Survey Usia ─── */
-      case 5:
+      /* ─── Step 6: Survey Usia ─── */
+      case 6:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -518,8 +578,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 6: Survey Jenis Kelamin (Manual Next/Back) ─── */
-      case 6:
+      /* ─── Step 7: Survey Jenis Kelamin (Manual Next/Back) ─── */
+      case 7:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -569,8 +629,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 7: Data Fisik (BB & TB) ─── */
-      case 7:
+      /* ─── Step 8: Data Fisik (BB & TB) ─── */
+      case 8:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
@@ -627,8 +687,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 8: Aktivitas Harian (Manual Next/Back) ─── */
-      case 8:
+      /* ─── Step 9: Aktivitas Harian (Manual Next/Back) ─── */
+      case 9:
         const activities: { level: ActivityLevel; desc: string }[] = [
           { level: "Sedentari", desc: "Duduk hampir seharian, minim gerak fisik" },
           { level: "Ringan", desc: "Aktivitas harian ringan / olahraga 1–2x seminggu" },
@@ -685,8 +745,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 9: Fokus Program (Max 3, or Single Hybrid) ─── */
-      case 9:
+      /* ─── Step 10: Fokus Program (Max 3, or Single Hybrid) ─── */
+      case 10:
         const programOptions: { focus: string; icon: React.ReactNode; desc: string }[] = [
           {
             focus: "Workout & Strength",
@@ -719,8 +779,6 @@ export default function NinaOnboardingPage() {
             desc: "Paket lengkap: kombinasi beban, mobilitas, dan nutrisi harian"
           }
         ];
-
-        const isHybrid = formData.programFocus.includes("Hybrid Seimbang");
 
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
@@ -781,8 +839,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 10: Pengalaman & Riwayat Olahraga ─── */
-      case 10:
+      /* ─── Step 11: Pengalaman & Riwayat Olahraga ─── */
+      case 11:
         const experienceOptions: { level: ExperienceLevel; desc: string }[] = [
           { level: "Pemula Total", desc: "Belum pernah rutin olahraga dan bingung mulai dari mana" },
           { level: "Sering Putus di Tengah", desc: "Niat ada tapi selalu kendor di minggu ke-2 atau ke-3" },
@@ -837,8 +895,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 11: Preferensi Lokasi Latihan ─── */
-      case 11:
+      /* ─── Step 12: Preferensi Lokasi Latihan ─── */
+      case 12:
         const locations: { loc: WorkoutLocation; desc: string }[] = [
           { loc: "Di Rumah", desc: "Cukup matras, bodyweight, atau sepasang dumbell" },
           { loc: "Di Gym", desc: "Punya akses ke barbell, mesin beban, dan treadmill" },
@@ -893,8 +951,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 12: Tantangan Terbesar ─── */
-      case 12:
+      /* ─── Step 13: Tantangan Terbesar ─── */
+      case 13:
         const challenges: { item: BiggestChallenge; desc: string }[] = [
           { item: "Gampang Mager & Hilang Niat", desc: "Semangat di awal, tapi gampang skip saat motivasi turun" },
           { item: "Jadwal Sibuk Susah Konsisten", desc: "Pekerjaan kantor menyita waktu & energi di malam hari" },
@@ -949,8 +1007,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 13: Gaya Komunikasi Nina ─── */
-      case 13:
+      /* ─── Step 14: Gaya Komunikasi Nina ─── */
+      case 14:
         const styles: { style: CommunicationStyle; badge: string; desc: string }[] = [
           {
             style: "Santai & Akrab",
@@ -1021,8 +1079,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 14: Hasil Kalkulasi TDEE & Personal Blueprint ─── */
-      case 14:
+      /* ─── Step 15: Hasil Kalkulasi TDEE & Personal Blueprint ─── */
+      case 15:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <div className="text-center mb-6">
@@ -1115,8 +1173,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 15: Animasi Pemrosesan Interaktif ─── */
-      case 15:
+      /* ─── Step 16: Animasi Pemrosesan Interaktif ─── */
+      case 16:
         const stages = [
           `Menghitung metabolisme basal & target kalori (~${tdee} kkal)...`,
           `Mengadaptasi blueprint program: ${formData.programFocus.join(", ") || "Program Personal"}...`,
@@ -1173,8 +1231,8 @@ export default function NinaOnboardingPage() {
           </div>
         );
 
-      /* ─── Step 16: Sales Page & Pricing (Paket 1 bln 99rb, 3 bln 219rb, 6 bln 359rb) ─── */
-      case 16:
+      /* ─── Step 17: Sales Page & Pricing (Paket 1 bln 99rb, 3 bln 219rb, 6 bln 359rb) ─── */
+      case 17:
         return (
           <div className="flex flex-col h-full w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
             {/* Top Success Badge */}
@@ -1482,8 +1540,8 @@ export default function NinaOnboardingPage() {
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900 flex flex-col">
-      {/* ─── Top Progress Navigation (Visible during survey steps 1 to 14) ─── */}
-      {step > 0 && step < 15 && (
+      {/* ─── Top Progress Navigation (Visible during survey steps 1 to 15) ─── */}
+      {step > 0 && step < 16 && (
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
           <div className="max-w-md mx-auto w-full flex items-center gap-3">
             <button
@@ -1497,12 +1555,12 @@ export default function NinaOnboardingPage() {
             <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
               <div 
                 className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
-                style={{ width: `${(step / 14) * 100}%` }}
+                style={{ width: `${(step / 15) * 100}%` }}
               />
             </div>
 
             <span className="text-[11px] font-bold text-text-muted font-mono">
-              {step <= 3 ? `Fitur ${step + 1}/4` : `Survey ${step - 3}/10`}
+              {step <= 4 ? `Fitur ${step + 1}/5` : `Survey ${step - 4}/10`}
             </span>
           </div>
         </header>

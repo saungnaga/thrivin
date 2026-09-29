@@ -16,8 +16,6 @@ import {
   ShieldCheck,
   Activity,
   BookOpen,
-  CheckCircle2,
-  ExternalLink,
   GraduationCap
 } from "lucide-react";
 
@@ -128,7 +126,7 @@ export default function NinaPage() {
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900">
-      {/* ─── 1. Header: Thrivin Logo (Home) + Learning Hub (Free) + CTA ─── */}
+      {/* ─── 1. Header: Thrivin Logo (Home) + Learning Hub with Free underneath + CTA ─── */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-surface-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Brand Logo that links to homepage */}
@@ -139,14 +137,16 @@ export default function NinaPage() {
           </Link>
 
           {/* Center/Right Nav Links */}
-          <div className="flex items-center gap-3 sm:gap-5">
-            {/* Learning Hub with FREE badge */}
+          <div className="flex items-center gap-3 sm:gap-6">
+            {/* Learning Hub with FREE badge underneath (stacked vertically) */}
             <Link
               href="/path/wellness"
-              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-text-secondary hover:text-brand-900 transition-colors py-1 px-3 rounded-full hover:bg-surface-muted"
+              className="flex flex-col items-center justify-center text-center transition-colors group py-1 px-3 rounded-xl hover:bg-surface-muted"
             >
-              <span>Learning Hub</span>
-              <span className="px-2 py-0.5 rounded-full bg-brand-50 border border-brand-200 text-accent-dark text-[10px] font-black uppercase tracking-wider">
+              <span className="text-xs sm:text-sm font-bold text-text-secondary group-hover:text-brand-900 leading-tight">
+                Learning Hub
+              </span>
+              <span className="text-[10px] font-black text-accent-dark tracking-wider uppercase leading-none mt-0.5">
                 Free
               </span>
             </Link>
@@ -379,7 +379,89 @@ export default function NinaPage() {
           </div>
         </section>
 
-        {/* ─── 5. Section: The Gap ─── */}
+        {/* ─── 5. Section: Science-Based Knowledge & Free Learning Hub (MOVED BEFORE THE GAP) ─── */}
+        <section id="science-based" className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center max-w-3xl mx-auto mb-14">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-4 shadow-xs">
+                <GraduationCap className="w-4 h-4 text-accent-dark" />
+                100% Science-Based Wellness
+              </div>
+              <h2 className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4 leading-tight">
+                Nina Dibekali Pengetahuan Kebugaran Berbasis Sains.
+              </h2>
+              <p className="text-base sm:text-lg text-text-secondary leading-relaxed">
+                Bukan tips mitos dari media sosial. Seluruh pemahaman Nina dibangun dari prinsip metabolisme, hipertrofi, dan sains kebiasaan teruji — yang seluruh materinya kami sediakan <strong>100% GRATIS</strong> di Learning Hub.
+              </p>
+            </div>
+
+            {/* 3 Pillars of Science */}
+            <div className="grid md:grid-cols-3 gap-6 mb-12">
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Activity className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Metabolisme & Energi (CICO)
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Perhitungan kebutuhan energi harian realistis yang menjaga komposisi tubuh tanpa diet ekstrem atau rasa tersiksa.
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Sparkles className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Progressive Overload
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Prinsip adaptasi beban berkala agar kamu tidak lagi terjebak di fase jalan di tempat (plateau).
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <BookOpen className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Sleep & Recovery Rhythm
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Regulasi hormon pemulihan dan kualitas tidur sebagai fondasi utama konsistensi energi harianmu.
+                </p>
+              </div>
+            </div>
+
+            {/* Free Learning Hub Banner Card (Single CTA for Learning Hub Only) */}
+            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-accent shadow-xl">
+              <div className="max-w-xl text-center md:text-left">
+                <span className="text-xs font-bold text-accent uppercase tracking-widest block mb-2">
+                  Bebas Akses Siapa Saja
+                </span>
+                <h3 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
+                  Baca Seluruh Kurikulum Sains Kami — 100% Gratis.
+                </h3>
+                <p className="text-sm text-brand-100 leading-relaxed">
+                  Kamu bisa mempelajari semua silabus dan teori kebugaran tanpa bayar sepeser pun di Learning Hub. Seluruh kurikulum terbuka untuk siapa saja yang ingin belajar secara mandiri.
+                </p>
+              </div>
+
+              <div className="shrink-0 w-full md:w-auto flex justify-center">
+                <Link
+                  href="/path/wellness"
+                  className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white hover:bg-brand-50 text-brand-950 font-bold text-sm transition-all shadow-md hover:scale-105 active:scale-95"
+                >
+                  <BookOpen className="w-4 h-4 text-brand-950" />
+                  <span>Buka Learning Hub (100% Gratis)</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 6. Section: The Reality Gap ─── */}
         <section className="py-24 sm:py-32 bg-surface-muted px-4 sm:px-6 border-b border-surface-border">
           <div className="max-w-6xl mx-auto">
             <motion.div 
@@ -490,7 +572,7 @@ export default function NinaPage() {
           </div>
         </section>
 
-        {/* ─── 6. Section: Introducing Nina & Visual Fitur (Nasi Padang + Strava) ─── */}
+        {/* ─── 7. Section: Introducing Nina & Visual Fitur Foto Makanan ─── */}
         <section id="features" className="py-24 sm:py-32 bg-gradient-dark px-4 sm:px-6 text-white overflow-hidden relative">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-accent/15 rounded-full blur-[140px] pointer-events-none" />
           
@@ -523,7 +605,7 @@ export default function NinaPage() {
               whileInView="visible"
               viewport={{ once: true }}
               variants={staggerContainer}
-              className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-20"
+              className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-16"
             >
               {[
                 {
@@ -567,173 +649,50 @@ export default function NinaPage() {
               ))}
             </motion.div>
 
-            {/* Visual Deep Dive: 2 Side-by-Side WA Mockups (Foto Nasi Padang & Foto Strava) */}
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-start">
-              {/* Mockup 1: Foto Nasi Padang (Ayam, Telur, Perkedel) */}
-              <div className="flex flex-col items-center">
-                <div className="text-center mb-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-accent block">Fitur 1</span>
-                  <h4 className="font-serif text-xl font-bold text-white">Analisis Foto Makanan Lokal</h4>
-                </div>
-                <WAMockup>
-                  <BubbleUser time="12:30">
-                    <div className="relative w-full h-36 rounded-xl overflow-hidden mb-2 border border-brand-900/20 shadow-xs">
-                      <Image
-                        src="/nasi-padang.webp"
-                        alt="Nasi Padang dengan ayam, telur, dan perkedel"
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                    Makan siang Nasi Padang nih Nina! 🍛
-                  </BubbleUser>
-                  <BubbleNina time="12:31">
-                    Wah Nasi Padang! Ada ayam, telur, sama perkedel ya 😍 Aku estimasi nutrisinya:<br /><br />
-                    • Ayam: ~25g protein<br />
-                    • Telur: ~7g protein<br />
-                    • Perkedel: ~3g protein + karbo<br />
-                    • Nasi & daun singkong: energi & serat<br /><br />
-                    Total sekitar ~680 kkal, 35g protein. Asupan protein siang ini mantap banget! Sisa kebutuhan tinggal porsi ringan makan malam ya 💪
-                  </BubbleNina>
-                  <BubbleUser time="12:32">
-                    Wah praktis banget, makasih Nina! 🙏
-                  </BubbleUser>
-                </WAMockup>
+            {/* Single Feature Focus: Foto Makanan Lokal Nasi Padang (Ayam, Telur, Perkedel) */}
+            <div className="max-w-md mx-auto flex flex-col items-center">
+              <div className="text-center mb-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-accent block">Live WhatsApp Preview</span>
+                <h4 className="font-serif text-xl font-bold text-white">Analisis Foto Makanan di WhatsApp</h4>
               </div>
-
-              {/* Mockup 2: Screenshot Strava Activity */}
-              <div className="flex flex-col items-center">
-                <div className="text-center mb-4">
-                  <span className="text-xs font-bold uppercase tracking-wider text-accent block">Fitur 2</span>
-                  <h4 className="font-serif text-xl font-bold text-white">Evaluasi Screenshot Lari Strava</h4>
-                </div>
-                <WAMockup>
-                  <BubbleUser time="06:50">
-                    <div className="relative w-full h-36 rounded-xl overflow-hidden mb-2 border border-brand-900/20 shadow-xs">
-                      <Image
-                        src="/strava.webp"
-                        alt="Screenshot Aktivitas Strava"
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                    Lari pagi ini beres Nina! 🏃‍♂️💨
-                  </BubbleUser>
-                  <BubbleNina time="06:52">
-                    Keren! Lari 5.4 km di pace 6:12/km 🔥<br /><br />
-                    • Total waktu: 33 menit 38 detik<br />
-                    • Kalori terbakar: ~380 kkal<br />
-                    • Detak jantung: 144 bpm (stabil di Zone 2)<br /><br />
-                    Aerobic base kamu makin kuat dibanding minggu lalu. Besok jadwal istirahat aktif ya, cukup jalan santai 15 menit dan minum 2.5 liter air 💧
-                  </BubbleNina>
-                  <BubbleUser time="06:54">
-                    Mantap evaluasinya, noted istirahat besok 👍
-                  </BubbleUser>
-                </WAMockup>
-              </div>
+              <WAMockup>
+                <BubbleUser time="12:30">
+                  <div className="relative w-full h-36 rounded-xl overflow-hidden mb-2 border border-brand-900/20 shadow-xs">
+                    <Image
+                      src="/nasi-padang.webp"
+                      alt="Nasi Padang dengan ayam, telur, dan perkedel"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                  Makan siang Nasi Padang nih Nina! 🍛
+                </BubbleUser>
+                <BubbleNina time="12:31">
+                  Wah Nasi Padang! Ada ayam, telur, sama perkedel ya 😍 Aku estimasi nutrisinya:<br /><br />
+                  • Ayam: ~25g protein<br />
+                  • Telur: ~7g protein<br />
+                  • Perkedel: ~3g protein + karbo<br />
+                  • Nasi & daun singkong: energi & serat<br /><br />
+                  Total sekitar ~680 kkal, 35g protein. Asupan protein siang ini mantap banget! Sisa kebutuhan tinggal porsi ringan makan malam ya 💪
+                </BubbleNina>
+                <BubbleUser time="12:32">
+                  Wah praktis banget, makasih Nina! 🙏
+                </BubbleUser>
+              </WAMockup>
             </div>
 
-            {/* High-Contrast Standout CTA in Meet Nina Section */}
+            {/* CTA Button in Meet Nina Section with Bright Font for Dark Background */}
             <div className="mt-14 flex flex-col items-center">
               <Link
                 href="/companion/nina/onboarding"
-                className="inline-flex items-center justify-center gap-2.5 py-4 px-9 rounded-full bg-accent hover:bg-white text-brand-950 font-black text-base transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer border-2 border-white/30"
+                className="inline-flex items-center justify-center gap-2.5 py-4 px-10 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white hover:text-accent font-bold text-base transition-all shadow-glow hover:scale-105 active:scale-95 cursor-pointer"
               >
-                <span>Coba Bareng Nina Sekarang</span>
-                <ArrowRight className="w-5 h-5 text-brand-950" />
+                <span className="text-white font-bold">Coba Bareng Nina Sekarang</span>
+                <ArrowRight className="w-5 h-5 text-accent" />
               </Link>
               <span className="text-xs text-brand-200/80 mt-2 font-medium">
                 gaperlu install, cukup whatsapp
               </span>
-            </div>
-          </div>
-        </section>
-
-        {/* ─── 7. Section: Science-Based Knowledge & Free Learning Hub ─── */}
-        <section className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center max-w-3xl mx-auto mb-14">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-4 shadow-xs">
-                <GraduationCap className="w-4 h-4 text-accent-dark" />
-                100% Science-Based Wellness
-              </div>
-              <h2 className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4 leading-tight">
-                Nina Dibekali Pengetahuan Kebugaran Berbasis Sains.
-              </h2>
-              <p className="text-base sm:text-lg text-text-secondary leading-relaxed">
-                Bukan tips mitos dari media sosial. Seluruh pemahaman Nina dibangun dari prinsip metabolisme, hipertrofi, dan sains kebiasaan teruji — yang seluruh materinya kami sediakan <strong>100% GRATIS</strong> di Learning Hub.
-              </p>
-            </div>
-
-            {/* 3 Pillars of Science */}
-            <div className="grid md:grid-cols-3 gap-6 mb-12">
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <Activity className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Metabolisme & Energi (CICO)
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Perhitungan kebutuhan energi harian realistis yang menjaga komposisi tubuh tanpa diet ekstrem atau rasa tersiksa.
-                </p>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <Sparkles className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Progressive Overload
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Prinsip adaptasi beban berkala agar kamu tidak lagi terjebak di fase jalan di tempat (plateau).
-                </p>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <BookOpen className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Sleep & Recovery Rhythm
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Regulasi hormon pemulihan dan kualitas tidur sebagai fondasi utama konsistensi energi harianmu.
-                </p>
-              </div>
-            </div>
-
-            {/* Free Learning Hub Banner Card */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-accent shadow-xl">
-              <div className="max-w-xl text-center md:text-left">
-                <span className="text-xs font-bold text-accent uppercase tracking-widest block mb-2">
-                  Bebas Akses Siapa Saja
-                </span>
-                <h3 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
-                  Baca Seluruh Kurikulum Sains Kami — 100% Gratis.
-                </h3>
-                <p className="text-sm text-brand-100 leading-relaxed">
-                  Kamu bisa mempelajari semua silabus dan teori kebugaran tanpa bayar sepeser pun di Learning Hub. Nina hadir bagi kamu yang ingin didampingi eksekusinya setiap hari di WhatsApp.
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto shrink-0">
-                <Link
-                  href="/path/wellness"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-white hover:bg-brand-50 text-brand-950 font-bold text-sm transition-all shadow-md"
-                >
-                  <BookOpen className="w-4 h-4 text-brand-950" />
-                  <span>Buka Learning Hub (Free)</span>
-                </Link>
-                <Link
-                  href="/companion/nina/onboarding"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-accent hover:bg-white text-brand-950 font-black text-sm transition-all shadow-glow"
-                >
-                  <span>Mulai Bareng Nina</span>
-                  <ArrowRight className="w-4 h-4 text-brand-950" />
-                </Link>
-              </div>
             </div>
           </div>
         </section>
