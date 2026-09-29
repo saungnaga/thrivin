@@ -383,89 +383,7 @@ export default function NinaPage() {
           </div>
         </section>
 
-        {/* ─── 5. Section: Science-Based Knowledge & Free Learning Hub (MOVED BEFORE THE GAP) ─── */}
-        <section id="science-based" className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center max-w-3xl mx-auto mb-14">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-4 shadow-xs">
-                <GraduationCap className="w-4 h-4 text-accent-dark" />
-                100% Science-Based Wellness
-              </div>
-              <h2 className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4 leading-tight">
-                Nina Dibekali Pengetahuan Kebugaran Berbasis Sains.
-              </h2>
-              <p className="text-base sm:text-lg text-text-secondary leading-relaxed">
-                Bukan tips mitos dari media sosial. Seluruh pemahaman Nina dibangun dari prinsip metabolisme, hipertrofi, dan sains kebiasaan teruji — yang seluruh materinya kami sediakan <strong>100% GRATIS</strong> di Learning Hub.
-              </p>
-            </div>
-
-            {/* 3 Pillars of Science */}
-            <div className="grid md:grid-cols-3 gap-6 mb-12">
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <Activity className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Metabolisme & Energi (CICO)
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Perhitungan kebutuhan energi harian realistis yang menjaga komposisi tubuh tanpa diet ekstrem atau rasa tersiksa.
-                </p>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <Sparkles className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Progressive Overload
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Prinsip adaptasi beban berkala agar kamu tidak lagi terjebak di fase jalan di tempat (plateau).
-                </p>
-              </div>
-
-              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
-                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
-                  <BookOpen className="w-5 h-5 text-accent-dark" />
-                </div>
-                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
-                  Sleep & Recovery Rhythm
-                </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                  Regulasi hormon pemulihan dan kualitas tidur sebagai fondasi utama konsistensi energi harianmu.
-                </p>
-              </div>
-            </div>
-
-            {/* Free Learning Hub Banner Card (Single CTA for Learning Hub Only) */}
-            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-accent shadow-xl">
-              <div className="max-w-xl text-center md:text-left">
-                <span className="text-xs font-bold text-accent uppercase tracking-widest block mb-2">
-                  Bebas Akses Siapa Saja
-                </span>
-                <h3 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
-                  Baca Seluruh Kurikulum Sains Kami — 100% Gratis.
-                </h3>
-                <p className="text-sm text-brand-100 leading-relaxed">
-                  Kamu bisa mempelajari semua silabus dan teori kebugaran tanpa bayar sepeser pun di Learning Hub. Seluruh kurikulum terbuka untuk siapa saja yang ingin belajar secara mandiri.
-                </p>
-              </div>
-
-              <div className="shrink-0 w-full md:w-auto flex justify-center">
-                <Link
-                  href="/path/wellness"
-                  className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white hover:bg-brand-50 text-brand-950 font-bold text-sm transition-all shadow-md hover:scale-105 active:scale-95"
-                >
-                  <BookOpen className="w-4 h-4 text-brand-950" />
-                  <span>Buka Learning Hub (100% Gratis)</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ─── 6. Section: The Reality Gap ─── */}
+        {/* ─── 5. Section: The Reality Gap ─── */}
         <section className="py-24 sm:py-32 bg-surface-muted px-4 sm:px-6 border-b border-surface-border">
           <div className="max-w-6xl mx-auto">
             <motion.div 
@@ -576,7 +494,7 @@ export default function NinaPage() {
           </div>
         </section>
 
-        {/* ─── 7. Section: Introducing Nina & Visual Fitur Foto Makanan ─── */}
+        {/* ─── 6. Section: Introducing Nina & Visual Fitur Foto Makanan ─── */}
         <section id="features" className="py-24 sm:py-32 bg-gradient-dark px-4 sm:px-6 text-white overflow-hidden relative">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-accent/15 rounded-full blur-[140px] pointer-events-none" />
           
@@ -697,6 +615,88 @@ export default function NinaPage() {
               <span className="text-xs text-brand-200/80 mt-2 font-medium">
                 gaperlu install, cukup whatsapp
               </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 7. Section: Science-Based Knowledge & Free Learning Hub ─── */}
+        <section id="science-based" className="py-24 sm:py-32 bg-surface px-4 sm:px-6 border-b border-surface-border">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center max-w-3xl mx-auto mb-14">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-4 shadow-xs">
+                <GraduationCap className="w-4 h-4 text-accent-dark" />
+                100% Science-Based Wellness
+              </div>
+              <h2 className="font-serif text-3xl sm:text-5xl font-bold text-brand-950 mb-4 leading-tight">
+                Nina Dibekali Pengetahuan Kebugaran Berbasis Sains.
+              </h2>
+              <p className="text-base sm:text-lg text-text-secondary leading-relaxed">
+                Bukan tips mitos dari media sosial. Seluruh pemahaman Nina dibangun dari prinsip metabolisme, hipertrofi, dan sains kebiasaan teruji — yang seluruh materinya kami sediakan <strong>100% GRATIS</strong> di Learning Hub.
+              </p>
+            </div>
+
+            {/* 3 Pillars of Science */}
+            <div className="grid md:grid-cols-3 gap-6 mb-12">
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Activity className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Metabolisme & Energi (CICO)
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Perhitungan kebutuhan energi harian realistis yang menjaga komposisi tubuh tanpa diet ekstrem atau rasa tersiksa.
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <Sparkles className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Progressive Overload
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Prinsip adaptasi beban berkala agar kamu tidak lagi terjebak di fase jalan di tempat (plateau).
+                </p>
+              </div>
+
+              <div className="p-6 rounded-3xl bg-surface-muted border border-surface-border">
+                <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center text-accent-dark mb-4">
+                  <BookOpen className="w-5 h-5 text-accent-dark" />
+                </div>
+                <h3 className="font-serif font-bold text-lg text-brand-950 mb-2">
+                  Sleep & Recovery Rhythm
+                </h3>
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  Regulasi hormon pemulihan dan kualitas tidur sebagai fondasi utama konsistensi energi harianmu.
+                </p>
+              </div>
+            </div>
+
+            {/* Free Learning Hub Banner Card (Single CTA for Learning Hub Only) */}
+            <div className="p-8 sm:p-10 rounded-3xl bg-brand-950 text-white flex flex-col md:flex-row items-center justify-between gap-8 border-2 border-accent shadow-xl">
+              <div className="max-w-xl text-center md:text-left">
+                <span className="text-xs font-bold text-accent uppercase tracking-widest block mb-2">
+                  Bebas Akses Siapa Saja
+                </span>
+                <h3 className="font-serif text-2xl sm:text-3xl font-bold mb-3">
+                  Baca Seluruh Kurikulum Sains Kami — 100% Gratis.
+                </h3>
+                <p className="text-sm text-brand-100 leading-relaxed">
+                  Kamu bisa mempelajari semua silabus dan teori kebugaran tanpa bayar sepeser pun di Learning Hub. Seluruh kurikulum terbuka untuk siapa saja yang ingin belajar secara mandiri.
+                </p>
+              </div>
+
+              <div className="shrink-0 w-full md:w-auto flex justify-center">
+                <Link
+                  href="/path/wellness"
+                  className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white hover:bg-brand-50 text-brand-950 font-bold text-sm transition-all shadow-md hover:scale-105 active:scale-95"
+                >
+                  <BookOpen className="w-4 h-4 text-brand-950" />
+                  <span>Buka Learning Hub (100% Gratis)</span>
+                </Link>
+              </div>
             </div>
           </div>
         </section>
