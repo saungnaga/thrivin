@@ -1399,7 +1399,7 @@ export default function NinaOnboardingPage() {
                   style={{ backgroundColor: "#38AEC8", color: "#041622" }}
                 >
                   <Sparkles className="w-3.5 h-3.5" style={{ color: "#041622" }} />
-                  <span style={{ color: "#041622", fontWeight: 900 }}>PALING DIREKOMENDASIKAN</span>
+                  <span style={{ color: "#041622", fontWeight: 900 }}>PALING DISUKAI</span>
                 </div>
 
                 <div>
