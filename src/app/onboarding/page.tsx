@@ -16,13 +16,23 @@ import {
   Activity,
   Flame,
   Target,
-  RefreshCw
+  Dumbbell,
+  Heart,
+  Utensils,
+  Compass,
+  Smile,
+  Zap
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
 type Gender = "Laki-laki" | "Perempuan" | "";
 type ActivityLevel = "Sedentari" | "Ringan" | "Moderat" | "Aktif" | "Sangat Aktif" | "";
+type ProgramFocus = "Workout & Strength" | "Yoga & Mobility" | "Diet & Nutrisi" | "Running & Cardio" | "Casual Habits" | "Hybrid Seimbang" | "";
+type ExperienceLevel = "Pemula Total" | "Sering Putus di Tengah" | "Stuck di Plateau" | "Butuh Teman Akuntabilitas" | "";
+type WorkoutLocation = "Di Rumah" | "Di Gym" | "Luar Ruangan" | "Fleksibel Di Mana Saja" | "";
+type BiggestChallenge = "Gampang Mager & Hilang Niat" | "Jadwal Sibuk Susah Konsisten" | "Bingung Menu & Porsi Makan" | "Ngerasa Berjuang Sendirian" | "";
+type CommunicationStyle = "Santai & Akrab" | "Tegas & Terarah" | "Lembut & Empatik" | "";
 
 type FormData = {
   name: string;
@@ -31,12 +41,17 @@ type FormData = {
   weight: string;
   height: string;
   activityLevel: ActivityLevel;
+  programFocus: ProgramFocus;
+  experienceLevel: ExperienceLevel;
+  workoutLocation: WorkoutLocation;
+  biggestChallenge: BiggestChallenge;
+  communicationStyle: CommunicationStyle;
   goals: string[];
 };
 
 const slideVariants = {
   enter: (direction: number) => ({
-    x: direction > 0 ? 500 : -500,
+    x: direction > 0 ? 400 : -400,
     opacity: 0,
   } as const),
   center: {
@@ -46,7 +61,7 @@ const slideVariants = {
   } as const,
   exit: (direction: number) => ({
     zIndex: 0,
-    x: direction < 0 ? 500 : -500,
+    x: direction < 0 ? 400 : -400,
     opacity: 0,
   } as const),
 };
@@ -128,10 +143,16 @@ export default function OnboardingPage() {
     weight: "",
     height: "",
     activityLevel: "",
+    programFocus: "",
+    experienceLevel: "",
+    workoutLocation: "",
+    biggestChallenge: "",
+    communicationStyle: "",
     goals: [],
   });
 
-  const TOTAL_STEPS = 12;
+  const TOTAL_STEPS = 16;
+  const SURVEY_QUESTION_STEPS = 10; // steps 4 to 13 are survey questions
 
   const paginate = (newDirection: number) => {
     setDirection(newDirection);
@@ -169,16 +190,16 @@ export default function OnboardingPage() {
   const tdee = calculateTDEE();
   const proteinTarget = Math.round(parseFloat(formData.weight || "65") * 1.6);
 
-  // Step 11: Sequential Processing Stages
+  // Step 15: Sequential Processing Stages
   useEffect(() => {
-    if (step === 11) {
+    if (step === 15) {
       setProcessingStage(0);
       const timers = [
-        setTimeout(() => setProcessingStage(1), 1000),
-        setTimeout(() => setProcessingStage(2), 2200),
-        setTimeout(() => setProcessingStage(3), 3400),
-        setTimeout(() => setProcessingStage(4), 4600),
-        setTimeout(() => handleNext(), 5800),
+        setTimeout(() => setProcessingStage(1), 900),
+        setTimeout(() => setProcessingStage(2), 2000),
+        setTimeout(() => setProcessingStage(3), 3100),
+        setTimeout(() => setProcessingStage(4), 4200),
+        setTimeout(() => handleNext(), 5400),
       ];
 
       return () => timers.forEach(clearTimeout);
@@ -187,7 +208,7 @@ export default function OnboardingPage() {
 
   const renderContent = () => {
     switch (step) {
-      /* ─── Step 0: Fitur 1 (Foto Makanan) ─── */
+      /* ─── Step 0: Fitur 1 (Foto Makanan dengan Nasi Padang Asli) ─── */
       case 0:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
@@ -202,24 +223,29 @@ export default function OnboardingPage() {
                 Nina bisa membaca foto makananmu
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
-                Gak perlu repot input timbangan gram manual. Cukup kirim foto piring di WhatsApp, Nina estimasi kalori dan makronutrisinya.
+                Gak perlu repot timbang gram. Kirim foto piring di WhatsApp, Nina kenali lauknya dan estimasi kalori serta proteinnya.
               </p>
             </div>
             
             <WAMockup>
               <BubbleUser time="12:30">
-                <div className="bg-brand-900/10 rounded-xl p-2 mb-1.5 flex items-center gap-2 border border-brand-900/20">
-                  <Camera className="w-4 h-4 text-brand-900" />
-                  <span className="text-xs font-semibold text-brand-900">foto_nasi_padang.jpg</span>
+                <div className="relative w-full h-32 rounded-xl overflow-hidden mb-1.5 border border-brand-900/20 shadow-xs">
+                  <Image
+                    src="/nasi-padang.webp"
+                    alt="Nasi Padang lauk ayam, telur, dan perkedel"
+                    fill
+                    className="object-cover"
+                  />
                 </div>
-                Makan siang warteg nih! 🍛
+                Makan siang Nasi Padang nih Nina! 🍛
               </BubbleUser>
               <BubbleNina time="12:31">
-                Porsi mantap! Estimasi nutrisi:<br />
-                • Nasi putih (~150g): ~180 kkal<br />
-                • Ayam bakar dada: ~28g protein<br />
-                • Tempe & lalap: serat & mineral<br /><br />
-                Total ~430 kkal, 32g protein. Bagus banget, sisa target proteinmu tinggal 38g lagi sore nanti ya! 💪
+                Wah Nasi Padang! Ada ayam, telur, sama perkedel ya 😍 Estimasi nutrisinya:<br />
+                • Ayam: ~25g protein<br />
+                • Telur: ~7g protein<br />
+                • Perkedel: ~3g protein + karbo<br />
+                • Nasi & daun singkong: energi & serat<br />
+                Total ~680 kkal, ~35g protein. Asupan siang ini mantap, sisa target proteinmu tinggal porsi ringan sore nanti ya 💪
               </BubbleNina>
             </WAMockup>
 
@@ -233,7 +259,7 @@ export default function OnboardingPage() {
           </div>
         );
       
-      /* ─── Step 1: Fitur 2 (Proaktif Reach Out) ─── */
+      /* ─── Step 1: Fitur 2 (Proaktif Push Harian) ─── */
       case 1:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
@@ -245,25 +271,22 @@ export default function OnboardingPage() {
                 Fitur 2 dari 4
               </span>
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-brand-950">
-                Nina proaktif menghubungimu duluan
+                Nina proaktif menyapa lewat push harian
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
-                Bukan sekadar bot pasif yang menunggu. Nina menyapa di jam genting saat kamu hampir malas atau tergoda skip workout.
+                Bukan sekadar bot pasif. Nina hadir menyapa dan mengecek progres harianmu di WhatsApp agar konsistensimu terjaga.
               </p>
             </div>
             
             <WAMockup>
-              <BubbleNina time="06:30">
-                Pagi! Hari ini jadwal workout upper body ya. Mau mulai jam berapa? Aku ingetin nanti 💪
+              <BubbleNina time="07:30">
+                Pagi! Ini push sapaan harianmu 🌿 Hari ini targetnya 25–30 menit aktivitas fisik santai ya. Semangat memulai hari!
               </BubbleNina>
-              <BubbleUser time="06:45">
-                Jam 5 sore aja ya setelah beres kantor
+              <BubbleUser time="07:45">
+                Siap Nina! Rencana mau jalan santai sore sehabis kerja
               </BubbleUser>
-              <BubbleNina time="06:46">
-                Siap! Aku reminder jam 16:45 biar sempet ganti baju & pemanasan 🔥
-              </BubbleNina>
-              <BubbleNina time="16:45">
-                Halo! Jam 5 tinggal 15 menit lagi nih. Siapin botol minum & playlist favoritmu ya 🎧
+              <BubbleNina time="07:46">
+                Pilihan mantap! Jalan santai 30 menit bagus banget buat sirkulasi & bakar kalori. Nanti kabarin kalau udah beres ya 🔥
               </BubbleNina>
             </WAMockup>
 
@@ -277,7 +300,7 @@ export default function OnboardingPage() {
           </div>
         );
 
-      /* ─── Step 2: Fitur 3 (Memori Personal) ─── */
+      /* ─── Step 2: Fitur 3 (Memori Personal Jangka Panjang) ─── */
       case 2:
         return (
           <div className="flex flex-col h-full justify-between items-center w-full max-w-md mx-auto pt-4 pb-8 px-4 sm:px-6">
@@ -292,19 +315,19 @@ export default function OnboardingPage() {
                 Nina mengingat semuanya tentangmu
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
-                Dari riwayat cedera lutut, hari lembur kantor, hingga makanan favorit — Nina ingat tanpa perlu kamu ceritakan ulang.
+                Riwayat cedera, preferensi latihan, dan makanan favorit — Nina simpan di memori jangka panjang tanpa perlu kamu ulang ceritanya.
               </p>
             </div>
             
             <WAMockup>
-              <BubbleNina time="18:00">
-                Eh minggu lalu kan lutut kiri lo agak ngilu sehabis squat, hari ini kita skip squat dulu ya. Ganti leg press sama Romanian deadlift aja gimana?
+              <BubbleNina time="16:00">
+                Eh lutut yang kemarin sempat ngilu sehabis latihan kaki jangan dipaksa dulu ya. Hari ini kita ganti menu yang lebih ramah sendi.
               </BubbleNina>
-              <BubbleUser time="18:04">
-                Wah iya bener, makasih udah diingetin Nina
+              <BubbleUser time="16:04">
+                Wah iya bener, makasih udah diingetin Nina!
               </BubbleUser>
-              <BubbleNina time="18:05">
-                Sama-sama! Nanti malam jangan lupa foam roll 5 menit ya 🧘‍♀️
+              <BubbleNina time="16:05">
+                Sip! Nanti malam jangan lupa perbanyak minum air dan sempatkan peregangan ringan 5 menit ya 🧘‍♀️
               </BubbleNina>
             </WAMockup>
 
@@ -333,7 +356,7 @@ export default function OnboardingPage() {
                 Semuanya di WhatsApp, tanpa instal apapun
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xs mx-auto">
-                Tidak ada aplikasi baru yang membebani memori HP. Nina hadir langsung di ruang obrolan WhatsApp yang kamu buka setiap hari.
+                Tidak ada aplikasi baru yang membebani memori HP. Nina hadir langsung di WhatsApp yang kamu buka setiap hari.
               </p>
             </div>
             
@@ -345,7 +368,7 @@ export default function OnboardingPage() {
                 Praktis banget ya, gak ribet buka-buka aplikasi terpisah
               </BubbleUser>
               <BubbleNina time="09:13">
-                Itu goalnya! Aku mau ada di tempat yang lo buka setiap hari, bukan di app yang akhirnya lo lupa buka 😄🌿
+                Itu goalnya! Aku mau ada di tempat yang lo buka setiap hari, bukan di aplikasi yang lo lupa buka 😄🌿
               </BubbleNina>
             </WAMockup>
 
@@ -353,7 +376,7 @@ export default function OnboardingPage() {
               onClick={handleNext}
               className="mt-6 w-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-3.5 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
             >
-              <span>Mulai Buat Profilmu</span>
+              <span>Mulai Personalisasi Plan Kamu</span>
               <ArrowRight className="w-4 h-4 text-accent" />
             </button>
           </div>
@@ -364,7 +387,7 @@ export default function OnboardingPage() {
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 1 dari 6
+              Langkah 1 dari 10
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
               Siapa nama panggilanmu?
@@ -399,7 +422,7 @@ export default function OnboardingPage() {
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 2 dari 6
+              Langkah 2 dari 10
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
               Berapa usiamu, {formData.name}?
@@ -439,7 +462,7 @@ export default function OnboardingPage() {
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 3 dari 6
+              Langkah 3 dari 10
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
               Apa jenis kelaminmu?
@@ -476,7 +499,7 @@ export default function OnboardingPage() {
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 4 dari 6
+              Langkah 4 dari 10
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
               Berapa berat & tinggi badanmu?
@@ -533,7 +556,7 @@ export default function OnboardingPage() {
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 5 dari 6
+              Langkah 5 dari 10
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
               Seberapa aktif keseharianmu?
@@ -565,152 +588,355 @@ export default function OnboardingPage() {
           </div>
         );
 
-      /* ─── Step 9: Goals / Tujuan ─── */
+      /* ─── Step 9: Fokus Program (NEW) ─── */
       case 9:
-        const allGoals = [
-          "Menurunkan berat badan & lemak",
-          "Menaikkan massa otot & tenaga",
-          "Membangun konsistensi harian",
-          "Memperbaiki pola makan tanpa diet ekstrem",
-          "Meningkatkan performa lari / cardio",
-          "Memperbaiki postur & mobilitas tubuh",
-        ];
-        
-        const toggleGoal = (goal: string) => {
-          if (formData.goals.includes(goal)) {
-            setFormData({ ...formData, goals: formData.goals.filter((g) => g !== goal) });
-          } else {
-            setFormData({ ...formData, goals: [...formData.goals, goal] });
+        const programOptions: { focus: ProgramFocus; icon: React.ReactNode; desc: string }[] = [
+          {
+            focus: "Workout & Strength",
+            icon: <Dumbbell className="w-5 h-5 text-accent-dark" />,
+            desc: "Bentuk massa otot, bakar lemak & program beban bertahap"
+          },
+          {
+            focus: "Yoga & Mobility",
+            icon: <Heart className="w-5 h-5 text-accent-dark" />,
+            desc: "Kelenturan sendi, hilangkan pegal leher/punggung & relaksasi"
+          },
+          {
+            focus: "Diet & Nutrisi",
+            icon: <Utensils className="w-5 h-5 text-accent-dark" />,
+            desc: "Perbaiki pola makan tanpa tersiksa via analisis foto piring"
+          },
+          {
+            focus: "Running & Cardio",
+            icon: <Activity className="w-5 h-5 text-accent-dark" />,
+            desc: "Bangun stamina paru-paru, evaluasi pace & jarak lari Strava"
+          },
+          {
+            focus: "Casual Habits",
+            icon: <Smile className="w-5 h-5 text-accent-dark" />,
+            desc: "Mulai gerak 15-20 menit/hari, jaga hidrasi & ritme tidur"
+          },
+          {
+            focus: "Hybrid Seimbang",
+            icon: <Zap className="w-5 h-5 text-accent-dark" />,
+            desc: "Kombinasi komprehensif antara beban, mobilitas, dan nutrisi"
           }
-        };
+        ];
 
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
-              Langkah 6 dari 6
+              Langkah 6 dari 10
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-2">
-              Apa tujuan utamamu?
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Fokus program apa yang lo inginkan?
             </h2>
-            <p className="text-xs sm:text-sm text-text-secondary mb-6">
-              Pilih yang paling relevan (bisa pilih lebih dari satu):
+            <p className="text-sm text-text-secondary mb-6">
+              Pilih satu pilar utama yang ingin kamu bangun bersama Nina.
             </p>
-            <div className="flex flex-col gap-2.5">
-              {allGoals.map((goal) => {
-                const isSelected = formData.goals.includes(goal);
-                return (
-                  <button
-                    key={goal}
-                    onClick={() => toggleGoal(goal)}
-                    className={`p-3.5 rounded-xl border-2 text-left text-sm font-semibold transition-all cursor-pointer flex items-center justify-between ${
-                      isSelected
-                        ? "border-brand-900 bg-brand-900 text-white shadow-xs"
-                        : "border-surface-border bg-white text-gray-700 hover:border-brand-200"
-                    }`}
-                  >
-                    <span>{goal}</span>
-                    {isSelected && <Check className="w-4 h-4 text-accent shrink-0" />}
-                  </button>
-                );
-              })}
+            <div className="grid grid-cols-1 gap-2.5">
+              {programOptions.map(({ focus, icon, desc }) => (
+                <button
+                  key={focus}
+                  onClick={() => {
+                    setFormData({ ...formData, programFocus: focus });
+                    setTimeout(handleNext, 250);
+                  }}
+                  className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start gap-3.5 ${
+                    formData.programFocus === focus
+                      ? "border-brand-900 bg-brand-50 shadow-xs"
+                      : "border-surface-border bg-white hover:border-brand-200"
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-brand-100/60 flex items-center justify-center shrink-0 mt-0.5">
+                    {icon}
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-brand-950">{focus}</div>
+                    <div className="text-xs text-text-secondary mt-0.5 leading-snug">{desc}</div>
+                  </div>
+                </button>
+              ))}
             </div>
-            <button
-              onClick={handleNext}
-              disabled={formData.goals.length === 0}
-              className="mt-8 w-full bg-brand-900 hover:bg-brand-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
-            >
-              <span>Lihat Hasil Perhitungan TDEE</span>
-              <ArrowRight className="w-4 h-4 text-accent" />
-            </button>
           </div>
         );
 
-      /* ─── Step 10: TDEE Calculation Result ─── */
+      /* ─── Step 10: Pengalaman & Riwayat Olahraga (NEW) ─── */
       case 10:
+        const experienceOptions: { level: ExperienceLevel; desc: string }[] = [
+          { level: "Pemula Total", desc: "Belum pernah rutin olahraga dan bingung mulai dari mana" },
+          { level: "Sering Putus di Tengah", desc: "Niat ada tapi selalu kendor di minggu ke-2 atau ke-3" },
+          { level: "Stuck di Plateau", desc: "Sudah rutin tapi progres bentuk badan/beban jalan di tempat" },
+          { level: "Butuh Teman Akuntabilitas", desc: "Paham teori, cuma butuh seseorang yang tahu perjuanganku" },
+        ];
+
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
+              Langkah 7 dari 10
+            </span>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Bagaimana riwayat olahragamu?
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">
+              Membantu Nina mengatur kurva adaptasi yang realistis buatmu.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {experienceOptions.map(({ level, desc }) => (
+                <button
+                  key={level}
+                  onClick={() => {
+                    setFormData({ ...formData, experienceLevel: level });
+                    setTimeout(handleNext, 250);
+                  }}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    formData.experienceLevel === level
+                      ? "border-brand-900 bg-brand-50 shadow-xs"
+                      : "border-surface-border bg-white hover:border-brand-200"
+                  }`}
+                >
+                  <div className="font-bold text-base text-brand-950">{level}</div>
+                  <div className="text-xs text-text-secondary mt-1">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* ─── Step 11: Preferensi Lokasi Latihan (NEW) ─── */
+      case 11:
+        const locations: { loc: WorkoutLocation; desc: string }[] = [
+          { loc: "Di Rumah", desc: "Cukup matras, bodyweight, atau sepasang dumbell" },
+          { loc: "Di Gym", desc: "Punya akses ke barbell, mesin beban, dan treadmill" },
+          { loc: "Luar Ruangan", desc: "Taman kota, jogging track, atau jalan lingkungan" },
+          { loc: "Fleksibel Di Mana Saja", desc: "Tergantung jadwal dan tempat yang memungkinkan" },
+        ];
+
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
+              Langkah 8 dari 10
+            </span>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Di mana lo lebih nyaman latihan?
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">
+              Nina akan menyusun variasi gerakan yang cocok dengan fasilitas yang kamu punya.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {locations.map(({ loc, desc }) => (
+                <button
+                  key={loc}
+                  onClick={() => {
+                    setFormData({ ...formData, workoutLocation: loc });
+                    setTimeout(handleNext, 250);
+                  }}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    formData.workoutLocation === loc
+                      ? "border-brand-900 bg-brand-50 shadow-xs"
+                      : "border-surface-border bg-white hover:border-brand-200"
+                  }`}
+                >
+                  <div className="font-bold text-base text-brand-950">{loc}</div>
+                  <div className="text-xs text-text-secondary mt-1">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* ─── Step 12: Tantangan Terbesar (NEW) ─── */
+      case 12:
+        const challenges: { item: BiggestChallenge; desc: string }[] = [
+          { item: "Gampang Mager & Hilang Niat", desc: "Semangat di awal, tapi gampang skip saat motivasi turun" },
+          { item: "Jadwal Sibuk Susah Konsisten", desc: "Pekerjaan kantor menyita waktu & energi di malam hari" },
+          { item: "Bingung Menu & Porsi Makan", desc: "Niat diet tapi pusing hitung kalori makanan lokal sehari-hari" },
+          { item: "Ngerasa Berjuang Sendirian", desc: "Gak ada orang yang tahu apa yang sedang diperjuangkan" },
+        ];
+
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
+              Langkah 9 dari 10
+            </span>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Apa hambatan terbesarmu selama ini?
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">
+              Nina disetel secara khusus untuk mengantisipasi titik terlemahmu ini.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {challenges.map(({ item, desc }) => (
+                <button
+                  key={item}
+                  onClick={() => {
+                    setFormData({ ...formData, biggestChallenge: item });
+                    setTimeout(handleNext, 250);
+                  }}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    formData.biggestChallenge === item
+                      ? "border-brand-900 bg-brand-50 shadow-xs"
+                      : "border-surface-border bg-white hover:border-brand-200"
+                  }`}
+                >
+                  <div className="font-bold text-base text-brand-950">{item}</div>
+                  <div className="text-xs text-text-secondary mt-1">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* ─── Step 13: Gaya Komunikasi Nina (NEW) ─── */
+      case 13:
+        const styles: { style: CommunicationStyle; badge: string; desc: string }[] = [
+          {
+            style: "Santai & Akrab",
+            badge: "Sahabat Dekat",
+            desc: "Ngobrol santai pakai bahasa sehari-hari, humoris dan hangat tanpa kesan menggurui"
+          },
+          {
+            style: "Tegas & Terarah",
+            badge: "Coach Disiplin",
+            desc: "Fokus ke target, akuntabilitas kuat, dan dorongan konsisten saat lo mulai malas"
+          },
+          {
+            style: "Lembut & Empatik",
+            badge: "Pendengar Setia",
+            desc: "Menenangkan saat lo lelah, tanpa membuat lo merasa bersalah saat harus istirahat"
+          },
+        ];
+
+        return (
+          <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
+            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-2">
+              Langkah 10 dari 10
+            </span>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950 mb-3">
+              Gaya komunikasi Nina yang kamu mau?
+            </h2>
+            <p className="text-sm text-text-secondary mb-6">
+              Setiap orang punya respon psikologis berbeda terhadap bimbingan.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {styles.map(({ style, badge, desc }) => (
+                <button
+                  key={style}
+                  onClick={() => {
+                    setFormData({ ...formData, communicationStyle: style });
+                    setTimeout(handleNext, 250);
+                  }}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                    formData.communicationStyle === style
+                      ? "border-brand-900 bg-brand-50 shadow-xs"
+                      : "border-surface-border bg-white hover:border-brand-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-base text-brand-950">{style}</span>
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-100 text-brand-900">
+                      {badge}
+                    </span>
+                  </div>
+                  <div className="text-xs text-text-secondary leading-relaxed">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* ─── Step 14: Hasil Kalkulasi TDEE & Personal Blueprint ─── */
+      case 14:
         return (
           <div className="flex flex-col h-full justify-center w-full max-w-md mx-auto px-6 py-12">
             <div className="text-center mb-6">
-              <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2">
-                Hasil Analisis Profil Tubuhmu
+              <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-1">
+                Personal Plan Blueprint
               </span>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
-                Profil {formData.name || "Kamu"}
+                Blueprint {formData.name || "Kamu"} & Nina
               </h2>
               <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                Dihitung berdasarkan rumus sains metabolisme Mifflin-St Jeor
+                Berdasarkan kalkulasi metabolisme sains & profil personalmu
               </p>
             </div>
             
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-brand-100 mb-6 space-y-5">
+            <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-brand-100 mb-6 space-y-4">
               {/* TDEE */}
-              <div className="flex items-center justify-between pb-4 border-b border-surface-border">
+              <div className="flex items-center justify-between pb-3.5 border-b border-surface-border">
                 <div>
                   <div className="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1.5 mb-1">
                     <Flame className="w-3.5 h-3.5 text-accent-dark" />
                     Kebutuhan Kalori Harian (TDEE)
                   </div>
-                  <div className="text-3xl font-black text-brand-900">
-                    ~{tdee} <span className="text-sm font-semibold text-text-secondary">kkal / hari</span>
+                  <div className="text-2xl sm:text-3xl font-black text-brand-900">
+                    ~{tdee} <span className="text-xs font-semibold text-text-secondary">kkal / hari</span>
                   </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
-                  <Activity className="w-5 h-5 text-accent-dark" />
+                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
+                  <Activity className="w-4 h-4 text-accent-dark" />
                 </div>
               </div>
               
-              {/* Protein Target */}
-              <div className="flex items-center justify-between pb-4 border-b border-surface-border">
+              {/* Target Protein */}
+              <div className="flex items-center justify-between pb-3.5 border-b border-surface-border">
                 <div>
                   <div className="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-1.5 mb-1">
                     <Target className="w-3.5 h-3.5 text-accent-dark" />
-                    Target Protein Optimal
+                    Target Protein Harian
                   </div>
-                  <div className="text-3xl font-black text-brand-900">
-                    ~{proteinTarget} <span className="text-sm font-semibold text-text-secondary">gram / hari</span>
+                  <div className="text-2xl sm:text-3xl font-black text-brand-900">
+                    ~{proteinTarget} <span className="text-xs font-semibold text-text-secondary">gram / hari</span>
                   </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
-                  <Sparkles className="w-5 h-5 text-accent-dark" />
+                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
+                  <Sparkles className="w-4 h-4 text-accent-dark" />
                 </div>
               </div>
 
-              {/* Goals Summary */}
-              <div>
-                <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
-                  Fokus Tujuan Terpilih:
+              {/* Personal Configuration Highlights */}
+              <div className="pt-1 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-muted font-medium">Pilar Program:</span>
+                  <span className="font-bold text-brand-900">{formData.programFocus || "Workout & Strength"}</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {formData.goals.map((g) => (
-                    <span key={g} className="inline-flex items-center px-2.5 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-900 text-xs font-semibold">
-                      ✓ {g}
-                    </span>
-                  ))}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-muted font-medium">Lokasi Utama:</span>
+                  <span className="font-bold text-brand-900">{formData.workoutLocation || "Di Rumah"}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-muted font-medium">Gaya Nina:</span>
+                  <span className="font-bold text-accent-dark">{formData.communicationStyle || "Santai & Akrab"}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-muted font-medium">Solusi Hambatan:</span>
+                  <span className="font-bold text-brand-900">{formData.biggestChallenge || "Gampang Mager"}</span>
                 </div>
               </div>
             </div>
 
             <p className="text-xs text-text-secondary text-center mb-6 leading-relaxed">
-              Nina akan memakai data ini untuk memandu porsi makan harianmu lewat foto di WhatsApp dan memantau progres konsistensimu.
+              Nina akan menyelaraskan push sapaan harian, evaluasi foto piring, dan panduan gerakan sesuai blueprint di atas.
             </p>
 
             <button
               onClick={handleNext}
               className="w-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 rounded-full flex items-center justify-center gap-2 transition-all shadow-glow cursor-pointer"
             >
-              <span>Proses Plan Bersama Nina</span>
+              <span>Sinkronkan ke WhatsApp Nina</span>
               <ArrowRight className="w-4 h-4 text-accent" />
             </button>
           </div>
         );
 
-      /* ─── Step 11: Processing Plan Animation ─── */
-      case 11:
+      /* ─── Step 15: Animasi Pemrosesan Interaktif ─── */
+      case 15:
         const stages = [
-          "Menganalisis profil fisik & metabolisme...",
-          `Mengalkulasi kebutuhan energi (${tdee} kkal)...`,
-          "Menyiapkan strategi kebiasaan & nutrisi...",
-          "Mentransfer data ke memori WhatsApp Nina...",
-          "✨ Done! Nina sudah siap menemanimu!",
+          `Menghitung metabolisme basal & target kalori (~${tdee} kkal)...`,
+          `Mengadaptasi blueprint program: ${formData.programFocus || "Program Personal"}...`,
+          `Menyetel mode interaksi: ${formData.communicationStyle || "Santai & Akrab"}...`,
+          `Menyiapkan strategi solusi: ${formData.biggestChallenge || "Konsistensi Harian"}...`,
+          "✨ Done! Nina sudah siap menemanimu di WhatsApp!",
         ];
 
         return (
@@ -727,7 +953,7 @@ export default function OnboardingPage() {
               Sistem memproses plan untuk diberikan ke Nina...
             </h2>
             <p className="text-xs sm:text-sm text-brand-200/80 mb-10 max-w-sm">
-              Menghubungkan data profil fisikmu dengan asisten personal Nina di WhatsApp
+              Menghubungkan data personalisasi kamu dengan asisten Nina di WhatsApp
             </p>
 
             {/* Checklist */}
@@ -761,8 +987,8 @@ export default function OnboardingPage() {
           </div>
         );
 
-      /* ─── Step 12: Sales Page & Pricing ─── */
-      case 12:
+      /* ─── Step 16: Sales Page & Pricing (Paket 1 bln 99rb, 3 bln 219rb, 6 bln 359rb) ─── */
+      case 16:
         return (
           <div className="flex flex-col h-full w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
             {/* Top Success Badge */}
@@ -784,21 +1010,21 @@ export default function OnboardingPage() {
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-surface-border">
                 <div>
                   <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-1">
-                    Ringkasan Profil & Rekomendasi Awal
+                    Ringkasan Blueprint & Konfigurasi WhatsApp
                   </span>
                   <h3 className="font-serif text-xl sm:text-2xl font-bold text-brand-950">
-                    Plan Personal {formData.name || "User"}
+                    Plan Personal: {formData.name || "Kamu"}
                   </h3>
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-brand-900">
-                  <span className="px-3 py-1.5 rounded-full bg-surface-muted border border-surface-border">
+                <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold text-brand-900">
+                  <span className="px-3 py-1 rounded-full bg-surface-muted border border-surface-border">
                     {formData.gender || "Laki-laki"} • {formData.age || "25"} thn
                   </span>
-                  <span className="px-3 py-1.5 rounded-full bg-surface-muted border border-surface-border">
-                    BB: {formData.weight || "65"} kg • TB: {formData.height || "170"} cm
+                  <span className="px-3 py-1 rounded-full bg-surface-muted border border-surface-border">
+                    BB: {formData.weight || "65"}kg • TB: {formData.height || "170"}cm
                   </span>
-                  <span className="px-3 py-1.5 rounded-full bg-surface-muted border border-surface-border">
-                    Aktivitas: {formData.activityLevel || "Moderat"}
+                  <span className="px-3 py-1 rounded-full bg-brand-50 text-accent-dark border border-brand-200">
+                    {formData.programFocus || "Workout & Strength"}
                   </span>
                 </div>
               </div>
@@ -812,7 +1038,7 @@ export default function OnboardingPage() {
                     ~{tdee} <span className="text-xs font-semibold text-text-secondary">kkal/hari</span>
                   </div>
                   <p className="text-[11px] text-text-secondary mt-1">
-                    Dipantau langsung lewat foto makanan di WhatsApp
+                    Dipantau langsung lewat foto piring makanan di WhatsApp
                   </p>
                 </div>
                 <div>
@@ -823,23 +1049,25 @@ export default function OnboardingPage() {
                     ~{proteinTarget} <span className="text-xs font-semibold text-text-secondary">gram/hari</span>
                   </div>
                   <p className="text-[11px] text-text-secondary mt-1">
-                    Menjaga kenyang & regenerasi massa otot
+                    Menjaga rasa kenyang & regenerasi jaringan otot
                   </p>
                 </div>
                 <div>
                   <div className="text-xs text-text-muted uppercase tracking-wider mb-1 font-semibold">
-                    Fokus Target
+                    Mode Pendampingan Nina
                   </div>
                   <div className="text-xs text-brand-900 font-semibold space-y-1">
-                    {formData.goals.slice(0, 2).map((g) => (
-                      <div key={g} className="flex items-center gap-1.5">
-                        <Check className="w-3.5 h-3.5 text-accent-dark shrink-0" />
-                        <span>{g}</span>
-                      </div>
-                    ))}
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-accent-dark shrink-0" />
+                      <span>Gaya: {formData.communicationStyle || "Santai & Akrab"}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-accent-dark shrink-0" />
+                      <span>Fokus: {formData.workoutLocation || "Di Rumah"}</span>
+                    </div>
                   </div>
                   <p className="text-[11px] text-text-secondary mt-1">
-                    Audit berkala & penyesuaian strategi tiap minggu
+                    Push sapaan harian & evaluasi berkala via WhatsApp
                   </p>
                 </div>
               </div>
@@ -859,9 +1087,9 @@ export default function OnboardingPage() {
               </div>
             </div>
 
-            {/* Pricing Cards (3 Options, 3-Month Highlighted) */}
+            {/* Pricing Cards (3 Options, 1-Month at 99rb, 3-Month Highlighted at 219rb) */}
             <div className="grid md:grid-cols-3 gap-6 sm:gap-8 items-stretch mb-12">
-              {/* Card 1: 1 Bulan */}
+              {/* Card 1: 1 Bulan (Rp 99.000) */}
               <div className="bg-white rounded-3xl p-6 sm:p-7 border border-surface-border shadow-xs flex flex-col justify-between hover:border-brand-300 transition-colors">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -879,7 +1107,7 @@ export default function OnboardingPage() {
                   <div className="mb-6">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-3xl sm:text-4xl font-black text-brand-900">
-                        Rp 89.000
+                        Rp 99.000
                       </span>
                       <span className="text-text-muted text-xs font-medium">/ sekali bayar</span>
                     </div>
@@ -901,11 +1129,11 @@ export default function OnboardingPage() {
                     </li>
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent-dark shrink-0 mt-0.5" />
-                      <span>Check-in proaktif & pengingat konsistensi</span>
+                      <span>Push sapaan harian & pengingat konsistensi</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-accent-dark shrink-0 mt-0.5" />
-                      <span>Rekomendasi split rutinitas personal</span>
+                      <span>Rekomendasi rutinitas personal berbasis blueprint</span>
                     </li>
                   </ul>
                 </div>
@@ -920,7 +1148,7 @@ export default function OnboardingPage() {
                 </a>
               </div>
 
-              {/* Card 2: 3 Bulan (Highlighted / Recommended) */}
+              {/* Card 2: 3 Bulan (Highlighted / Recommended - Rp 219.000) */}
               <div className="bg-brand-950 text-white rounded-3xl p-6 sm:p-7 border-2 border-accent shadow-2xl relative flex flex-col justify-between md:-translate-y-3">
                 <div 
                   className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-30 inline-flex items-center gap-1 px-3.5 py-1 rounded-full shadow-lg border-2 border-white text-[10px] sm:text-xs font-black tracking-wider uppercase"
@@ -951,7 +1179,7 @@ export default function OnboardingPage() {
                       <span className="text-brand-200 text-xs font-medium">/ sekali bayar</span>
                     </div>
                     <p className="text-[11px] font-bold text-accent mt-1">
-                      ✓ Setara ~Rp 73rb/bln · Hemat 18% · Tanpa tagihan otomatis
+                      ✓ Setara ~Rp 73rb/bln · Hemat 26% · Tanpa tagihan otomatis
                     </p>
                   </div>
 
@@ -984,11 +1212,11 @@ export default function OnboardingPage() {
                   className="w-full text-center py-4 rounded-full font-black text-sm transition-all shadow-glow hover:scale-[1.02] cursor-pointer"
                   style={{ backgroundColor: "#38AEC8", color: "#041622" }}
                 >
-                  <span style={{ color: "#041622", fontWeight: 900 }}>Ambil Paket 3 Bulan (Hemat 18%)</span>
+                  <span style={{ color: "#041622", fontWeight: 900 }}>Ambil Paket 3 Bulan (Paling Pas)</span>
                 </a>
               </div>
 
-              {/* Card 3: 6 Bulan */}
+              {/* Card 3: 6 Bulan (Rp 359.000) */}
               <div className="bg-white rounded-3xl p-6 sm:p-7 border border-surface-border shadow-xs flex flex-col justify-between hover:border-brand-300 transition-colors">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -1011,7 +1239,7 @@ export default function OnboardingPage() {
                       <span className="text-text-muted text-xs font-medium">/ sekali bayar</span>
                     </div>
                     <p className="text-[11px] font-bold text-accent-dark mt-1">
-                      ✓ Setara ~Rp 60rb/bln · Hemat 33% · Sekali bayar
+                      ✓ Setara ~Rp 60rb/bln · Hemat 40% · Sekali bayar
                     </p>
                   </div>
 
@@ -1061,8 +1289,8 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-900 selection:bg-brand-100 selection:text-brand-900 flex flex-col">
-      {/* ─── Top Progress Navigation ─── */}
-      {step > 0 && step < 11 && (
+      {/* ─── Top Progress Navigation (Visible during survey steps 1 to 14) ─── */}
+      {step > 0 && step < 15 && (
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
           <div className="max-w-md mx-auto w-full flex items-center gap-3">
             <button
@@ -1076,12 +1304,12 @@ export default function OnboardingPage() {
             <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
               <div 
                 className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
-                style={{ width: `${(step / 10) * 100}%` }}
+                style={{ width: `${(step / 14) * 100}%` }}
               />
             </div>
 
             <span className="text-[11px] font-bold text-text-muted font-mono">
-              {step}/10
+              {step <= 3 ? `Fitur ${step + 1}/4` : `Survey ${step - 3}/10`}
             </span>
           </div>
         </header>
@@ -1099,7 +1327,7 @@ export default function OnboardingPage() {
             exit="exit"
             transition={{
               x: { type: "spring", stiffness: 320, damping: 32 } as const,
-              opacity: { duration: 0.25 }
+              opacity: { duration: 0.22 }
             }}
             className="w-full flex-1 flex flex-col"
           >
