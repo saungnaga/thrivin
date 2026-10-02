@@ -14,7 +14,8 @@ import {
   Camera,
   CheckCircle2,
   X,
-  BookOpen
+  BookOpen,
+  LogIn
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -111,23 +112,40 @@ export default function Home() {
           &ldquo;Pertumbuhan yang paling sering gagal bukan karena rencananya buruk. Tapi karena dijalani dalam ruang kosong — tanpa siapa pun yang tahu apa yang sedang kamu perjuangkan.&rdquo;
         </motion.div>
 
-        {/* ─── Link to Learn More About Thrivin ─── */}
+        {/* ─── Link to Learn More About Thrivin & Member Quick Login ─── */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.25 }}
-          className="mt-8 flex justify-center"
+          className="mt-8 flex flex-col items-center gap-3.5 max-w-xl mx-auto w-full"
         >
+          {/* CTA ke About Thrivin (Atas-Bawah di HP, Lebih Singkat, Rapih) */}
           <Link
             href="/about"
-            className="inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-brand-50 hover:bg-brand-100 border border-brand-200/90 text-xs sm:text-sm font-bold text-brand-950 transition-all shadow-2xs hover:shadow-sm group cursor-pointer"
+            className="w-full sm:w-auto inline-flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 px-5 py-3 sm:px-6 sm:py-2.5 rounded-2xl sm:rounded-full bg-brand-50/90 hover:bg-brand-100 border border-brand-200/90 text-center transition-all shadow-2xs hover:shadow-sm group cursor-pointer"
           >
-            <BookOpen className="w-4 h-4 text-accent-dark" />
-            <span>Ingin tahu bagaimana sistem pendampingan Thrivin bekerja?</span>
-            <span className="text-accent-dark font-extrabold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-              Pelajari Thrivin Lebih Jauh &rarr;
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-brand-950">
+              <BookOpen className="w-4 h-4 text-accent-dark shrink-0" />
+              <span className="sm:hidden font-semibold">Bagaimana Thrivin bekerja?</span>
+              <span className="hidden sm:inline">Ingin tahu bagaimana sistem pendampingan Thrivin bekerja?</span>
+            </div>
+            <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-black text-accent-dark group-hover:translate-x-0.5 transition-transform bg-accent/15 sm:bg-transparent px-3 py-1 sm:p-0 rounded-full">
+              <span>Pelajari Thrivin Lebih Jauh</span>
+              <span>&rarr;</span>
             </span>
           </Link>
+
+          {/* Quick CTA Login untuk Akses Dashboard & Materi Scientific */}
+          <div className="text-xs text-text-secondary flex items-center justify-center gap-1.5 flex-wrap">
+            <span>Sudah bergabung?</span>
+            <Link
+              href="/login"
+              className="font-bold text-accent-dark hover:underline inline-flex items-center gap-1 cursor-pointer"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Login untuk akses dashboard & materi scientific &rarr;</span>
+            </Link>
+          </div>
         </motion.div>
       </section>
 
@@ -510,6 +528,43 @@ export default function Home() {
           <p className="text-xs sm:text-sm text-text-secondary max-w-xl mx-auto leading-relaxed">
             Riset Dr. Gail Matthews (Dominican University) pada 267 orang: mereka yang memiliki rekan akuntabilitas harian menyelesaikan 76% target mereka, dibanding hanya 43% yang berjuang sendirian.
           </p>
+        </div>
+      </section>
+
+      {/* ─── Member Access Banner: Dashboard & Scientific Materials ─── */}
+      <section className="py-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full">
+        <div className="p-6 sm:p-8 rounded-3xl bg-linear-to-r from-brand-900 via-brand-950 to-[#031d28] text-white border border-brand-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden text-center md:text-left">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10 space-y-2 max-w-xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/30 text-accent text-[11px] font-bold uppercase tracking-wider font-mono">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Akses Pengguna & Member</span>
+            </div>
+            <h3 className="font-serif text-xl sm:text-2xl font-bold text-white leading-snug">
+              Akses Dashboard Laporan Progress & Materi Scientific
+            </h3>
+            <p className="text-xs sm:text-sm text-brand-200/90 leading-relaxed">
+              Sudah terdaftar atau punya companion aktif? Masuk sekarang untuk memantau grafik perkembangan harian, ringkasan interaksi WhatsApp, dan seluruh modul materi sains perilaku.
+            </p>
+          </div>
+
+          <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full sm:w-auto">
+            <Link
+              href="/login"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center"
+            >
+              <LogIn className="w-4 h-4 text-white" />
+              <span className="text-white font-black drop-shadow-xs">Login ke Dashboard</span>
+            </Link>
+            <Link
+              href="/companion/nina/learning"
+              className="w-full sm:w-auto px-5 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
+            >
+              <BookOpen className="w-4 h-4 text-accent" />
+              <span>Materi Scientific</span>
+            </Link>
+          </div>
         </div>
       </section>
 
