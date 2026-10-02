@@ -16,7 +16,6 @@ import {
   Activity,
   BookOpen,
   CheckCircle2,
-  Calendar,
   Utensils
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
@@ -142,22 +141,22 @@ export default function NinaPage() {
               Kirim foto piring makan untuk hitung kalori & protein, kirim screenshot untuk evaluasi record data Strava, dan dapatkan pengingat proaktif setiap hari agar kamu konsisten.
             </p>
 
-            {/* CTAs */}
+            {/* CTAs with Crystal-Clear High Contrast */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
                 href="/companion/nina/onboarding/1"
-                className="w-full sm:w-auto px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Mulai Onboarding Bersama Nina</span>
+                <span className="text-white font-bold">Mulai Onboarding Bersama Nina</span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </Link>
 
               <Link
                 href="/companion/nina/learning"
-                className="w-full sm:w-auto px-6 py-4 rounded-full bg-surface-muted hover:bg-white border border-surface-border text-brand-950 font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-2xs"
+                className="w-full sm:w-auto px-6 py-4 rounded-full bg-white hover:bg-slate-100 border border-slate-300 text-[#071F2D] font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
               >
                 <BookOpen className="w-4 h-4 text-accent-dark" />
-                <span>Buka Learning Hub (100% Free)</span>
+                <span className="text-[#071F2D] font-bold">Buka Learning Hub (100% Free)</span>
               </Link>
             </div>
 
@@ -344,7 +343,7 @@ export default function NinaPage() {
               Siap Bangun Kebiasaan Sehat Bersama Nina?
             </h2>
             <p className="text-xs sm:text-sm text-brand-200 leading-relaxed">
-              Mulai dari <strong>~Rp 77.000/bulan</strong> (Paket 3 Bulan Rp 231.000). Masukkan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-mono font-bold">TEMANBARU</span> untuk diskon 20% khusus pengguna baru!
+              Mulai dari <strong>Rp 39.000/bulan</strong>. Masukkan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-mono font-bold">TEMANBARU</span> untuk diskon 20% khusus pengguna baru!
             </p>
 
             {/* Guarantee Box */}
@@ -353,13 +352,14 @@ export default function NinaPage() {
               <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
             </div>
 
+            {/* Bottom CTA with Guaranteed Text Contrast */}
             <div className="pt-2">
               <Link
                 href="/companion/nina/onboarding/1"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white hover:text-brand-950 transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#38AEC8] hover:bg-white text-[#041622] font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span>Mulai Onboarding Personal (5 Menit)</span>
-                <ArrowRight className="w-4 h-4 text-brand-950" />
+                <span className="text-[#041622] font-black">Mulai Onboarding Personal (5 Menit)</span>
+                <ArrowRight className="w-4 h-4 text-[#041622]" />
               </Link>
             </div>
           </div>
