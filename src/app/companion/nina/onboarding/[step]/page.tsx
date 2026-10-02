@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, use } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -26,11 +27,16 @@ import {
   Activity,
   Smile,
   Zap,
-  HelpCircle
+  HelpCircle,
+  Camera,
+  BellRing,
+  BrainCircuit,
+  MessageCircle,
+  Smartphone
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 10;
 const STORAGE_KEY = "thrivin_onboarding_profile";
 
 interface OnboardingData {
@@ -82,6 +88,26 @@ export default function OnboardingStepPage({
   const [phoneError, setPhoneError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
+
+  // Intro Feature Slides state (Step 1)
+  const [introSlide, setIntroSlide] = useState(0);
+  const [slide1Sub, setSlide1Sub] = useState<0 | 1>(0);
+  const [slide2Sub, setSlide2Sub] = useState<0 | 1>(0);
+
+  // Auto-switch sub-slides for Slide 1 & Slide 2
+  useEffect(() => {
+    if (stepNum !== 1) return;
+    const timer1 = setInterval(() => {
+      setSlide1Sub((prev) => (prev === 0 ? 1 : 0));
+    }, 3800);
+    const timer2 = setInterval(() => {
+      setSlide2Sub((prev) => (prev === 0 ? 1 : 0));
+    }, 3800);
+    return () => {
+      clearInterval(timer1);
+      clearInterval(timer2);
+    };
+  }, [stepNum]);
 
   // Load saved state from localStorage
   useEffect(() => {
@@ -143,9 +169,10 @@ export default function OnboardingStepPage({
   };
 
   const calculateBMI = () => {
-    const hMeter = (data.height || 170) / 100;
-    const bmi = (data.weight || 65) / (hMeter * hMeter);
-    return parseFloat(bmi.toFixed(1));
+    const hM = (data.height || 170) / 100;
+    const w = data.weight || 65;
+    const bmiVal = w / (hM * hM);
+    return Math.round(bmiVal * 10) / 10;
   };
 
   const tdee = calculateTDEE();
@@ -215,36 +242,465 @@ export default function OnboardingStepPage({
       {/* ─── Top Step Header Bar ─── */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
         <div className="max-w-md mx-auto w-full flex items-center gap-3">
-          <button
-            onClick={() => goToStep(stepNum - 1)}
-            className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
-            aria-label="Kembali"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
+          {stepNum === 1 ? (
+            <>
+              <button
+                onClick={() => {
+                  if (introSlide > 0) {
+                    setIntroSlide(introSlide - 1);
+                  } else {
+                    router.push("/companion/nina");
+                  }
+                }}
+                className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
+                aria-label="Kembali"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
 
-          {/* Progress Bar */}
-          <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
-              style={{ width: `${(stepNum / TOTAL_STEPS) * 100}%` }}
-            />
-          </div>
+              {/* 3 Segmented Bars for Feature Slides */}
+              <div className="flex-1 flex gap-1.5 h-2">
+                {[0, 1, 2].map((idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => setIntroSlide(idx)}
+                    className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden cursor-pointer"
+                  >
+                    <div
+                      className={`h-full transition-all duration-300 rounded-full ${
+                        introSlide >= idx ? "bg-brand-900" : "bg-transparent"
+                      }`}
+                    />
+                  </div>
+                ))}
+              </div>
 
-          <span className="text-[11px] font-bold text-text-muted font-mono shrink-0">
-            Langkah {stepNum}/{TOTAL_STEPS}
-          </span>
+              <button
+                onClick={() => goToStep(2)}
+                className="text-xs font-bold text-accent-dark hover:underline font-mono shrink-0 cursor-pointer"
+              >
+                Lewati &rarr;
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => goToStep(stepNum - 1)}
+                className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
+                aria-label="Kembali"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+
+              {/* Progress Bar for Survey */}
+              <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${((stepNum - 1) / 9) * 100}%` }}
+                />
+              </div>
+
+              <span className="text-[11px] font-bold text-text-muted font-mono shrink-0">
+                Langkah {stepNum - 1}/9
+              </span>
+            </>
+          )}
         </div>
       </header>
 
       {/* ─── Step Content Container ─── */}
-      <main className="flex-1 flex flex-col justify-center max-w-md w-full mx-auto px-6 py-8 sm:py-12">
-        {/* ─── STEP 1: NAMA ─── */}
+      <main className="flex-1 flex flex-col justify-center max-w-md w-full mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        
+        {/* ─── STEP 1: 3 FEATURE SLIDES WITH AUTO-ALTERNATING WHATSAPP CHATS ─── */}
         {stepNum === 1 && (
+          <div className="space-y-4">
+            {/* ── SLIDE 0: NINA MENGINGAT SEMUA & REMINDER PROAKTIF ── */}
+            {introSlide === 0 && (
+              <motion.div
+                key="slide-0"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="text-center">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-[10px] font-black text-accent-dark tracking-wider uppercase font-mono shadow-xs mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-dark animate-pulse" />
+                    FITUR 1 / 3 · KONSISTENSI & AKUNTABILITAS
+                  </span>
+                  <h1 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
+                    Nina Mengingat Segalanya & Hubungi Duluan
+                  </h1>
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1 max-w-sm mx-auto">
+                    Bukan kamu yang harus repot mengingat jadwal. Nina proaktif menyapa di jam genting dan mengingat semua riwayat cedera serta kebiasaanmu.
+                  </p>
+                </div>
+
+                {/* Sub-slide Selector Tabs */}
+                <div className="flex justify-center gap-2">
+                  <button
+                    onClick={() => setSlide1Sub(0)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      slide1Sub === 0
+                        ? "bg-brand-950 text-white shadow-xs"
+                        : "bg-surface-muted text-text-secondary border border-surface-border"
+                    }`}
+                  >
+                    <BellRing className="w-3.5 h-3.5 text-accent" />
+                    <span>Reminder Proaktif</span>
+                  </button>
+                  <button
+                    onClick={() => setSlide1Sub(1)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      slide1Sub === 1
+                        ? "bg-brand-950 text-white shadow-xs"
+                        : "bg-surface-muted text-text-secondary border border-surface-border"
+                    }`}
+                  >
+                    <BrainCircuit className="w-3.5 h-3.5 text-accent" />
+                    <span>Memori Personal</span>
+                  </button>
+                </div>
+
+                {/* WhatsApp Phone Mockup Shell */}
+                <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col h-[400px]">
+                  {/* WA Header */}
+                  <div className="bg-[#075E54] px-4 py-3 flex items-center justify-between text-white shrink-0 shadow-md">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative w-8 h-8 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
+                        <Image
+                          src="/nina-pp.webp"
+                          alt="Nina"
+                          fill
+                          className="object-cover object-top"
+                        />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs leading-tight text-white">Nina · Thrivin</div>
+                        <div className="text-[10px] text-white/80">Online · Personal Companion</div>
+                      </div>
+                    </div>
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                  </div>
+
+                  {/* Chat Content (Auto-alternates) */}
+                  <div className="flex-1 bg-[#efeae2] p-3.5 flex flex-col justify-end gap-2 overflow-y-auto">
+                    <AnimatePresence mode="wait">
+                      {slide1Sub === 0 ? (
+                        <motion.div
+                          key="sub-0"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.25 }}
+                          className="space-y-2"
+                        >
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                            <p>Pagi! Hari ini jadwal workout upper body ya. Mau mulai jam berapa nanti? Aku ingetin ya 💪</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">07:30</span>
+                          </div>
+                          <div className="bg-white text-gray-800 rounded-2xl rounded-tr-none p-3 text-xs leading-relaxed max-w-[85%] ml-auto shadow-2xs">
+                            <p>Jam 5 sore ya Nin</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">07:32</span>
+                          </div>
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                            <p>Siap! Aku reminder jam 4:45 biar sempat pemanasan & stretching 🔥</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">07:32</span>
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="sub-1"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.25 }}
+                          className="space-y-2"
+                        >
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                            <p>Eh minggu lalu kan lutut kiri kamu agak ngilu habis squat, hari ini kita skip squat dulu ya.</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">16:45</span>
+                          </div>
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                            <p>Ganti leg press sama Romanian deadlift aja gimana? Bebannya tetap kena paha tapi lutut lebih aman 😊</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">16:45</span>
+                          </div>
+                          <div className="bg-white text-gray-800 rounded-2xl rounded-tr-none p-3 text-xs leading-relaxed max-w-[85%] ml-auto shadow-2xs">
+                            <p>Wah iya bener, makasih udah inget ya Nin!</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">16:48</span>
+                          </div>
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                            <p>Sama-sama! Nanti malam kompres hangat 5 menit ya 🧘‍♀️</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">16:49</span>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* WA Input Bar */}
+                  <div className="p-2 bg-[#f0f2f5] flex items-center gap-2 border-t border-slate-200 shrink-0">
+                    <div className="flex-1 bg-white rounded-full h-8 px-3 flex items-center text-gray-400 text-xs shadow-xs">
+                      Ketik pesan...
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs">
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIntroSlide(1)}
+                  className="w-full mt-3 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-3.5 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Lanjut (1/3)</span>
+                  <ArrowRight className="w-4 h-4 text-accent" />
+                </button>
+              </motion.div>
+            )}
+
+            {/* ── SLIDE 1: FOTO NUTRISI MAKANAN & RECORD DATA STRAVA ── */}
+            {introSlide === 1 && (
+              <motion.div
+                key="slide-1"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="text-center">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-[10px] font-black text-accent-dark tracking-wider uppercase font-mono shadow-xs mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-dark animate-pulse" />
+                    FITUR 2 / 3 · NUTRISI & PERFORMA OLAHRAGA
+                  </span>
+                  <h1 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
+                    Analisis Foto Makanan & Record Strava
+                  </h1>
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1 max-w-sm mx-auto">
+                    Tinggal kirim foto piring makan untuk estimasi kalori & protein, atau kirim screenshot hasil lari untuk dianalisis performanya.
+                  </p>
+                </div>
+
+                {/* Sub-slide Selector Tabs */}
+                <div className="flex justify-center gap-2">
+                  <button
+                    onClick={() => setSlide2Sub(0)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      slide2Sub === 0
+                        ? "bg-brand-950 text-white shadow-xs"
+                        : "bg-surface-muted text-text-secondary border border-surface-border"
+                    }`}
+                  >
+                    <Camera className="w-3.5 h-3.5 text-accent" />
+                    <span>Foto Piring Makan</span>
+                  </button>
+                  <button
+                    onClick={() => setSlide2Sub(1)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      slide2Sub === 1
+                        ? "bg-brand-950 text-white shadow-xs"
+                        : "bg-surface-muted text-text-secondary border border-surface-border"
+                    }`}
+                  >
+                    <Activity className="w-3.5 h-3.5 text-accent" />
+                    <span>Record Data Strava</span>
+                  </button>
+                </div>
+
+                {/* WhatsApp Phone Mockup Shell */}
+                <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col h-[400px]">
+                  {/* WA Header */}
+                  <div className="bg-[#075E54] px-4 py-3 flex items-center justify-between text-white shrink-0 shadow-md">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative w-8 h-8 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
+                        <Image
+                          src="/nina-pp.webp"
+                          alt="Nina"
+                          fill
+                          className="object-cover object-top"
+                        />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs leading-tight text-white">Nina · Thrivin</div>
+                        <div className="text-[10px] text-white/80">Online · Personal Companion</div>
+                      </div>
+                    </div>
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                  </div>
+
+                  {/* Chat Content (Auto-alternates) */}
+                  <div className="flex-1 bg-[#efeae2] p-3.5 flex flex-col justify-end gap-2 overflow-y-auto">
+                    <AnimatePresence mode="wait">
+                      {slide2Sub === 0 ? (
+                        <motion.div
+                          key="sub-nutrisi"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.25 }}
+                          className="space-y-2"
+                        >
+                          <div className="bg-white text-gray-800 rounded-2xl rounded-tr-none p-2.5 text-xs max-w-[85%] ml-auto shadow-2xs border border-slate-200">
+                            <div className="bg-amber-50 p-2 rounded-xl mb-1 text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+                              <Camera className="w-3.5 h-3.5 text-amber-700" />
+                              <span>Foto Piring Makan Terkirim</span>
+                            </div>
+                            <p className="text-[11px] text-slate-600">Nasi padang rendang + sayur daun singkong</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">12:30</span>
+                          </div>
+
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[90%] self-start shadow-2xs">
+                            <p className="font-bold text-[#075E54] mb-1">Analisis Nutrisi Nina:</p>
+                            <p>Wah nasi padang! 😍 Aku estimasi ya:</p>
+                            <ul className="text-[11px] mt-1 space-y-0.5 list-disc list-inside">
+                              <li>Nasi putih (~150g): ~180 kkal</li>
+                              <li>Rendang sapi (~80g): ~26g protein</li>
+                              <li>Daun singkong: serat bagus!</li>
+                            </ul>
+                            <p className="mt-1 font-semibold">Total: ~450 kkal, 28g protein. Sisa target proteinmu hari ini 42g lagi ya! 🥗</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">12:31</span>
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="sub-strava"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.25 }}
+                          className="space-y-2"
+                        >
+                          <div className="bg-white text-gray-800 rounded-2xl rounded-tr-none p-2.5 text-xs max-w-[85%] ml-auto shadow-2xs border border-slate-200">
+                            <div className="bg-orange-50 p-2 rounded-xl mb-1 text-[11px] font-bold text-orange-900 flex items-center gap-1.5">
+                              <Activity className="w-3.5 h-3.5 text-[#FC4C02]" />
+                              <span>Record Data Strava Terkirim</span>
+                            </div>
+                            <p className="text-[11px] font-mono text-slate-700">Morning Run · 5.2 km · Pace 5&apos;45&quot; · HR 148</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">06:40</span>
+                          </div>
+
+                          <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[90%] self-start shadow-2xs">
+                            <p className="font-bold text-[#075E54] mb-1">Evaluasi Lari Nina:</p>
+                            <p>Lari 5.2 km yang solid! 👟🔥</p>
+                            <p className="mt-1 text-[11px]">Pace 5&apos;45&quot; stabil di zona aerobik (Zone 2). Denyut 148 bpm menunjukkan cardio efisien. Jangan lupa rehidrasi 500ml air ya!</p>
+                            <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">06:41</span>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* WA Input Bar */}
+                  <div className="p-2 bg-[#f0f2f5] flex items-center gap-2 border-t border-slate-200 shrink-0">
+                    <div className="flex-1 bg-white rounded-full h-8 px-3 flex items-center text-gray-400 text-xs shadow-xs">
+                      Ketik pesan...
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs">
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIntroSlide(2)}
+                  className="w-full mt-3 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-3.5 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Lanjut (2/3)</span>
+                  <ArrowRight className="w-4 h-4 text-accent" />
+                </button>
+              </motion.div>
+            )}
+
+            {/* ── SLIDE 2: SEMUANYA HANYA DARI WHATSAPP ── */}
+            {introSlide === 2 && (
+              <motion.div
+                key="slide-2"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="space-y-4"
+              >
+                <div className="text-center">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-[10px] font-black text-accent-dark tracking-wider uppercase font-mono shadow-xs mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-dark animate-pulse" />
+                    FITUR 3 / 3 · KEMUDAHAN AKSES
+                  </span>
+                  <h1 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
+                    Semuanya Hanya dari WhatsApp
+                  </h1>
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1 max-w-sm mx-auto">
+                    Tanpa perlu instal aplikasi baru yang akhirnya terlupakan. Nina langsung hadir di ruang chat yang kamu buka setiap hari.
+                  </p>
+                </div>
+
+                {/* WhatsApp Phone Mockup Shell */}
+                <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col h-[400px]">
+                  {/* WA Header */}
+                  <div className="bg-[#075E54] px-4 py-3 flex items-center justify-between text-white shrink-0 shadow-md">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative w-8 h-8 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
+                        <Image
+                          src="/nina-pp.webp"
+                          alt="Nina"
+                          fill
+                          className="object-cover object-top"
+                        />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs leading-tight text-white">Nina · Thrivin</div>
+                        <div className="text-[10px] text-white/80">Online · Personal Companion</div>
+                      </div>
+                    </div>
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                  </div>
+
+                  {/* Chat Content */}
+                  <div className="flex-1 bg-[#efeae2] p-3.5 flex flex-col justify-end gap-2 overflow-y-auto">
+                    <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                      <p>Kamu ga perlu download aplikasi apapun lagi. Aku langsung hadir di WhatsApp kamu. Chat aja santai kayak ngobrol sama teman akrab 😊</p>
+                      <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">08:00</span>
+                    </div>
+
+                    <div className="bg-white text-gray-800 rounded-2xl rounded-tr-none p-3 text-xs leading-relaxed max-w-[85%] ml-auto shadow-2xs">
+                      <p>Gampang banget ya, storage HP juga ga penuh aplikasi baru</p>
+                      <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">08:02</span>
+                    </div>
+
+                    <div className="bg-[#DCF8C6] text-gray-800 rounded-2xl rounded-tl-none p-3 text-xs leading-relaxed max-w-[88%] self-start shadow-2xs">
+                      <p>Betul! Kunci konsistensi itu akses yang paling gampang. Yuk, kita mulai jawab beberapa profil singkat biar rencana harianmu siap!</p>
+                      <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">08:03</span>
+                    </div>
+                  </div>
+
+                  {/* WA Input Bar */}
+                  <div className="p-2 bg-[#f0f2f5] flex items-center gap-2 border-t border-slate-200 shrink-0">
+                    <div className="flex-1 bg-white rounded-full h-8 px-3 flex items-center text-gray-400 text-xs shadow-xs">
+                      Ketik pesan...
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs">
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => goToStep(2)}
+                  className="w-full mt-3 rounded-full bg-accent hover:bg-accent-dark text-white font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span className="text-white font-black drop-shadow-xs">Mulai Buat Rencana Personal (5 Menit)</span>
+                  <ArrowRight className="w-4 h-4 text-white" />
+                </button>
+              </motion.div>
+            )}
+          </div>
+        )}
+
+        {/* ─── STEP 2: NAMA (Langkah 1/9) ─── */}
+        {stepNum === 2 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 1 dari {TOTAL_STEPS}
+                Langkah 1 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Siapa nama panggilanmu?
@@ -263,7 +719,7 @@ export default function OnboardingStepPage({
                 placeholder="contoh: Ari"
                 className="w-full text-2xl sm:text-3xl font-bold border-b-2 border-brand-200 focus:border-brand-900 bg-transparent outline-none py-3 text-brand-950 placeholder:text-gray-300 transition-colors"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && data.name.trim()) goToStep(2);
+                  if (e.key === "Enter" && data.name.trim()) goToStep(3);
                 }}
               />
             </div>
@@ -282,7 +738,7 @@ export default function OnboardingStepPage({
             )}
 
             <button
-              onClick={() => goToStep(2)}
+              onClick={() => goToStep(3)}
               disabled={!data.name.trim()}
               className="w-full mt-6 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
@@ -292,12 +748,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 2: JENIS KELAMIN & USIA (Common-Sense Bounds: 12 - 99) ─── */}
-        {stepNum === 2 && (
+        {/* ─── STEP 3: JENIS KELAMIN & USIA (Langkah 2/9, Common-Sense Bounds: 12 - 99) ─── */}
+        {stepNum === 3 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 2 dari {TOTAL_STEPS}
+                Langkah 2 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Profil Biologis, {data.name}
@@ -356,7 +812,7 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => goToStep(3)}
+              onClick={() => goToStep(4)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lanjut ke Data Fisik</span>
@@ -365,12 +821,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 3: DATA FISIK (TINGGI & BERAT) + LIVE ANIMATED GRAPH ─── */}
-        {stepNum === 3 && (
+        {/* ─── STEP 4: DATA FISIK (TINGGI & BERAT) + LIVE ANIMATED GRAPH (Langkah 3/9) ─── */}
+        {stepNum === 4 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 3 dari {TOTAL_STEPS}
+                Langkah 3 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Tinggi & Berat Badan
@@ -444,7 +900,7 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => goToStep(4)}
+              onClick={() => goToStep(5)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lanjut ke Pola Aktivitas</span>
@@ -453,12 +909,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 4: TINGKAT AKTIVITAS & TEMPAT LATIHAN ─── */}
-        {stepNum === 4 && (
+        {/* ─── STEP 5: TINGKAT AKTIVITAS & TEMPAT LATIHAN (Langkah 4/9) ─── */}
+        {stepNum === 5 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 4 dari {TOTAL_STEPS}
+                Langkah 4 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Aktivitas & Fasilitas
@@ -528,7 +984,7 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => goToStep(5)}
+              onClick={() => goToStep(6)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lanjut ke Fokus Program</span>
@@ -537,12 +993,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 5: FOKUS PROGRAM ─── */}
-        {stepNum === 5 && (
+        {/* ─── STEP 6: FOKUS PROGRAM UTAMA (Langkah 5/9) ─── */}
+        {stepNum === 6 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 5 dari {TOTAL_STEPS}
+                Langkah 5 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Fokus Program Utama
@@ -595,7 +1051,7 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => goToStep(6)}
+              onClick={() => goToStep(7)}
               disabled={data.programFocus.length === 0}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
@@ -605,12 +1061,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 6: TANTANGAN & GAYA NINA ─── */}
-        {stepNum === 6 && (
+        {/* ─── STEP 7: TANTANGAN & GAYA NINA (Langkah 6/9) ─── */}
+        {stepNum === 7 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 6 dari {TOTAL_STEPS}
+                Langkah 6 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Persona & Hambatan
@@ -682,7 +1138,7 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => goToStep(7)}
+              onClick={() => goToStep(8)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lihat Blueprint Personal</span>
@@ -691,12 +1147,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 7: PERSONAL BLUEPRINT OVERVIEW (NO LOCKING GIMMICK!) ─── */}
-        {stepNum === 7 && (
+        {/* ─── STEP 8: PERSONAL BLUEPRINT OVERVIEW (Langkah 7/9) ─── */}
+        {stepNum === 8 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Personal Blueprint
+                Langkah 7 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Blueprint {data.name} & Nina
@@ -706,7 +1162,7 @@ export default function OnboardingStepPage({
               </p>
             </div>
 
-            {/* Overview Metric Cards (Open & Transparent) */}
+            {/* Overview Metric Cards */}
             <div className="p-5 sm:p-6 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-4">
               <div className="flex justify-between items-center pb-3 border-b border-surface-border">
                 <div>
@@ -770,11 +1226,11 @@ export default function OnboardingStepPage({
             </div>
 
             <p className="text-xs text-text-secondary text-center leading-relaxed">
-              Nina akan menyelaraskan jadwal reminder, evaluasi foto makanan, dan referensi gerakan sesuai data ini langsung di WhatsApp.
+              Nina akan menyelaraskan jadwal reminder, evaluasi foto makanan, dan record data Strava sesuai profil ini langsung di WhatsApp.
             </p>
 
             <button
-              onClick={() => goToStep(8)}
+              onClick={() => goToStep(9)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lanjut Sambungkan ke WhatsApp</span>
@@ -783,12 +1239,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 8: INPUT NOMOR WHATSAPP (PRIMARY ID) ─── */}
-        {stepNum === 8 && (
+        {/* ─── STEP 9: INPUT NOMOR WHATSAPP (Langkah 8/9, Primary ID) ─── */}
+        {stepNum === 9 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 8 dari {TOTAL_STEPS}
+                Langkah 8 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Nomor WhatsApp Kamu
@@ -846,7 +1302,7 @@ export default function OnboardingStepPage({
                   setPhoneError(err);
                   return;
                 }
-                goToStep(9);
+                goToStep(10);
               }}
               disabled={!data.whatsappNumber.trim() || !!phoneError}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
@@ -857,12 +1313,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 9: PRICING PLANS & CHECKOUT ─── */}
-        {stepNum === 9 && (
+        {/* ─── STEP 10: PRICING PLANS & CHECKOUT (Langkah 9/9) ─── */}
+        {stepNum === 10 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 9 dari {TOTAL_STEPS}
+                Langkah 9 dari 9
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Pilih Paket Pendampingan
@@ -1000,21 +1456,21 @@ export default function OnboardingStepPage({
               </span>
             </div>
 
-            {/* Checkout Action Button */}
+            {/* Checkout Action Button with Guaranteed Pure White Font */}
             <button
               onClick={handleCheckout}
               disabled={isCheckingOut || checkoutComplete}
-              className="w-full rounded-full bg-accent hover:bg-brand-900 hover:text-white disabled:bg-slate-200 disabled:text-slate-400 text-brand-950 font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full rounded-full bg-accent hover:bg-accent-dark disabled:bg-slate-200 text-white font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
             >
               {isCheckingOut ? (
-                <span>Menghubungkan Pembayaran...</span>
+                <span className="text-white font-black drop-shadow-xs">Menghubungkan Pembayaran...</span>
               ) : checkoutComplete ? (
-                <span>✓ Berhasil! Mengalihkan ke Dashboard...</span>
+                <span className="text-white font-black drop-shadow-xs">✓ Berhasil! Mengalihkan ke Dashboard...</span>
               ) : (
                 <>
-                  <CreditCard className="w-4 h-4" />
-                  <span>Ambil Paket & Mulai di WhatsApp</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <CreditCard className="w-4 h-4 text-white" />
+                  <span className="text-white font-black drop-shadow-xs">Ambil Paket & Mulai di WhatsApp</span>
+                  <ArrowRight className="w-4 h-4 text-white" />
                 </>
               )}
             </button>

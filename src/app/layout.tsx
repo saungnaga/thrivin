@@ -47,6 +47,7 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "@/context/AuthContext";
+import { AIChatWidget } from "@/components/AIChatWidget";
 
 export default function RootLayout({
   children,
@@ -56,7 +57,10 @@ export default function RootLayout({
   return (
     <html lang="id" className={`${plusJakarta.variable} ${sourceSerif.variable}`}>
       <body className="font-sans antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          {children}
+          <AIChatWidget />
+        </AuthProvider>
       </body>
     </html>
   );

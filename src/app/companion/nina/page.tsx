@@ -98,7 +98,7 @@ export default function NinaPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       setWordIndex((prev) => (prev + 1) % ROTATING_WORDS.length);
-    }, 2800);
+    }, 1600);
     return () => clearInterval(interval);
   }, []);
 
