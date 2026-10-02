@@ -685,10 +685,10 @@ export default function OnboardingStepPage({
 
                 <button
                   onClick={() => goToStep(2)}
-                  className="w-full mt-3 rounded-full bg-accent hover:bg-accent-dark text-white font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full mt-3 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <span className="text-white font-black drop-shadow-xs">Mulai Buat Rencana Personal (5 Menit)</span>
-                  <ArrowRight className="w-4 h-4 text-white" />
+                  <span>Mulai Buat Rencana Personal (5 Menit)</span>
+                  <ArrowRight className="w-4 h-4 text-accent" />
                 </button>
               </motion.div>
             )}
