@@ -138,18 +138,6 @@ export default function Home() {
               <span>&rarr;</span>
             </span>
           </Link>
-
-          {/* Quick CTA Login untuk Akses Dashboard & Materi Scientific */}
-          <div className="text-xs text-text-secondary flex items-center justify-center gap-1.5 flex-wrap">
-            <span>Sudah bergabung?</span>
-            <Link
-              href="/login"
-              className="font-bold text-accent-dark hover:underline inline-flex items-center gap-1 cursor-pointer"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Login untuk akses dashboard & materi scientific &rarr;</span>
-            </Link>
-          </div>
         </motion.div>
       </section>
 
