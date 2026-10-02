@@ -350,10 +350,14 @@ export function AIChatWidget() {
               <button
                 type="submit"
                 disabled={!inputVal.trim()}
-                className="w-9 h-9 rounded-full bg-accent hover:bg-accent-dark disabled:bg-slate-200 text-white flex items-center justify-center shrink-0 transition-all shadow-xs cursor-pointer"
+                className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                  inputVal.trim()
+                    ? "bg-brand-900 hover:bg-brand-800 border border-accent/50 text-white shadow-md active:scale-95 cursor-pointer"
+                    : "bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed"
+                }`}
                 aria-label="Kirim Pesan"
               >
-                <Send className="w-4 h-4 text-white" />
+                <Send className={`w-4 h-4 transition-colors ${inputVal.trim() ? "text-accent" : "text-slate-300"}`} />
               </button>
             </form>
           </motion.div>

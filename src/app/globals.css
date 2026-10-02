@@ -20,11 +20,13 @@
   --color-brand-50: #F0F8FC;
 
   /* Accent — Luminous Teal / Cyan from logo gradient */
+  --color-accent: #38AEC8;
   --color-accent-DEFAULT: #38AEC8;
   --color-accent-light: #5ED6F0;
   --color-accent-dark: #1F7C93;
 
   /* Surface */
+  --color-surface: #FFFFFF;
   --color-surface-DEFAULT: #FFFFFF;
   --color-surface-muted: #F4F8FA;
   --color-surface-elevated: #FFFFFF;
