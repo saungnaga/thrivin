@@ -270,7 +270,7 @@ export default function AboutPage() {
               </div>
               <Link
                 href="/companion/nina"
-                className="w-full py-2.5 rounded-full bg-accent hover:bg-white text-brand-950 font-bold text-xs text-center transition-colors block"
+                className="w-full py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs text-center transition-colors block shadow-xs"
               >
                 Kenali Nina &rarr;
               </Link>
@@ -332,10 +332,10 @@ export default function AboutPage() {
           </div>
           <Link
             href="/companion/nina"
-            className="px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white hover:text-brand-950 transition-all shadow-md shrink-0 flex items-center gap-2 cursor-pointer"
+            className="px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-sm transition-all shadow-glow hover:scale-105 shrink-0 flex items-center gap-2 cursor-pointer"
           >
-            <span>Mulai Bersama Nina</span>
-            <ArrowRight className="w-4 h-4 text-brand-950" />
+            <span className="text-white font-black drop-shadow-xs">Mulai Bersama Nina</span>
+            <ArrowRight className="w-4 h-4 text-white" />
           </Link>
         </section>
       </main>

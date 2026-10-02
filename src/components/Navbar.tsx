@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X, User, LogOut, Sparkles, MessageCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +11,14 @@ export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    setUserDropdownOpen(false);
+    setIsOpen(false);
+    router.push("/");
+  };
 
   // Close mobile menu on resize to desktop breakpoint
   useEffect(() => {
@@ -146,10 +155,7 @@ export function Navbar() {
                         <span>Buka Dashboard</span>
                       </Link>
                       <button
-                        onClick={() => {
-                          logout();
-                          setUserDropdownOpen(false);
-                        }}
+                        onClick={handleLogout}
                         className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
                       >
                         <LogOut className="w-3.5 h-3.5" />
@@ -261,11 +267,8 @@ export function Navbar() {
             <div className="pt-6 pb-4 flex flex-col gap-3">
               {user ? (
                 <button
-                  onClick={() => {
-                    logout();
-                    setIsOpen(false);
-                  }}
-                  className="w-full text-center rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-bold py-3 text-sm"
+                  onClick={handleLogout}
+                  className="w-full text-center rounded-full bg-rose-50 border border-rose-200 text-rose-700 font-bold py-3 text-sm cursor-pointer"
                 >
                   Keluar dari Akun
                 </button>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
@@ -77,10 +78,25 @@ const COMPANIONS: CompanionOrb[] = [
 ];
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
   const [activeCompanionId, setActiveCompanionId] = useState("nina");
 
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/");
+    }
+  }, [user, isLoading, router]);
+
   const activeCompanion = COMPANIONS.find((c) => c.id === activeCompanionId) || COMPANIONS[0];
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface-muted font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
