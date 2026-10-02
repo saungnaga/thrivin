@@ -16,6 +16,7 @@ import {
   MessageCircle,
   CheckCircle2
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface DomainItem {
   id: string;
@@ -87,6 +88,9 @@ const ALL_DOMAINS: DomainItem[] = [
 ];
 
 export default function ExplorePage() {
+  const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
+  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina";
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDomains = ALL_DOMAINS.filter((d) => {
@@ -126,11 +130,11 @@ export default function ExplorePage() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/companion/nina"
+              href={ninaCtaUrl}
               className="inline-flex items-center gap-2 rounded-full bg-brand-900 text-white px-4 py-1.5 text-xs sm:text-sm font-medium hover:bg-brand-800 transition-all shadow-sm"
             >
               <MessageCircle className="w-4 h-4 text-accent" />
-              <span>Kenali Nina</span>
+              <span>{hasNina ? "Dashboard Nina" : "Kenali Nina"}</span>
             </Link>
           </div>
         </div>
@@ -302,11 +306,13 @@ export default function ExplorePage() {
             </div>
             <div className="flex flex-col sm:flex-row lg:flex-col gap-3 justify-center items-start lg:items-end">
               <Link
-                href="/companion/nina"
+                href={ninaCtaUrl}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
               >
                 <MessageCircle className="w-4 h-4 text-accent" />
-                <span className="text-white">Pelajari Pendampingan Nina</span>
+                <span className="text-white">
+                  {hasNina ? "Buka Dashboard Nina" : "Pelajari Pendampingan Nina"}
+                </span>
               </Link>
               <Link
                 href="/path/wellness"

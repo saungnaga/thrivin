@@ -36,6 +36,8 @@ import { Footer } from "@/components/Footer";
 
 export default function NinaLearningHubPage() {
   const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
+  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina/onboarding/1";
   const [selectedTrackId, setSelectedTrackId] = useState<TrackInfo["id"]>("workout");
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
 
@@ -403,10 +405,10 @@ export default function NinaLearningHubPage() {
                   Bingung cara menerapkan bab ini? Tanya langsung ke Nina di WhatsApp.
                 </p>
                 <Link
-                  href="/companion/nina/onboarding/1"
+                  href={ninaCtaUrl}
                   className="block text-center text-xs font-bold bg-brand-900 text-white py-2 rounded-lg hover:bg-brand-800 transition-colors shadow-xs"
                 >
-                  Mulai dengan Nina &rarr;
+                  {hasNina ? "Buka Dashboard Nina →" : "Mulai dengan Nina →"}
                 </Link>
               </div>
             </aside>
@@ -712,11 +714,11 @@ export default function NinaLearningHubPage() {
 
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Link
-                      href="/companion/nina/onboarding/1"
+                      href={ninaCtaUrl}
                       className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-accent text-brand-950 hover:bg-white hover:text-brand-950 font-bold text-sm transition-all shadow-glow hover:scale-105"
                     >
                       <Sparkles className="w-4 h-4" />
-                      <span>Mulai Onboarding dengan Nina</span>
+                      <span>{hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding dengan Nina"}</span>
                     </Link>
                   </div>
                 </div>
@@ -764,12 +766,14 @@ export default function NinaLearningHubPage() {
                     </button>
                   ) : (
                     <Link
-                      href="/companion/nina/onboarding/1"
+                      href={ninaCtaUrl}
                       className="p-4 rounded-2xl bg-linear-to-r from-brand-900 to-brand-950 text-white text-right hover:opacity-95 transition-all flex items-center justify-end gap-3 cursor-pointer shadow-glow"
                     >
                       <div>
                         <span className="text-[10px] uppercase text-accent block">Selesai 8 Bab!</span>
-                        <span className="text-xs sm:text-sm font-bold text-white block">Mulai Bersama Nina &rarr;</span>
+                        <span className="text-xs sm:text-sm font-bold text-white block">
+                          {hasNina ? "Ke Dashboard Nina →" : "Mulai Bersama Nina →"}
+                        </span>
                       </div>
                     </Link>
                   )}
@@ -1011,10 +1015,10 @@ export default function NinaLearningHubPage() {
                             </div>
 
                             <Link
-                              href="/companion/nina/onboarding/1"
+                              href={ninaCtaUrl}
                               className="inline-flex items-center gap-1 text-xs font-bold text-accent-dark hover:text-brand-900 transition-colors"
                             >
-                              <span>Terapkan dengan Nina</span>
+                              <span>{hasNina ? "Buka di Dashboard" : "Terapkan dengan Nina"}</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </Link>
                           </div>

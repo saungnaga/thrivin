@@ -15,6 +15,7 @@ import {
   User,
   ExternalLink
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface ChatMessage {
   id: string;
@@ -44,15 +45,15 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   },
 ];
 
-function getBotReply(input: string): { text: string; cta?: { label: string; href: string } } {
+function getBotReply(input: string, hasNina: boolean = false): { text: string; cta?: { label: string; href: string } } {
   const query = input.toLowerCase();
 
   if (query.includes("nina") || query.includes("siapa") || query.includes("apa itu")) {
     return {
       text: "Nina adalah AI Companion pertama Thrivin untuk Wellness & Fitness. Nina hidup 24/7 di WhatsApp-mu untuk menemani diet, evaluasi foto makanan, cek record data Strava, dan proaktif mengingatkan jadwal olahraga tanpa kamu harus cari duluan!",
       cta: {
-        label: "Kenali Nina Lebih Dekat",
-        href: "/companion/nina",
+        label: hasNina ? "Buka Dashboard Nina" : "Kenali Nina Lebih Dekat",
+        href: hasNina ? "/dashboard" : "/companion/nina",
       },
     };
   }
@@ -68,8 +69,8 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     return {
       text: "Investasi Thrivin mulai dari Rp 39.000/bulan (sistem sekali bayar, tanpa tagihan otomatis!). Ada Paket 3 Bulan (Rp 231rb), 6 Bulan (Rp 357rb), dan 1 Tahun (Rp 465rb). Khusus pengguna baru, kamu bisa pakai kode promo 'TEMANBARU' untuk diskon ekstra 20%!",
       cta: {
-        label: "Mulai Onboarding & Pilih Paket",
-        href: "/companion/nina/onboarding/1",
+        label: hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding & Pilih Paket",
+        href: hasNina ? "/dashboard" : "/companion/nina/onboarding/1",
       },
     };
   }
@@ -84,8 +85,8 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     return {
       text: "Kamu TIDAK PERLU menginstal aplikasi baru! Nina langsung aktif di WhatsApp pribadimu. Chatting santai layaknya kontak teman akrab yang selalu siap menyapa dan merespons 24/7.",
       cta: {
-        label: "Coba Nina di WhatsApp",
-        href: "/companion/nina",
+        label: hasNina ? "Buka Dashboard Nina" : "Coba Nina di WhatsApp",
+        href: hasNina ? "/dashboard" : "/companion/nina",
       },
     };
   }
@@ -112,13 +113,22 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     return {
       text: "Cukup kirim foto piring makanmu ke WhatsApp Nina, dan Nina akan mengestimasi kalori & proteinnya. Kamu juga bisa kirim tangkapan layar lari Strava untuk dievaluasi pace, detak jantung (HR), dan saran pemulihannya!",
       cta: {
-        label: "Lihat Fitur Lengkap",
-        href: "/companion/nina",
+        label: hasNina ? "Buka Dashboard Nina" : "Lihat Fitur Lengkap",
+        href: hasNina ? "/dashboard" : "/companion/nina",
       },
     };
   }
 
   if (query.includes("daftar") || query.includes("login") || query.includes("onboarding") || query.includes("mulai")) {
+    if (hasNina) {
+      return {
+        text: "Akunmu sudah aktif bersama Nina! Kamu bisa langsung membuka dashboard untuk memantau progress dan panduan belajar, atau chat Nina langsung di WhatsApp.",
+        cta: {
+          label: "Buka Dashboard Nina",
+          href: "/dashboard",
+        },
+      };
+    }
     return {
       text: "Proses setup hanya butuh 5 menit via onboarding singkat. Setelah itu, akunmu aktif dan Nina langsung menyapamu di nomor WhatsApp yang kamu daftarkan.",
       cta: {
@@ -131,13 +141,15 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
   return {
     text: "Thrivin menyediakan personal AI companion di WhatsApp untuk membangun konsistensi nyata tanpa rasa sendirian. Kamu bisa langsung mencoba Nina (Wellness & Fitness) atau pelajari cara kerja Thrivin lebih lanjut!",
     cta: {
-      label: "Pelajari Thrivin Lebih Jauh",
-      href: "/about",
+      label: hasNina ? "Buka Dashboard Nina" : "Pelajari Thrivin Lebih Jauh",
+      href: hasNina ? "/dashboard" : "/about",
     },
   };
 }
 
 export function AIChatWidget() {
+  const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [inputVal, setInputVal] = useState("");
@@ -170,7 +182,7 @@ export function AIChatWidget() {
     setIsTyping(true);
 
     setTimeout(() => {
-      const replyData = getBotReply(text);
+      const replyData = getBotReply(text, hasNina);
       const botMsg: ChatMessage = {
         id: String(Date.now() + 1),
         sender: "bot",

@@ -81,7 +81,7 @@ export function Navbar() {
                   Learning
                 </Link>
                 <Link
-                  href="/companion/nina"
+                  href={user?.activeCompanion === "nina" ? "/dashboard" : "/companion/nina"}
                   className="text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors"
                 >
                   Companion
@@ -226,11 +226,11 @@ export function Navbar() {
                     <span className="text-text-muted text-sm">&rarr;</span>
                   </Link>
                   <Link
-                    href="/companion/nina"
+                    href={user?.activeCompanion === "nina" ? "/dashboard" : "/companion/nina"}
                     onClick={() => setIsOpen(false)}
                     className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
-                    <span>Companion Nina</span>
+                    <span>{user?.activeCompanion === "nina" ? "Dashboard Nina" : "Companion Nina"}</span>
                     <MessageCircle className="w-5 h-5 text-accent" />
                   </Link>
                 </>

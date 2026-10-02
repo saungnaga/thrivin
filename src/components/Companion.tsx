@@ -3,8 +3,11 @@
 import { motion } from "framer-motion";
 import { Check, ArrowRight, Instagram } from "lucide-react";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Companion() {
+  const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
   const features = [
     "Rekomendasi yang menyesuaikan ritme hidupmu",
     "Mengingatkan dan menjaga konsistensi tanpa menekan",
@@ -100,10 +103,12 @@ export default function Companion() {
               </p>
               <div>
                 <Link
-                  href="/companion/nina"
+                  href={hasNina ? "/dashboard" : "/companion/nina"}
                   className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full bg-brand-900 hover:bg-brand-800 border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:-translate-y-0.5"
                 >
-                  <span className="text-white">Kenali Nina & Ambil Akses</span>
+                  <span className="text-white">
+                    {hasNina ? "Buka Dashboard Nina" : "Kenali Nina & Ambil Akses"}
+                  </span>
                   <ArrowRight className="w-4 h-4 text-accent" />
                 </Link>
               </div>

@@ -20,6 +20,8 @@ import {
   AlertCircle,
   Tag,
   CreditCard,
+  Clock,
+  Percent,
   Lock,
   Heart,
   Dumbbell,
@@ -81,13 +83,57 @@ export default function OnboardingStepPage({
   const resolvedParams = use(params);
   const stepNum = parseInt(resolvedParams.step, 10) || 1;
   const router = useRouter();
-  const { login } = useAuth();
+  const { user, login } = useAuth();
+
+  // If user is already logged in and has Nina companion, direct them straight to their dashboard
+  useEffect(() => {
+    if (user && user.activeCompanion === "nina" && stepNum < 9) {
+      router.replace("/dashboard");
+    }
+  }, [user, stepNum, router]);
 
   const [data, setData] = useState<OnboardingData>(DEFAULT_DATA);
   const [isLoaded, setIsLoaded] = useState(false);
   const [phoneError, setPhoneError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
+
+  // 1-Hour Countdown Timer for Promo Diskon 20%
+  const [countdownSeconds, setCountdownSeconds] = useState(3600);
+
+  useEffect(() => {
+    const COUNTDOWN_STORAGE_KEY = "thrivin_promo_1h_countdown";
+    let expiry = Number(localStorage.getItem(COUNTDOWN_STORAGE_KEY));
+    const now = Date.now();
+    if (!expiry || expiry <= now) {
+      expiry = now + 3600 * 1000;
+      try {
+        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
+      } catch (e) {}
+    }
+
+    const updateTimer = () => {
+      const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
+      setCountdownSeconds(remaining);
+      if (remaining === 0) {
+        expiry = Date.now() + 3600 * 1000;
+        try {
+          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
+        } catch (e) {}
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatCountdown = (totalSec: number) => {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
 
   // Syncing & calculation animation state (after WhatsApp input in Step 8)
   const [isSyncing, setIsSyncing] = useState(false);
@@ -212,7 +258,7 @@ export default function OnboardingStepPage({
       duration: "12 Bulan",
       totalPrice: 465000,
       monthlyPrice: 38750,
-      badge: "Paling Hemat 50% · Rp 31rb-an/bulan",
+      badge: "Paling Hemat 50% · Rp 39rb-an/bulan",
       desc: "Gaya hidup permanen dengan pendampingan penuh.",
     },
   };
@@ -1442,6 +1488,46 @@ export default function OnboardingStepPage({
                 </p>
               </div>
 
+              {/* Promo Applied & 1-Hour Countdown Banner */}
+              {data.promoApplied && (
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-linear-to-r from-emerald-50 via-teal-50 to-amber-50 border border-emerald-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs sm:text-sm font-bold text-emerald-950">
+                          Kode promo berhasil terpasang:
+                        </span>
+                        <span className="font-mono text-xs font-black bg-emerald-700 text-white px-2 py-0.5 rounded-md tracking-wider">
+                          {data.promoCode}
+                        </span>
+                        <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded">
+                          DISKON 20%
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 mt-0.5 leading-tight">
+                        Harga coret hemat 20% telah otomatis aktif pada semua pilihan paket di bawah.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 1-Hour Countdown Timer */}
+                  <div className="flex items-center gap-2 bg-white/95 border border-amber-300 px-3 py-1.5 rounded-xl shadow-2xs self-start sm:self-auto shrink-0">
+                    <Clock className="w-4 h-4 text-amber-600 animate-pulse shrink-0" />
+                    <div>
+                      <div className="text-[9px] uppercase font-mono font-bold text-text-muted leading-none">
+                        Promo berakhir dalam:
+                      </div>
+                      <div className="font-mono font-black text-sm text-amber-900 leading-tight">
+                        {formatCountdown(countdownSeconds)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 3 Simple Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 {[
@@ -1462,7 +1548,7 @@ export default function OnboardingStepPage({
                   {
                     id: "year",
                     name: "Paket 1 Tahun",
-                    badge: "Paling Hemat 50% · Rp 31rb-an/bulan",
+                    badge: "Paling Hemat 50% · Rp 39rb-an/bulan",
                     badgeColor: "bg-purple-50 text-purple-800 border border-purple-200",
                     pricing: getPlanPricing("year"),
                   },
@@ -1497,13 +1583,17 @@ export default function OnboardingStepPage({
                           </div>
                         </div>
 
-                        {/* Struck-through Pricing */}
+                        {/* Struck-through Pricing with OFF 20% logo */}
                         <div className="my-2">
                           {pricing.hasDiscount ? (
                             <div>
-                              <div className="flex items-baseline gap-1.5 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className={`line-through text-xs ${isSelected ? "text-slate-400" : "text-slate-400"}`}>
                                   Rp {pricing.originalTotal.toLocaleString("id-ID")}
+                                </span>
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono font-black text-[9px] uppercase tracking-wider shadow-xs">
+                                  <Percent className="w-2.5 h-2.5" />
+                                  <span>OFF 20%</span>
                                 </span>
                                 <span className={`text-xl sm:text-2xl font-black font-mono ${
                                   isSelected ? "text-accent" : "text-brand-950"
@@ -1575,9 +1665,11 @@ export default function OnboardingStepPage({
                 </div>
 
                 {data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && (
-                  <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 pt-0.5">
-                    <Check className="w-3 h-3" />
-                    <span>Kode promo TEMANBARU aktif! Diskon 20% otomatis memotong dan mencoret harga di atas.</span>
+                  <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      Kode promo berhasil terpasang! Diskon 20% otomatis memotong dan mencoret harga di atas (Sisa waktu: {formatCountdown(countdownSeconds)}).
+                    </span>
                   </div>
                 )}
               </div>

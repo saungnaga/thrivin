@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useAuth } from "@/context/AuthContext";
 
 // Clean vector silhouette for locked companions
 const SilhouetteIcon = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -40,6 +41,9 @@ interface LockedModalInfo {
 }
 
 export default function Home() {
+  const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
+  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina";
   const [lockedModal, setLockedModal] = useState<LockedModalInfo | null>(null);
 
   return (
@@ -182,7 +186,7 @@ export default function Home() {
             className="w-full flex justify-center"
           >
             <Link
-              href="/companion/nina"
+              href={ninaCtaUrl}
               className="group relative w-full max-w-[340px] sm:max-w-[350px] aspect-square p-6 sm:p-7 text-white bg-linear-to-b from-[#041622] via-[#082132] to-[#041622] border-2 border-accent shadow-glow flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-300 rounded-[48%_52%_53%_47%/49%_53%_47%_51%] overflow-hidden"
             >
               {/* Top Status Badge */}
@@ -234,7 +238,9 @@ export default function Home() {
 
               {/* Direct CTA Button (White Font Guaranteed) */}
               <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-1.5">
-                <span className="text-white font-black drop-shadow-xs">Pilih Nina & Mulai</span>
+                <span className="text-white font-black drop-shadow-xs">
+                  {hasNina ? "Buka Dashboard Nina" : "Pilih Nina & Mulai"}
+                </span>
                 <ArrowRight className="w-3.5 h-3.5 text-white group-hover:translate-x-1 transition-transform" />
               </div>
             </Link>
@@ -430,12 +436,12 @@ export default function Home() {
 
               <div className="flex flex-col gap-2.5">
                 <Link
-                  href="/companion/nina"
+                  href={ninaCtaUrl}
                   onClick={() => setLockedModal(null)}
                   className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-accent" />
-                  <span>Pilih Nina (Wellness & Fitness)</span>
+                  <span>{hasNina ? "Buka Dashboard Nina" : "Pilih Nina (Wellness & Fitness)"}</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
 
@@ -593,10 +599,12 @@ export default function Home() {
 
             <div className="pt-2">
               <Link
-                href="/companion/nina"
+                href={ninaCtaUrl}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span className="text-white font-black drop-shadow-xs">Mulai Bersama Nina Sekarang</span>
+                <span className="text-white font-black drop-shadow-xs">
+                  {hasNina ? "Buka Dashboard Nina" : "Mulai Bersama Nina Sekarang"}
+                </span>
                 <ArrowRight className="w-4 h-4 text-white" />
               </Link>
             </div>

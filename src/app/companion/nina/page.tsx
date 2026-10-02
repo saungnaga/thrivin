@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { useAuth } from "@/context/AuthContext";
 
 const ROTATING_WORDS = [
   "menemani dietmu",
@@ -93,6 +94,8 @@ const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; t
 );
 
 export default function NinaPage() {
+  const { user } = useAuth();
+  const hasNina = Boolean(user && user.activeCompanion === "nina");
   const [wordIndex, setWordIndex] = useState(0);
 
   useEffect(() => {
@@ -184,10 +187,12 @@ export default function NinaPage() {
             {/* CTAs with Guaranteed Clear White Font & Crisp Contrast */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
-                href="/companion/nina/onboarding/1"
+                href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span className="text-white font-bold">Mulai Onboarding Bersama Nina</span>
+                <span className="text-white font-bold">
+                  {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Bersama Nina"}
+                </span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </Link>
 
@@ -395,10 +400,12 @@ export default function NinaPage() {
             {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy */}
             <div className="pt-2">
               <Link
-                href="/companion/nina/onboarding/1"
+                href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span className="text-white font-black">Mulai Onboarding Personal (5 Menit)</span>
+                <span className="text-white font-black">
+                  {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Personal (5 Menit)"}
+                </span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </Link>
             </div>
