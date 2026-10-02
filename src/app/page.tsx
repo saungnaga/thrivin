@@ -214,10 +214,10 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Direct CTA Button (Guaranteed Contrast) */}
-              <div className="w-full max-w-[240px] py-3 rounded-full bg-accent group-hover:bg-white text-brand-950 font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2">
-                <span className="text-brand-950 font-black">Pilih Nina & Mulai</span>
-                <ArrowRight className="w-4 h-4 text-brand-950 group-hover:translate-x-1 transition-transform" />
+              {/* Direct CTA Button (White Font Guaranteed) */}
+              <div className="w-full max-w-[240px] py-3 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2">
+                <span className="text-white font-black drop-shadow-xs">Pilih Nina & Mulai</span>
+                <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
               </div>
             </Link>
           </motion.div>

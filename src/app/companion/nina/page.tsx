@@ -8,7 +8,6 @@ import {
   Camera,
   BellRing,
   BrainCircuit,
-  MessageCircle,
   Smartphone,
   ArrowRight,
   Sparkles,
@@ -22,11 +21,11 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
 const ROTATING_WORDS = [
-  { text: "menemani dietmu", color: "#38AEC8" },
-  { text: "mengingatkan olahragamu", color: "#5ED6F0" },
-  { text: "membaca foto piringmu", color: "#7DD3FC" },
-  { text: "mengevaluasi larimu", color: "#38BDF8" },
-  { text: "menjaga konsistensimu", color: "#06B6D4" },
+  "menemani dietmu",
+  "mengingatkan olahragamu",
+  "membaca foto piringmu",
+  "mengevaluasi larimu",
+  "menjaga konsistensimu",
 ];
 
 // Reusable WhatsApp Mockup
@@ -99,12 +98,12 @@ export default function NinaPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       setWordIndex((prev) => (prev + 1) % ROTATING_WORDS.length);
-    }, 2400);
+    }, 2800);
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
+    <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900 overflow-x-hidden">
       <Navbar />
 
       {/* ─── Hero Section: Direct & Selling Focus on Nina ─── */}
@@ -117,20 +116,61 @@ export default function NinaPage() {
               <span>AI Wellness & Fitness Companion · WhatsApp</span>
             </div>
 
-            <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-brand-950 leading-[1.12]">
+            <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-brand-950 leading-[1.15]">
               Meet Nina. Teman akrab yang siap{" "}
-              <span className="inline-block relative">
+              {/* ─── Flash Speed-Dash Effect (Same Color, No Underline, Ghost Echo Trails) ─── */}
+              <span className="inline-block relative overflow-visible px-1">
                 <AnimatePresence mode="wait">
                   <motion.span
                     key={wordIndex}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -12 }}
-                    transition={{ duration: 0.3 }}
-                    style={{ color: ROTATING_WORDS[wordIndex].color }}
-                    className="inline-block underline decoration-accent/40 decoration-wavy underline-offset-4"
+                    initial={{ x: -80, opacity: 0, skewX: -20, filter: "blur(4px)" }}
+                    animate={{
+                      x: 0,
+                      opacity: 1,
+                      skewX: 0,
+                      filter: "blur(0px)",
+                      transition: {
+                        type: "spring",
+                        stiffness: 350,
+                        damping: 22,
+                        mass: 0.8,
+                      },
+                    }}
+                    exit={{
+                      x: 100,
+                      opacity: 0,
+                      skewX: 25,
+                      filter: "blur(6px)",
+                      transition: { duration: 0.18, ease: "easeIn" },
+                    }}
+                    className="relative inline-block text-accent font-serif font-bold whitespace-nowrap"
                   >
-                    {ROTATING_WORDS[wordIndex].text}
+                    {/* Ghost Echo Trail 1 */}
+                    <motion.span
+                      initial={{ opacity: 0.7, x: -18 }}
+                      animate={{ opacity: 0, x: -45 }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
+                      className="absolute inset-0 text-accent/60 blur-[1.5px] pointer-events-none select-none"
+                      aria-hidden="true"
+                    >
+                      {ROTATING_WORDS[wordIndex]}
+                    </motion.span>
+
+                    {/* Ghost Echo Trail 2 */}
+                    <motion.span
+                      initial={{ opacity: 0.45, x: -32 }}
+                      animate={{ opacity: 0, x: -80 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
+                      className="absolute inset-0 text-accent-light/40 blur-[3px] pointer-events-none select-none"
+                      aria-hidden="true"
+                    >
+                      {ROTATING_WORDS[wordIndex]}
+                    </motion.span>
+
+                    {/* Main Sharp Text */}
+                    <span className="relative z-10 text-accent drop-shadow-[0_0_16px_rgba(56,174,200,0.5)]">
+                      {ROTATING_WORDS[wordIndex]}
+                    </span>
                   </motion.span>
                 </AnimatePresence>
               </span>
@@ -141,11 +181,11 @@ export default function NinaPage() {
               Kirim foto piring makan untuk hitung kalori & protein, kirim screenshot untuk evaluasi record data Strava, dan dapatkan pengingat proaktif setiap hari agar kamu konsisten.
             </p>
 
-            {/* CTAs with Crystal-Clear High Contrast */}
+            {/* CTAs with Guaranteed Clear White Font & Crisp Contrast */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
                 href="/companion/nina/onboarding/1"
-                className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span className="text-white font-bold">Mulai Onboarding Bersama Nina</span>
                 <ArrowRight className="w-4 h-4 text-accent" />
@@ -352,14 +392,14 @@ export default function NinaPage() {
               <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
             </div>
 
-            {/* Bottom CTA with Guaranteed Text Contrast */}
+            {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy */}
             <div className="pt-2">
               <Link
                 href="/companion/nina/onboarding/1"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#38AEC8] hover:bg-white text-[#041622] font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span className="text-[#041622] font-black">Mulai Onboarding Personal (5 Menit)</span>
-                <ArrowRight className="w-4 h-4 text-[#041622]" />
+                <span className="text-white font-black">Mulai Onboarding Personal (5 Menit)</span>
+                <ArrowRight className="w-4 h-4 text-accent" />
               </Link>
             </div>
           </div>
