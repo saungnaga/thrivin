@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ShieldCheck, Sparkles, MessageCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, ShieldCheck, Sparkles, MessageCircle, Lock } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -91,31 +91,31 @@ export default function AboutPage() {
             </div>
 
             <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border flex items-start gap-3 opacity-75">
-              <div className="w-8 h-8 rounded-xl bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                K
+              <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                <Lock className="w-3.5 h-3.5" />
               </div>
               <div>
-                <span className="font-bold text-brand-950 block">Kai · Mindset & Self-Dev (Coming Soon)</span>
+                <span className="font-bold text-brand-950 block">Pilar Mindset & Habit (Coming Soon)</span>
                 <span className="text-text-secondary">Refleksi harian, journaling cepat, dan pembongkar mental block.</span>
               </div>
             </div>
 
             <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border flex items-start gap-3 opacity-75">
-              <div className="w-8 h-8 rounded-xl bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                M
+              <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                <Lock className="w-3.5 h-3.5" />
               </div>
               <div>
-                <span className="font-bold text-brand-950 block">Maya · Parenting & Family (Coming Soon)</span>
+                <span className="font-bold text-brand-950 block">Pilar Parenting & Family (Coming Soon)</span>
                 <span className="text-text-secondary">Solusi tantrum sains, stimulasi bermain, dan dukungan tenang untuk orang tua.</span>
               </div>
             </div>
 
             <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border flex items-start gap-3 opacity-75">
-              <div className="w-8 h-8 rounded-xl bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                L
+              <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                <Lock className="w-3.5 h-3.5" />
               </div>
               <div>
-                <span className="font-bold text-brand-950 block">Leo · Career & Skills (Coming Soon)</span>
+                <span className="font-bold text-brand-950 block">Pilar Karir & Skill (Coming Soon)</span>
                 <span className="text-text-secondary">Simulasi wawancara, bedah tulisan, dan akselerasi karir profesional.</span>
               </div>
             </div>

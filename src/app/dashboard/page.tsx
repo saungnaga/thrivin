@@ -24,6 +24,18 @@ import { useAuth } from "@/context/AuthContext";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
+const SilhouetteIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
+  <svg
+    viewBox="0 0 100 120"
+    fill="currentColor"
+    className={className}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <circle cx="50" cy="38" r="20" />
+    <path d="M16 112 C16 80, 28 68, 50 68 C72 68, 84 80, 84 112 Z" />
+  </svg>
+);
+
 interface CompanionOrb {
   id: string;
   name: string;
@@ -45,31 +57,31 @@ const COMPANIONS: CompanionOrb[] = [
     accentBg: "bg-accent",
   },
   {
-    id: "kai",
-    name: "Kai",
-    role: "Mindset & Habits",
+    id: "mindset",
+    name: "Mindset & Habits",
+    role: "Pilar Mindset",
     status: "locked",
     avatar: "",
-    themeColor: "from-indigo-900 to-slate-900",
-    accentBg: "bg-indigo-500",
+    themeColor: "from-slate-900 to-slate-950",
+    accentBg: "bg-slate-700",
   },
   {
-    id: "maya",
-    name: "Maya",
-    role: "Parenting & Family",
+    id: "parenting",
+    name: "Parenting & Family",
+    role: "Pilar Parenting",
     status: "locked",
     avatar: "",
-    themeColor: "from-amber-900 to-slate-900",
-    accentBg: "bg-amber-500",
+    themeColor: "from-slate-900 to-slate-950",
+    accentBg: "bg-slate-700",
   },
   {
-    id: "leo",
-    name: "Leo",
-    role: "Career & Skills",
+    id: "career",
+    name: "Career & Skills",
+    role: "Pilar Karir",
     status: "locked",
     avatar: "",
-    themeColor: "from-emerald-900 to-slate-900",
-    accentBg: "bg-emerald-500",
+    themeColor: "from-slate-900 to-slate-950",
+    accentBg: "bg-slate-700",
   },
 ];
 
@@ -145,8 +157,8 @@ export default function DashboardPage() {
                             className="object-cover object-top w-full h-full"
                           />
                         ) : (
-                          <div className="w-full h-full bg-slate-200 flex items-center justify-center font-serif font-bold text-slate-600 text-lg">
-                            {companion.name.charAt(0)}
+                          <div className="w-full h-full bg-slate-200 flex items-center justify-center text-slate-500">
+                            <SilhouetteIcon className="w-7 h-7" />
                           </div>
                         )}
                       </div>

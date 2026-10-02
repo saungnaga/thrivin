@@ -1,8 +1,9 @@
 "use client";
 
+import React, { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
   ArrowRight,
@@ -11,16 +12,35 @@ import {
   Lock,
   MessageCircle,
   Camera,
-  Activity,
-  Flame,
   CheckCircle2,
-  HeartHandshake,
-  Check
+  X,
+  BellRing
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
+// Clean vector silhouette for locked companions
+const SilhouetteIcon = ({ className = "w-24 h-24" }: { className?: string }) => (
+  <svg
+    viewBox="0 0 100 120"
+    fill="currentColor"
+    className={className}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <circle cx="50" cy="38" r="20" />
+    <path d="M16 112 C16 80, 28 68, 50 68 C72 68, 84 80, 84 112 Z" />
+  </svg>
+);
+
+interface LockedModalInfo {
+  title: string;
+  category: string;
+  desc: string;
+}
+
 export default function Home() {
+  const [lockedModal, setLockedModal] = useState<LockedModalInfo | null>(null);
+
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
       <Navbar />
@@ -102,17 +122,16 @@ export default function Home() {
             Pilih AI Companion Sesuai Targetmu
           </h2>
           <p className="text-xs sm:text-sm text-text-secondary mt-1.5 max-w-lg mx-auto">
-            Setiap companion dibekali kurikulum sains spesifik dan persona khusus untuk mendampingimu sampai hasil nyata.
+            Klik kartu companion untuk melihat detail dan memulai pendampingan harianmu.
           </p>
         </div>
 
         {/* Grid of 4 Cards */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
-          {/* Card 1: NINA (ACTIVE & AVAILABLE) */}
-          <motion.div
-            whileHover={{ y: -6 }}
-            transition={{ duration: 0.2 }}
-            className="rounded-[2.2rem] bg-brand-950 text-white p-5 sm:p-6 border-2 border-accent shadow-2xl relative flex flex-col justify-between overflow-hidden group"
+          {/* ─── CARD 1: NINA (ACTIVE & AVAILABLE) — FULL CARD CLICKABLE ─── */}
+          <Link
+            href="/companion/nina"
+            className="group rounded-[2.2rem] bg-brand-950 text-white p-5 sm:p-6 border-2 border-accent shadow-2xl relative flex flex-col justify-between overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-glow focus:outline-none focus:ring-4 focus:ring-accent/30"
           >
             {/* Active Status Badge */}
             <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-[11px] font-black text-accent tracking-wider uppercase font-mono shadow-xs">
@@ -120,8 +139,8 @@ export default function Home() {
               <span>TERSEDIA</span>
             </div>
 
-            {/* Character Portrait */}
             <div>
+              {/* Character Portrait */}
               <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 border border-white/15 bg-brand-900 shadow-md">
                 <Image
                   src="/nina-pp.webp"
@@ -179,167 +198,243 @@ export default function Home() {
               </div>
             </div>
 
-            {/* CTA Button */}
-            <Link
-              href="/companion/nina"
-              className="w-full py-3.5 rounded-full bg-accent hover:bg-white text-brand-950 font-black text-xs sm:text-sm text-center transition-all shadow-glow hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-            >
+            {/* Direct CTA Button */}
+            <div className="w-full py-3.5 rounded-full bg-accent group-hover:bg-white text-brand-950 font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2">
               <span>Pilih Nina & Mulai</span>
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </motion.div>
+              <ArrowRight className="w-4 h-4 text-brand-950 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
 
-          {/* Card 2: KAI (LOCKED / COMING SOON) */}
-          <div className="rounded-[2.2rem] bg-slate-100 text-slate-800 p-5 sm:p-6 border-2 border-dashed border-slate-300 relative flex flex-col justify-between opacity-75 hover:opacity-90 transition-opacity">
-            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 tracking-wider uppercase font-mono">
-              <Lock className="w-3 h-3" />
+          {/* ─── CARD 2: PILAR MINDSET (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
+          <div
+            onClick={() =>
+              setLockedModal({
+                category: "Pilar Mindset & Habit",
+                title: "AI Mindset & Habit Companion",
+                desc: "Pendamping refleksi harian, journaling kilat via WhatsApp, dan pemecah mental block untuk membangun disiplin diri yang kokoh.",
+              })
+            }
+            className="group rounded-[2.2rem] bg-slate-900 text-slate-200 p-5 sm:p-6 border-2 border-slate-800 hover:border-slate-600 hover:bg-slate-850 hover:scale-[1.02] shadow-lg hover:shadow-2xl relative flex flex-col justify-between cursor-pointer transition-all duration-300"
+          >
+            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 tracking-wider uppercase font-mono shadow-xs">
+              <Lock className="w-3 h-3 text-slate-400" />
               <span>COMING SOON</span>
             </div>
 
             <div>
-              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center grayscale">
-                <div className="text-center p-4">
-                  <div className="w-14 h-14 rounded-full bg-slate-400/40 text-slate-700 flex items-center justify-center mx-auto mb-2 font-serif text-2xl font-bold">
-                    K
-                  </div>
-                  <span className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider block">
-                    Pilar Mindset
+              {/* Silhouette Portrait */}
+              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-b from-slate-800 to-slate-950 flex flex-col items-center justify-center border border-white/5 group-hover:border-slate-700 transition-colors">
+                <SilhouetteIcon className="w-32 h-32 text-slate-700 group-hover:text-slate-600 transition-colors duration-300" />
+                <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
+                <div className="absolute bottom-3 left-3 right-3 text-left">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                    Pilar 02
                   </span>
-                  <h3 className="font-serif text-2xl font-bold text-slate-800">
-                    Kai
+                  <h3 className="font-serif text-xl font-bold text-white">
+                    Mindset & Habits
                   </h3>
                 </div>
               </div>
 
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
-                Mindset & Habit Tracker
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 font-mono">
+                Daily Journaling & Clarity
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              <p className="text-xs text-slate-400 leading-relaxed mb-4">
                 Pendamping refleksi harian, journaling kilat via WhatsApp, dan pemecah mental block untuk membangun disiplin yang tidak mudah patah.
               </p>
 
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #DailyJournal
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #HabitStacking
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #MentalClarity
                 </span>
               </div>
             </div>
 
-            <button
-              disabled
-              className="w-full py-3.5 rounded-full bg-slate-200 text-slate-400 font-bold text-xs sm:text-sm text-center cursor-not-allowed"
-            >
-              Segera Hadir
-            </button>
+            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Segera Hadir · Klik Info</span>
+            </div>
           </div>
 
-          {/* Card 3: MAYA (LOCKED / COMING SOON) */}
-          <div className="rounded-[2.2rem] bg-slate-100 text-slate-800 p-5 sm:p-6 border-2 border-dashed border-slate-300 relative flex flex-col justify-between opacity-75 hover:opacity-90 transition-opacity">
-            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 tracking-wider uppercase font-mono">
-              <Lock className="w-3 h-3" />
+          {/* ─── CARD 3: PILAR PARENTING (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
+          <div
+            onClick={() =>
+              setLockedModal({
+                category: "Pilar Parenting & Family",
+                title: "AI Parenting Companion",
+                desc: "Teman diskusi tenang untuk orang tua. Solusi tantrum berbasis sains, ide stimulasi anak, dan dukungan emosional ayah-ibu saat lelah.",
+              })
+            }
+            className="group rounded-[2.2rem] bg-slate-900 text-slate-200 p-5 sm:p-6 border-2 border-slate-800 hover:border-slate-600 hover:bg-slate-850 hover:scale-[1.02] shadow-lg hover:shadow-2xl relative flex flex-col justify-between cursor-pointer transition-all duration-300"
+          >
+            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 tracking-wider uppercase font-mono shadow-xs">
+              <Lock className="w-3 h-3 text-slate-400" />
               <span>COMING SOON</span>
             </div>
 
             <div>
-              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center grayscale">
-                <div className="text-center p-4">
-                  <div className="w-14 h-14 rounded-full bg-slate-400/40 text-slate-700 flex items-center justify-center mx-auto mb-2 font-serif text-2xl font-bold">
-                    M
-                  </div>
-                  <span className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider block">
-                    Pilar Parenting
+              {/* Silhouette Portrait */}
+              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-b from-slate-800 to-slate-950 flex flex-col items-center justify-center border border-white/5 group-hover:border-slate-700 transition-colors">
+                <SilhouetteIcon className="w-32 h-32 text-slate-700 group-hover:text-slate-600 transition-colors duration-300" />
+                <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
+                <div className="absolute bottom-3 left-3 right-3 text-left">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                    Pilar 03
                   </span>
-                  <h3 className="font-serif text-2xl font-bold text-slate-800">
-                    Maya
+                  <h3 className="font-serif text-xl font-bold text-white">
+                    Parenting & Family
                   </h3>
                 </div>
               </div>
 
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
-                Parenting & Family Care
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 font-mono">
+                Parenting Sains & Emosional
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              <p className="text-xs text-slate-400 leading-relaxed mb-4">
                 Teman diskusi tenang untuk orang tua. Solusi tantrum berbasis sains, ide stimulasi anak, dan dukungan emosional ayah-ibu saat lelah.
               </p>
 
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #ParentingSains
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #TantrumSolution
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #FamilyCalm
                 </span>
               </div>
             </div>
 
-            <button
-              disabled
-              className="w-full py-3.5 rounded-full bg-slate-200 text-slate-400 font-bold text-xs sm:text-sm text-center cursor-not-allowed"
-            >
-              Segera Hadir
-            </button>
+            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Segera Hadir · Klik Info</span>
+            </div>
           </div>
 
-          {/* Card 4: LEO (LOCKED / COMING SOON) */}
-          <div className="rounded-[2.2rem] bg-slate-100 text-slate-800 p-5 sm:p-6 border-2 border-dashed border-slate-300 relative flex flex-col justify-between opacity-75 hover:opacity-90 transition-opacity">
-            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 tracking-wider uppercase font-mono">
-              <Lock className="w-3 h-3" />
+          {/* ─── CARD 4: PILAR CAREER & SKILLS (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
+          <div
+            onClick={() =>
+              setLockedModal({
+                category: "Pilar Karir & Skill",
+                title: "AI Career & Skill Accelerator",
+                desc: "Partner simulasi interview kerja, bedah draft presentasi, dan akselerasi skill komunikasi profesional to-the-point di WhatsApp.",
+              })
+            }
+            className="group rounded-[2.2rem] bg-slate-900 text-slate-200 p-5 sm:p-6 border-2 border-slate-800 hover:border-slate-600 hover:bg-slate-850 hover:scale-[1.02] shadow-lg hover:shadow-2xl relative flex flex-col justify-between cursor-pointer transition-all duration-300"
+          >
+            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 tracking-wider uppercase font-mono shadow-xs">
+              <Lock className="w-3 h-3 text-slate-400" />
               <span>COMING SOON</span>
             </div>
 
             <div>
-              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center grayscale">
-                <div className="text-center p-4">
-                  <div className="w-14 h-14 rounded-full bg-slate-400/40 text-slate-700 flex items-center justify-center mx-auto mb-2 font-serif text-2xl font-bold">
-                    L
-                  </div>
-                  <span className="text-xs font-mono font-bold text-slate-600 uppercase tracking-wider block">
-                    Pilar Karir & Skill
+              {/* Silhouette Portrait */}
+              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-b from-slate-800 to-slate-950 flex flex-col items-center justify-center border border-white/5 group-hover:border-slate-700 transition-colors">
+                <SilhouetteIcon className="w-32 h-32 text-slate-700 group-hover:text-slate-600 transition-colors duration-300" />
+                <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
+                <div className="absolute bottom-3 left-3 right-3 text-left">
+                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                    Pilar 04
                   </span>
-                  <h3 className="font-serif text-2xl font-bold text-slate-800">
-                    Leo
+                  <h3 className="font-serif text-xl font-bold text-white">
+                    Career & Skills
                   </h3>
                 </div>
               </div>
 
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1 font-mono">
-                Career & Communication
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 font-mono">
+                Professional Communication
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed mb-4">
+              <p className="text-xs text-slate-400 leading-relaxed mb-4">
                 Partner simulasi interview kerja, bedah draft presentasi, dan akselerasi skill komunikasi profesional to-the-point di WhatsApp.
               </p>
 
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #MockInterview
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #WritingPolish
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-600 text-[10px] font-medium">
+                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
                   #CareerGrowth
                 </span>
               </div>
             </div>
 
-            <button
-              disabled
-              className="w-full py-3.5 rounded-full bg-slate-200 text-slate-400 font-bold text-xs sm:text-sm text-center cursor-not-allowed"
-            >
-              Segera Hadir
-            </button>
+            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Segera Hadir · Klik Info</span>
+            </div>
           </div>
         </div>
       </section>
+
+      {/* ─── Interactive Modal for Locked Companions ─── */}
+      <AnimatePresence>
+        {lockedModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-surface-border text-left relative"
+            >
+              <button
+                onClick={() => setLockedModal(null)}
+                className="absolute top-4 right-4 p-2 text-text-muted hover:text-brand-950 transition-colors rounded-full hover:bg-surface-muted cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-700">
+                  {lockedModal.category} · Segera Hadir
+                </span>
+              </div>
+
+              <h3 className="font-serif text-2xl font-bold text-brand-950 mb-2">
+                {lockedModal.title}
+              </h3>
+
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-6">
+                {lockedModal.desc}
+                <br /><br />
+                Saat ini tim sains Thrivin sedang mematangkan kurikulum dan persona bot untuk pilar ini. Kamu bisa mencoba <strong>Nina (Wellness & Fitness)</strong> yang sudah aktif mendampingi pengguna di WhatsApp hari ini.
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                <Link
+                  href="/companion/nina"
+                  onClick={() => setLockedModal(null)}
+                  className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-accent" />
+                  <span>Pilih Nina (Pilar Wellness)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => setLockedModal(null)}
+                  className="w-full py-2.5 rounded-full text-xs font-semibold text-text-secondary hover:text-brand-950 transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Why It Converts: Selling Features Section ─── */}
       <section className="py-14 bg-surface-muted border-y border-surface-border">
