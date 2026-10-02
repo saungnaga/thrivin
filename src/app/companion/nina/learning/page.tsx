@@ -406,9 +406,11 @@ export default function NinaLearningHubPage() {
                 </p>
                 <Link
                   href={ninaCtaUrl}
-                  className="block text-center text-xs font-bold bg-brand-900 text-white py-2 rounded-lg hover:bg-brand-800 transition-colors shadow-xs"
+                  className="block text-center text-xs font-black bg-[#082132] hover:bg-[#041622] border border-accent/40 text-white py-2.5 px-3 rounded-xl transition-all shadow-xs cursor-pointer"
                 >
-                  {hasNina ? "Buka Dashboard Nina →" : "Mulai dengan Nina →"}
+                  <span className="text-white font-black drop-shadow-xs">
+                    {hasNina ? "Buka Dashboard Nina →" : "Mulai dengan Nina →"}
+                  </span>
                 </Link>
               </div>
             </aside>
@@ -715,10 +717,13 @@ export default function NinaLearningHubPage() {
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Link
                       href={ninaCtaUrl}
-                      className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-accent text-brand-950 hover:bg-white hover:text-brand-950 font-bold text-sm transition-all shadow-glow hover:scale-105"
+                      className="inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
                     >
-                      <Sparkles className="w-4 h-4" />
-                      <span>{hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding dengan Nina"}</span>
+                      <Sparkles className="w-4 h-4 text-accent shrink-0" />
+                      <span className="text-white font-black drop-shadow-xs">
+                        {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding dengan Nina"}
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-accent shrink-0" />
                     </Link>
                   </div>
                 </div>
@@ -767,14 +772,15 @@ export default function NinaLearningHubPage() {
                   ) : (
                     <Link
                       href={ninaCtaUrl}
-                      className="p-4 rounded-2xl bg-linear-to-r from-brand-900 to-brand-950 text-white text-right hover:opacity-95 transition-all flex items-center justify-end gap-3 cursor-pointer shadow-glow"
+                      className="p-4 rounded-2xl bg-linear-to-r from-[#082132] to-[#041622] border-2 border-accent text-white text-right hover:scale-102 transition-all flex items-center justify-end gap-3 cursor-pointer shadow-glow"
                     >
                       <div>
-                        <span className="text-[10px] uppercase text-accent block">Selesai 8 Bab!</span>
-                        <span className="text-xs sm:text-sm font-bold text-white block">
+                        <span className="text-[10px] uppercase font-bold text-accent block">Selesai 8 Bab!</span>
+                        <span className="text-xs sm:text-sm font-black text-white block drop-shadow-xs">
                           {hasNina ? "Ke Dashboard Nina →" : "Mulai Bersama Nina →"}
                         </span>
                       </div>
+                      <ArrowRight className="w-4 h-4 text-accent shrink-0" />
                     </Link>
                   )}
                 </div>
@@ -1016,10 +1022,10 @@ export default function NinaLearningHubPage() {
 
                             <Link
                               href={ninaCtaUrl}
-                              className="inline-flex items-center gap-1 text-xs font-bold text-accent-dark hover:text-brand-900 transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-900 text-xs font-bold transition-colors cursor-pointer"
                             >
-                              <span>{hasNina ? "Buka di Dashboard" : "Terapkan dengan Nina"}</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
+                              <span className="text-brand-900 font-bold">{hasNina ? "Buka di Dashboard" : "Terapkan dengan Nina"}</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-accent-dark" />
                             </Link>
                           </div>
                         </motion.div>
