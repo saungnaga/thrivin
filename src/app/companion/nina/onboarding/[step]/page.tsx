@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const TOTAL_STEPS = 10;
+const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
 
 interface OnboardingData {
@@ -88,6 +88,10 @@ export default function OnboardingStepPage({
   const [phoneError, setPhoneError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
+
+  // Syncing & calculation animation state (after WhatsApp input in Step 8)
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStep, setSyncStep] = useState(1);
 
   // Intro Feature Slides state (Step 1)
   const [introSlide, setIntroSlide] = useState(0);
@@ -145,6 +149,11 @@ export default function OnboardingStepPage({
     router.push(`/companion/nina/onboarding/${targetStep}`);
   };
 
+  // Height & Weight sensible bounds validation (doesn't block typing)
+  const isHeightSensible = data.height >= 120 && data.height <= 240;
+  const isWeightSensible = data.weight >= 30 && data.weight <= 250;
+  const isPhysicalDataSensible = isHeightSensible && isWeightSensible;
+
   // Calculations
   const calculateTDEE = () => {
     const w = data.weight || 65;
@@ -187,7 +196,7 @@ export default function OnboardingStepPage({
       duration: "3 Bulan",
       totalPrice: 231000,
       monthlyPrice: 77000,
-      badge: "PALING DISUKAI 🔥",
+      badge: "Coba dulu program 3 bulan sesuai fase adaptasi & pembentukan kebiasaan baru",
       desc: "Durasi optimal pembentukan kebiasaan baru.",
     },
     half: {
@@ -195,7 +204,7 @@ export default function OnboardingStepPage({
       duration: "6 Bulan",
       totalPrice: 357000,
       monthlyPrice: 59500,
-      badge: "HEMAT 23%",
+      badge: "Hemat 23% · Rekomendasi Transformasi Nyata",
       desc: "Transformasi kebiasaan dan metabolisme nyata.",
     },
     year: {
@@ -203,7 +212,7 @@ export default function OnboardingStepPage({
       duration: "12 Bulan",
       totalPrice: 465000,
       monthlyPrice: 38750,
-      badge: "PALING HEMAT 50%",
+      badge: "Paling Hemat 50% · Rp 31rb-an/bulan",
       desc: "Gaya hidup permanen dengan pendampingan penuh.",
     },
   };
@@ -213,12 +222,52 @@ export default function OnboardingStepPage({
   const discountAmount = Math.round(currentPlan.totalPrice * discountRate);
   const finalPrice = currentPlan.totalPrice - discountAmount;
 
+  // Struck-through helper for each card
+  const getPlanPricing = (planKey: "quarter" | "half" | "year") => {
+    const plan = PLANS[planKey];
+    const disc = Math.round(plan.totalPrice * discountRate);
+    const finalTotal = plan.totalPrice - disc;
+    const finalMonthly = Math.round(plan.monthlyPrice * (1 - discountRate));
+    return {
+      originalTotal: plan.totalPrice,
+      discountedTotal: finalTotal,
+      originalMonthly: plan.monthlyPrice,
+      discountedMonthly: finalMonthly,
+      hasDiscount: discountRate > 0,
+    };
+  };
+
   // Phone validation
   const validatePhone = (phone: string) => {
     const clean = phone.replace(/\D/g, "");
     if (clean.length < 10) return "Nomor terlalu pendek (minimal 10 digit).";
     if (clean.length > 13) return "Nomor melebihi batas (maksimal 13 digit).";
     return "";
+  };
+
+  // Handle WhatsApp submission with calculation/syncing animation
+  const handleProceedFromWhatsApp = () => {
+    const err = validatePhone(data.whatsappNumber);
+    if (err) {
+      setPhoneError(err);
+      return;
+    }
+    setPhoneError("");
+    setIsSyncing(true);
+    setSyncStep(1);
+
+    setTimeout(() => {
+      setSyncStep(2);
+    }, 700);
+
+    setTimeout(() => {
+      setSyncStep(3);
+    }, 1400);
+
+    setTimeout(() => {
+      setIsSyncing(false);
+      goToStep(9);
+    }, 2200);
   };
 
   // Checkout simulation
@@ -241,7 +290,7 @@ export default function OnboardingStepPage({
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
       {/* ─── Top Step Header Bar ─── */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
-        <div className="max-w-md mx-auto w-full flex items-center gap-3">
+        <div className={`mx-auto w-full flex items-center gap-3 ${stepNum === 9 ? "max-w-3xl" : "max-w-md"}`}>
           {stepNum === 1 ? (
             <>
               <button
@@ -282,6 +331,25 @@ export default function OnboardingStepPage({
                 Lewati &rarr;
               </button>
             </>
+          ) : stepNum === 9 ? (
+            <>
+              <button
+                onClick={() => goToStep(8)}
+                className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
+                aria-label="Kembali"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+
+              {/* Progress Complete */}
+              <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
+                <div className="bg-brand-900 h-full w-full rounded-full" />
+              </div>
+
+              <span className="text-[11px] font-bold text-accent-dark font-mono shrink-0">
+                Blueprint & Pilihan Paket
+              </span>
+            </>
           ) : (
             <>
               <button
@@ -292,24 +360,84 @@ export default function OnboardingStepPage({
                 <ArrowLeft className="w-4 h-4" />
               </button>
 
-              {/* Progress Bar for Survey */}
+              {/* Progress Bar for Survey (Steps 2 to 8 = 7 questions) */}
               <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
                 <div
                   className="bg-brand-900 h-full transition-all duration-300 ease-out rounded-full"
-                  style={{ width: `${((stepNum - 1) / 9) * 100}%` }}
+                  style={{ width: `${((stepNum - 1) / 7) * 100}%` }}
                 />
               </div>
 
               <span className="text-[11px] font-bold text-text-muted font-mono shrink-0">
-                Langkah {stepNum - 1}/9
+                Langkah {stepNum - 1}/7
               </span>
             </>
           )}
         </div>
       </header>
 
+      {/* ─── Animated Synchronization & Calculation Modal ─── */}
+      <AnimatePresence>
+        {isSyncing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-950/85 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-surface-border text-center space-y-5"
+            >
+              <div className="relative w-16 h-16 mx-auto rounded-full bg-brand-900 p-1 border-2 border-accent shadow-glow">
+                <Image
+                  src="/nina-pp.webp"
+                  alt="Nina"
+                  fill
+                  className="rounded-full object-cover"
+                />
+                <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
+                  <Sparkles className="w-3 h-3 text-brand-950 animate-spin" />
+                </span>
+              </div>
+
+              <div>
+                <h3 className="font-serif text-xl font-bold text-brand-950">
+                  Menyusun Blueprint...
+                </h3>
+                <p className="text-xs text-text-secondary mt-1">
+                  Sinkronisasi profil metabolisme ke sistem WhatsApp Nina.
+                </p>
+              </div>
+
+              <div className="space-y-2.5 text-left text-xs">
+                <div className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
+                  syncStep >= 1 ? "bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold" : "bg-slate-50 border-slate-200 text-slate-400"
+                }`}>
+                  {syncStep >= 1 ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <div className="w-4 h-4 rounded-full border border-slate-300" />}
+                  <span>Menghubungkan WhatsApp {data.whatsappNumber}...</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
+                  syncStep >= 2 ? "bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold" : "bg-slate-50 border-slate-200 text-slate-400"
+                }`}>
+                  {syncStep >= 2 ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <div className="w-4 h-4 rounded-full border border-slate-300" />}
+                  <span>Kalkulasi TDEE (~{tdee} kkal) & protein harian...</span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition-all ${
+                  syncStep >= 3 ? "bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold" : "bg-slate-50 border-slate-200 text-slate-400"
+                }`}>
+                  {syncStep >= 3 ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <div className="w-4 h-4 rounded-full border border-slate-300" />}
+                  <span>Menyiapkan paket pendampingan & garansi...</span>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ─── Step Content Container ─── */}
-      <main className="flex-1 flex flex-col justify-center max-w-md w-full mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      <main className={`flex-1 flex flex-col justify-center w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 ${
+        stepNum === 9 ? "max-w-3xl" : "max-w-md"
+      }`}>
         
         {/* ─── STEP 1: 3 FEATURE SLIDES WITH AUTO-ALTERNATING WHATSAPP CHATS ─── */}
         {stepNum === 1 && (
@@ -695,12 +823,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 2: NAMA (Langkah 1/9) ─── */}
+        {/* ─── STEP 2: NAMA (Langkah 1/7) ─── */}
         {stepNum === 2 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 1 dari 9
+                Langkah 1 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Siapa nama panggilanmu?
@@ -748,12 +876,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 3: JENIS KELAMIN & USIA (Langkah 2/9, Common-Sense Bounds: 12 - 99) ─── */}
+        {/* ─── STEP 3: JENIS KELAMIN & USIA (Langkah 2/7, Common-Sense Bounds: 12 - 99) ─── */}
         {stepNum === 3 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 2 dari 9
+                Langkah 2 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Profil Biologis, {data.name}
@@ -821,22 +949,22 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 4: DATA FISIK (TINGGI & BERAT) + LIVE ANIMATED GRAPH (Langkah 3/9) ─── */}
+        {/* ─── STEP 4: DATA FISIK (TINGGI & BERAT) — BEBAS INPUT DENGAN VALIDASI SENSIBLE ─── */}
         {stepNum === 4 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 3 dari 9
+                Langkah 3 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Tinggi & Berat Badan
               </h1>
               <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                Batas wajar sistem: Tinggi (100–240 cm), Berat (30–250 kg).
+                Ketik langsung ukuran fisikmu untuk kalkulasi BMR & BMI otomatis.
               </p>
             </div>
 
-            {/* Inputs */}
+            {/* Inputs without aggressive clamping */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block mb-1">
@@ -844,14 +972,13 @@ export default function OnboardingStepPage({
                 </label>
                 <input
                   type="number"
-                  min={100}
-                  max={240}
-                  value={data.height}
+                  value={data.height || ""}
                   onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    updateData({ height: isNaN(val) ? 170 : Math.min(Math.max(val, 100), 240) });
+                    const raw = e.target.value;
+                    updateData({ height: raw === "" ? 0 : parseInt(raw, 10) || 0 });
                   }}
-                  className="w-full text-2xl font-bold border-b-2 border-brand-200 focus:border-brand-900 bg-transparent py-2 outline-none font-mono text-brand-950"
+                  placeholder="contoh: 170"
+                  className="w-full text-2xl font-bold border-b-2 border-brand-200 focus:border-brand-900 bg-transparent py-2 outline-none font-mono text-brand-950 placeholder:text-gray-300"
                 />
               </div>
               <div>
@@ -860,48 +987,60 @@ export default function OnboardingStepPage({
                 </label>
                 <input
                   type="number"
-                  min={30}
-                  max={250}
-                  value={data.weight}
+                  value={data.weight || ""}
                   onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    updateData({ weight: isNaN(val) ? 65 : Math.min(Math.max(val, 30), 250) });
+                    const raw = e.target.value;
+                    updateData({ weight: raw === "" ? 0 : parseInt(raw, 10) || 0 });
                   }}
-                  className="w-full text-2xl font-bold border-b-2 border-brand-200 focus:border-brand-900 bg-transparent py-2 outline-none font-mono text-brand-950"
+                  placeholder="contoh: 65"
+                  className="w-full text-2xl font-bold border-b-2 border-brand-200 focus:border-brand-900 bg-transparent py-2 outline-none font-mono text-brand-950 placeholder:text-gray-300"
                 />
               </div>
             </div>
+
+            {/* Validation warning if values are outside sensible human bounds */}
+            {!isPhysicalDataSensible && (data.height !== 0 || data.weight !== 0) && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  Mohon pastikan tinggi badan (120–240 cm) dan berat badan (30–250 kg) diisi dengan wajar agar kalkulasi metabolisme akurat.
+                </span>
+              </div>
+            )}
 
             {/* Live Animated Graph / Visual BMI Meter */}
-            <div className="p-5 rounded-3xl bg-surface-muted border border-surface-border space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-brand-950">
-                <span>Grafik BMI Real-Time</span>
-                <span className="font-mono text-accent-dark">BMI: {bmi}</span>
-              </div>
+            {isPhysicalDataSensible && (
+              <div className="p-5 rounded-3xl bg-surface-muted border border-surface-border space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-brand-950">
+                  <span>Grafik BMI Real-Time</span>
+                  <span className="font-mono text-accent-dark">BMI: {bmi}</span>
+                </div>
 
-              {/* Moving Gauge Bar */}
-              <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden relative">
-                <motion.div
-                  className="h-full bg-linear-to-r from-teal-400 via-accent to-amber-500 rounded-full"
-                  animate={{ width: `${Math.min(Math.max((bmi / 35) * 100, 10), 100)}%` }}
-                  transition={{ type: "spring", stiffness: 120, damping: 18 }}
-                />
-              </div>
+                {/* Moving Gauge Bar */}
+                <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden relative">
+                  <motion.div
+                    className="h-full bg-linear-to-r from-teal-400 via-accent to-amber-500 rounded-full"
+                    animate={{ width: `${Math.min(Math.max((bmi / 35) * 100, 10), 100)}%` }}
+                    transition={{ type: "spring", stiffness: 120, damping: 18 }}
+                  />
+                </div>
 
-              <div className="flex justify-between text-[10px] text-text-muted font-mono pt-1">
-                <span>Underweight (&lt;18.5)</span>
-                <span className="text-accent-dark font-bold">Ideal (18.5–24.9)</span>
-                <span>Overweight (&gt;25)</span>
-              </div>
+                <div className="flex justify-between text-[10px] text-text-muted font-mono pt-1">
+                  <span>Underweight (&lt;18.5)</span>
+                  <span className="text-accent-dark font-bold">Ideal (18.5–24.9)</span>
+                  <span>Overweight (&gt;25)</span>
+                </div>
 
-              <div className="text-[11px] text-text-secondary pt-1 leading-snug">
-                Basal Metabolic Rate awal terestimasi ~<strong>{Math.round(tdee * 0.7)} kkal</strong> per hari.
+                <div className="text-[11px] text-text-secondary pt-1 leading-snug">
+                  Basal Metabolic Rate awal terestimasi ~<strong>{Math.round(tdee * 0.7)} kkal</strong> per hari.
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               onClick={() => goToStep(5)}
-              className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+              disabled={!isPhysicalDataSensible}
+              className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Lanjut ke Pola Aktivitas</span>
               <ArrowRight className="w-4 h-4 text-accent" />
@@ -909,12 +1048,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 5: TINGKAT AKTIVITAS & TEMPAT LATIHAN (Langkah 4/9) ─── */}
+        {/* ─── STEP 5: TINGKAT AKTIVITAS & TEMPAT LATIHAN (Langkah 4/7) ─── */}
         {stepNum === 5 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 4 dari 9
+                Langkah 4 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Aktivitas & Fasilitas
@@ -993,12 +1132,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 6: FOKUS PROGRAM UTAMA (Langkah 5/9) ─── */}
+        {/* ─── STEP 6: FOKUS PROGRAM UTAMA (Langkah 5/7) ─── */}
         {stepNum === 6 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 5 dari 9
+                Langkah 5 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Fokus Program Utama
@@ -1061,12 +1200,12 @@ export default function OnboardingStepPage({
           </div>
         )}
 
-        {/* ─── STEP 7: TANTANGAN & GAYA NINA (Langkah 6/9) ─── */}
+        {/* ─── STEP 7: TANTANGAN & GAYA NINA (Langkah 6/7) ─── */}
         {stepNum === 7 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 6 dari 9
+                Langkah 6 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Persona & Hambatan
@@ -1141,110 +1280,18 @@ export default function OnboardingStepPage({
               onClick={() => goToStep(8)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Lihat Blueprint Personal</span>
+              <span>Lanjut ke Kontak WhatsApp</span>
               <ArrowRight className="w-4 h-4 text-accent" />
             </button>
           </div>
         )}
 
-        {/* ─── STEP 8: PERSONAL BLUEPRINT OVERVIEW (Langkah 7/9) ─── */}
+        {/* ─── STEP 8: INPUT NOMOR WHATSAPP (Langkah 7/7, Primary ID) ─── */}
         {stepNum === 8 && (
           <div className="space-y-6">
             <div>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 7 dari 9
-              </span>
-              <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
-                Blueprint {data.name} & Nina
-              </h1>
-              <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                Berikut kalkulasi metabolisme sains berdasarkan profil pribadimu:
-              </p>
-            </div>
-
-            {/* Overview Metric Cards */}
-            <div className="p-5 sm:p-6 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-4">
-              <div className="flex justify-between items-center pb-3 border-b border-surface-border">
-                <div>
-                  <span className="text-xs uppercase font-semibold text-text-muted flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-accent-dark" />
-                    Kebutuhan Kalori Harian (TDEE)
-                  </span>
-                  <div className="text-2xl font-black text-brand-950 font-mono mt-0.5">
-                    ~{tdee} <span className="text-xs font-normal text-text-secondary">kkal/hari</span>
-                  </div>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
-                  <Activity className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center pb-3 border-b border-surface-border">
-                <div>
-                  <span className="text-xs uppercase font-semibold text-text-muted flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-accent-dark" />
-                    Target Protein Harian
-                  </span>
-                  <div className="text-2xl font-black text-brand-950 font-mono mt-0.5">
-                    ~{proteinTarget} <span className="text-xs font-normal text-text-secondary">gram/hari</span>
-                  </div>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center text-accent-dark">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center pb-3 border-b border-surface-border">
-                <div>
-                  <span className="text-xs uppercase font-semibold text-text-muted flex items-center gap-1.5">
-                    <Droplet className="w-3.5 h-3.5 text-sky-600" />
-                    Target Hidrasi Harian
-                  </span>
-                  <div className="text-2xl font-black text-brand-950 font-mono mt-0.5">
-                    ~{hydrationTarget} <span className="text-xs font-normal text-text-secondary">Liter/hari</span>
-                  </div>
-                </div>
-                <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center text-sky-600">
-                  <Droplet className="w-4 h-4" />
-                </div>
-              </div>
-
-              <div className="pt-1 space-y-1.5 text-xs text-brand-900 font-medium">
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Fokus:</span>
-                  <span className="font-bold">{data.programFocus.join(", ")}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Lokasi:</span>
-                  <span className="font-bold">{data.workoutLocation}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Gaya Sapaan:</span>
-                  <span className="font-bold text-accent-dark">{data.communicationStyle}</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-xs text-text-secondary text-center leading-relaxed">
-              Nina akan menyelaraskan jadwal reminder, evaluasi foto makanan, dan record data Strava sesuai profil ini langsung di WhatsApp.
-            </p>
-
-            <button
-              onClick={() => goToStep(9)}
-              className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span>Lanjut Sambungkan ke WhatsApp</span>
-              <ArrowRight className="w-4 h-4 text-accent" />
-            </button>
-          </div>
-        )}
-
-        {/* ─── STEP 9: INPUT NOMOR WHATSAPP (Langkah 8/9, Primary ID) ─── */}
-        {stepNum === 9 && (
-          <div className="space-y-6">
-            <div>
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 8 dari 9
+                Langkah 7 dari 7 Survei Profil
               </span>
               <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
                 Nomor WhatsApp Kamu
@@ -1275,6 +1322,11 @@ export default function OnboardingStepPage({
                   }}
                   placeholder="812-3456-7890"
                   className="w-full pl-20 pr-4 py-3.5 text-lg font-bold text-brand-950 border border-slate-200 rounded-xl focus:border-brand-900 outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && data.whatsappNumber.trim() && !phoneError) {
+                      handleProceedFromWhatsApp();
+                    }
+                  }}
                 />
               </div>
 
@@ -1296,184 +1348,288 @@ export default function OnboardingStepPage({
             </div>
 
             <button
-              onClick={() => {
-                const err = validatePhone(data.whatsappNumber);
-                if (err) {
-                  setPhoneError(err);
-                  return;
-                }
-                goToStep(10);
-              }}
+              onClick={handleProceedFromWhatsApp}
               disabled={!data.whatsappNumber.trim() || !!phoneError}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Lanjut ke Pilihan Paket</span>
+              <span>Hitung Blueprint & Lihat Pilihan Paket</span>
               <ArrowRight className="w-4 h-4 text-accent" />
             </button>
           </div>
         )}
 
-        {/* ─── STEP 10: PRICING PLANS & CHECKOUT (Langkah 9/9) ─── */}
-        {stepNum === 10 && (
-          <div className="space-y-6">
-            <div>
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
-                Langkah 9 dari 9
-              </span>
-              <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
-                Pilih Paket Pendampingan
-              </h1>
-              <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                Sistem sekali bayar. Tanpa langganan otomatis.
-              </p>
-            </div>
+        {/* ─── STEP 9: BLUEPRINT LENGKAP & PILIHAN PAKET (Card-Card Simple, Harga Tercoret, Background Navy) ─── */}
+        {stepNum === 9 && (
+          <div className="space-y-8">
+            {/* ── 1. BLUEPRINT LENGKAP & PERSUASIVE COPYWRITING ── */}
+            <div className="space-y-4">
+              <div className="text-center sm:text-left">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-800 mb-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Blueprint Personal Selesai Disusun</span>
+                </span>
+                <h1 className="font-serif text-2xl sm:text-4xl font-bold text-brand-950">
+                  Rencana & Strategi Pendampingan {data.name}
+                </h1>
+                <p className="text-xs sm:text-sm text-text-secondary mt-1.5 leading-relaxed">
+                  Kamu sudah tahu apa yang ingin dicapai. Yang hilang selama ini bukan niat atau pengetahuanmu, melainkan sistem akuntabilitas harian yang konsisten hadir tanpa membuatmu lelah. Dengan blueprint ini dan Nina yang mendampingimu setiap hari di WhatsApp, progresmu terukur, terarah, dan kamu tidak lagi berjuang sendirian.
+                </p>
+              </div>
 
-            {/* Radio-Style Pricing Selector */}
-            <div className="space-y-3">
-              {(
-                [
-                  { id: "quarter", plan: PLANS.quarter },
-                  { id: "half", plan: PLANS.half },
-                  { id: "year", plan: PLANS.year },
-                ] as const
-              ).map(({ id, plan }) => {
-                const isSelected = data.selectedPlan === id;
-                return (
-                  <div
-                    key={id}
-                    onClick={() => updateData({ selectedPlan: id })}
-                    className={`p-4 sm:p-5 rounded-3xl border-2 transition-all cursor-pointer relative ${
-                      isSelected
-                        ? "bg-brand-950 text-white border-accent shadow-xl"
-                        : "bg-white text-brand-950 border-surface-border hover:border-slate-300"
-                    }`}
-                  >
-                    {/* Badge */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            isSelected ? "border-accent bg-accent" : "border-slate-300"
-                          }`}
-                        >
-                          {isSelected && <span className="w-2 h-2 rounded-full bg-brand-950" />}
-                        </div>
-                        <span className="font-serif font-bold text-base sm:text-lg">
-                          {plan.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-mono ${
-                          isSelected
-                            ? "bg-accent/20 text-accent border border-accent/40"
-                            : "bg-brand-50 text-brand-900 border border-brand-200"
-                        }`}
-                      >
-                        {plan.badge}
-                      </span>
-                    </div>
-
-                    <div className="pl-7 flex items-baseline justify-between">
-                      <div>
-                        <div className="text-xl sm:text-2xl font-black font-mono">
-                          Rp {plan.totalPrice.toLocaleString("id-ID")}
-                        </div>
-                        <div className={`text-xs ${isSelected ? "text-brand-200" : "text-text-muted"}`}>
-                          ~Rp {plan.monthlyPrice.toLocaleString("id-ID")} / bulan
-                        </div>
-                      </div>
+              {/* Blueprint Summary Cards */}
+              <div className="p-5 sm:p-6 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pb-3 border-b border-surface-border">
+                  <div className="p-3 rounded-2xl bg-brand-50/70 border border-brand-200/80">
+                    <span className="text-[11px] uppercase font-bold text-text-muted flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5 text-accent-dark" />
+                      Target Kalori (TDEE)
+                    </span>
+                    <div className="text-xl font-black text-brand-950 font-mono mt-0.5">
+                      ~{tdee} <span className="text-xs font-normal text-text-secondary">kkal/hari</span>
                     </div>
                   </div>
-                );
-              })}
+
+                  <div className="p-3 rounded-2xl bg-brand-50/70 border border-brand-200/80">
+                    <span className="text-[11px] uppercase font-bold text-text-muted flex items-center gap-1">
+                      <Target className="w-3.5 h-3.5 text-accent-dark" />
+                      Target Protein
+                    </span>
+                    <div className="text-xl font-black text-brand-950 font-mono mt-0.5">
+                      ~{proteinTarget} <span className="text-xs font-normal text-text-secondary">gram/hari</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-brand-50/70 border border-brand-200/80">
+                    <span className="text-[11px] uppercase font-bold text-text-muted flex items-center gap-1">
+                      <Droplet className="w-3.5 h-3.5 text-sky-600" />
+                      Target Hidrasi
+                    </span>
+                    <div className="text-xl font-black text-brand-950 font-mono mt-0.5">
+                      ~{hydrationTarget} <span className="text-xs font-normal text-text-secondary">Liter/hari</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-brand-900">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-muted">
+                    <span className="text-text-muted">Fokus Program:</span>
+                    <span className="font-bold">{data.programFocus.join(", ")}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-muted">
+                    <span className="text-text-muted">Lokasi Latihan:</span>
+                    <span className="font-bold">{data.workoutLocation}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-muted">
+                    <span className="text-text-muted">Gaya Sapaan Nina:</span>
+                    <span className="font-bold text-accent-dark">{data.communicationStyle}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-muted">
+                    <span className="text-text-muted">Antisipasi Hambatan:</span>
+                    <span className="font-bold text-brand-950">{data.biggestChallenge}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Promo Code Input (Default TEMANBARU 20% Off) */}
-            <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border space-y-2">
-              <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
-                Kode Promo
-              </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Tag className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={data.promoCode}
-                    onChange={(e) => updateData({ promoCode: e.target.value.toUpperCase() })}
-                    placeholder="TEMANBARU"
-                    className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-surface-border bg-white text-brand-950 outline-none"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (data.promoCode.trim().toUpperCase() === "TEMANBARU") {
-                      updateData({ promoApplied: true });
-                    } else {
-                      updateData({ promoApplied: false });
-                    }
-                  }}
-                  className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold hover:bg-brand-800 cursor-pointer"
-                >
-                  Terapkan
-                </button>
+            {/* ── 2. CARD PILIHAN PAKET (Bukan Form Radio, Simple & Bersih) ── */}
+            <div className="space-y-4 pt-2">
+              <div className="text-center sm:text-left">
+                <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
+                  Pilih Paket Pendampingan
+                </h2>
+                <p className="text-xs sm:text-sm text-text-secondary mt-1">
+                  Sistem sekali bayar. Tanpa tagihan otomatis. Garansi uang kembali dalam 3 hari.
+                </p>
               </div>
 
-              {data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && (
-                <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 pt-0.5">
-                  <Check className="w-3 h-3" />
-                  <span>Kode promo TEMANBARU aktif! Diskon 20% untuk pengguna baru.</span>
-                </div>
-              )}
-            </div>
+              {/* 3 Simple Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                {[
+                  {
+                    id: "quarter",
+                    name: "Paket 3 Bulan",
+                    badge: "Coba dulu program 3 bulan sesuai fase adaptasi & pembentukan kebiasaan baru",
+                    badgeColor: "bg-accent/15 text-accent-dark border border-accent/30",
+                    pricing: getPlanPricing("quarter"),
+                  },
+                  {
+                    id: "half",
+                    name: "Paket 6 Bulan",
+                    badge: "Hemat 23% · Rekomendasi Transformasi Nyata",
+                    badgeColor: "bg-emerald-50 text-emerald-800 border border-emerald-200",
+                    pricing: getPlanPricing("half"),
+                  },
+                  {
+                    id: "year",
+                    name: "Paket 1 Tahun",
+                    badge: "Paling Hemat 50% · Rp 31rb-an/bulan",
+                    badgeColor: "bg-purple-50 text-purple-800 border border-purple-200",
+                    pricing: getPlanPricing("year"),
+                  },
+                ].map(({ id, name, badge, badgeColor, pricing }) => {
+                  const isSelected = data.selectedPlan === id;
+                  return (
+                    <div
+                      key={id}
+                      onClick={() => updateData({ selectedPlan: id as any })}
+                      className={`p-4 sm:p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between relative ${
+                        isSelected
+                          ? "bg-brand-950 text-white border-accent shadow-xl ring-2 ring-accent/30"
+                          : "bg-white text-brand-950 border-surface-border hover:border-slate-300 shadow-2xs"
+                      }`}
+                    >
+                      <div>
+                        {/* Badge */}
+                        <div className={`text-[10px] font-bold px-2.5 py-1 rounded-xl mb-3 leading-snug ${
+                          isSelected ? "bg-accent/25 text-accent border border-accent/40" : badgeColor
+                        }`}>
+                          {badge}
+                        </div>
 
-            {/* Price Summary Breakdown */}
-            <div className="p-4 rounded-2xl bg-white border border-brand-200 space-y-1.5 text-xs text-brand-950">
-              <div className="flex justify-between">
-                <span>Subtotal ({currentPlan.name})</span>
-                <span className="font-mono">Rp {currentPlan.totalPrice.toLocaleString("id-ID")}</span>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-serif font-bold text-lg">{name}</h3>
+                          <div
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              isSelected ? "border-accent bg-accent" : "border-slate-300"
+                            }`}
+                          >
+                            {isSelected && <span className="w-2 h-2 rounded-full bg-brand-950" />}
+                          </div>
+                        </div>
+
+                        {/* Struck-through Pricing */}
+                        <div className="my-2">
+                          {pricing.hasDiscount ? (
+                            <div>
+                              <div className="flex items-baseline gap-1.5 flex-wrap">
+                                <span className={`line-through text-xs ${isSelected ? "text-slate-400" : "text-slate-400"}`}>
+                                  Rp {pricing.originalTotal.toLocaleString("id-ID")}
+                                </span>
+                                <span className={`text-xl sm:text-2xl font-black font-mono ${
+                                  isSelected ? "text-accent" : "text-brand-950"
+                                }`}>
+                                  Rp {pricing.discountedTotal.toLocaleString("id-ID")}
+                                </span>
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-1 text-[11px]">
+                                <span className="line-through text-slate-400">
+                                  ~Rp {pricing.originalMonthly.toLocaleString("id-ID")}
+                                </span>
+                                <span className={`font-bold ${isSelected ? "text-brand-200" : "text-accent-dark"}`}>
+                                  Rp {pricing.discountedMonthly.toLocaleString("id-ID")} / bln
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-xl sm:text-2xl font-black font-mono">
+                                Rp {pricing.originalTotal.toLocaleString("id-ID")}
+                              </div>
+                              <div className={`text-xs ${isSelected ? "text-brand-200" : "text-text-muted"}`}>
+                                ~Rp {pricing.originalMonthly.toLocaleString("id-ID")} / bulan
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className={`pt-3 mt-3 border-t text-[11px] font-medium ${
+                        isSelected ? "border-white/10 text-brand-200" : "border-slate-100 text-text-secondary"
+                      }`}>
+                        <span>✓ Full akses WhatsApp 24/7 · Foto & Strava</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              {discountAmount > 0 && (
-                <div className="flex justify-between text-emerald-700 font-semibold">
-                  <span>Diskon Promo 20% (TEMANBARU)</span>
-                  <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
+
+              {/* Promo Code Input (Default TEMANBARU 20% Off) */}
+              <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border space-y-2">
+                <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
+                  Kode Promo
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={data.promoCode}
+                      onChange={(e) => updateData({ promoCode: e.target.value.toUpperCase() })}
+                      placeholder="TEMANBARU"
+                      className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-surface-border bg-white text-brand-950 outline-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (data.promoCode.trim().toUpperCase() === "TEMANBARU") {
+                        updateData({ promoApplied: true });
+                      } else {
+                        updateData({ promoApplied: false });
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold hover:bg-brand-800 cursor-pointer"
+                  >
+                    Terapkan
+                  </button>
                 </div>
-              )}
-              <div className="h-px bg-surface-border my-1" />
-              <div className="flex justify-between text-sm font-bold">
-                <span>Total Investasi</span>
-                <span className="text-base text-brand-900 font-mono">
-                  Rp {finalPrice.toLocaleString("id-ID")}
+
+                {data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && (
+                  <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 pt-0.5">
+                    <Check className="w-3 h-3" />
+                    <span>Kode promo TEMANBARU aktif! Diskon 20% otomatis memotong dan mencoret harga di atas.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Price Summary Breakdown */}
+              <div className="p-4 rounded-2xl bg-white border border-brand-200 space-y-1.5 text-xs text-brand-950">
+                <div className="flex justify-between">
+                  <span>Subtotal ({currentPlan.name})</span>
+                  <span className="font-mono">Rp {currentPlan.totalPrice.toLocaleString("id-ID")}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-emerald-700 font-semibold">
+                    <span>Diskon Promo 20% (TEMANBARU)</span>
+                    <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
+                  </div>
+                )}
+                <div className="h-px bg-surface-border my-1" />
+                <div className="flex justify-between text-sm font-bold">
+                  <span>Total Investasi</span>
+                  <span className="text-base text-brand-900 font-mono">
+                    Rp {finalPrice.toLocaleString("id-ID")}
+                  </span>
+                </div>
+              </div>
+
+              {/* 3-Day Money Back Guarantee Banner */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-2.5 text-xs text-emerald-900 leading-relaxed">
+                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Garansi Uang Kembali 3 Hari:</strong> Jika dalam 3 hari kamu merasa pendampingan Nina tidak cocok dengan ritmemu, dana dikembalikan 100% tanpa ribet.
                 </span>
               </div>
-            </div>
 
-            {/* 3-Day Money Back Guarantee Banner */}
-            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-2.5 text-xs text-emerald-900 leading-relaxed">
-              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
-              <span>
-                <strong>Garansi Uang Kembali 3 Hari:</strong> Jika dalam 3 hari kamu merasa pendampingan Nina tidak cocok, dana dikembalikan 100% tanpa ribet.
-              </span>
+              {/* Checkout Action Button with brand-900 background */}
+              <button
+                onClick={handleCheckout}
+                disabled={isCheckingOut || checkoutComplete}
+                className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isCheckingOut ? (
+                  <span className="text-white font-bold">Menghubungkan Pembayaran...</span>
+                ) : checkoutComplete ? (
+                  <span className="text-white font-bold">✓ Berhasil! Mengalihkan ke Dashboard...</span>
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4 text-accent" />
+                    <span>Ambil Paket & Mulai di WhatsApp</span>
+                    <ArrowRight className="w-4 h-4 text-accent" />
+                  </>
+                )}
+              </button>
             </div>
-
-            {/* Checkout Action Button with Guaranteed Pure White Font */}
-            <button
-              onClick={handleCheckout}
-              disabled={isCheckingOut || checkoutComplete}
-              className="w-full rounded-full bg-accent hover:bg-accent-dark disabled:bg-slate-200 text-white font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {isCheckingOut ? (
-                <span className="text-white font-black drop-shadow-xs">Menghubungkan Pembayaran...</span>
-              ) : checkoutComplete ? (
-                <span className="text-white font-black drop-shadow-xs">✓ Berhasil! Mengalihkan ke Dashboard...</span>
-              ) : (
-                <>
-                  <CreditCard className="w-4 h-4 text-white" />
-                  <span className="text-white font-black drop-shadow-xs">Ambil Paket & Mulai di WhatsApp</span>
-                  <ArrowRight className="w-4 h-4 text-white" />
-                </>
-              )}
-            </button>
           </div>
         )}
       </main>
