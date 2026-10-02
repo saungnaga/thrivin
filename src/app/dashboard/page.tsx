@@ -58,8 +58,8 @@ const COMPANIONS: CompanionOrb[] = [
   },
   {
     id: "mindset",
-    name: "Mindset & Habits",
-    role: "Pilar Mindset",
+    name: "Mindset, Habit & Reading",
+    role: "Refleksi & Habit",
     status: "locked",
     avatar: "",
     themeColor: "from-slate-900 to-slate-950",
@@ -68,16 +68,7 @@ const COMPANIONS: CompanionOrb[] = [
   {
     id: "parenting",
     name: "Parenting & Family",
-    role: "Pilar Parenting",
-    status: "locked",
-    avatar: "",
-    themeColor: "from-slate-900 to-slate-950",
-    accentBg: "bg-slate-700",
-  },
-  {
-    id: "career",
-    name: "Career & Skills",
-    role: "Pilar Karir",
+    role: "Family & Childcare",
     status: "locked",
     avatar: "",
     themeColor: "from-slate-900 to-slate-950",

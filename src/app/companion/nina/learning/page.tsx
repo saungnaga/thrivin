@@ -713,7 +713,7 @@ export default function NinaLearningHubPage() {
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                     <Link
                       href="/companion/nina/onboarding/1"
-                      className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-accent text-brand-950 font-bold text-sm transition-all shadow-glow hover:scale-105"
+                      className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-accent text-brand-950 hover:bg-white hover:text-brand-950 font-bold text-sm transition-all shadow-glow hover:scale-105"
                     >
                       <Sparkles className="w-4 h-4" />
                       <span>Mulai Onboarding dengan Nina</span>

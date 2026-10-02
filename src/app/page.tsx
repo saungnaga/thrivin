@@ -14,7 +14,7 @@ import {
   Camera,
   CheckCircle2,
   X,
-  BellRing
+  BookOpen
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -46,7 +46,7 @@ export default function Home() {
       <Navbar />
 
       {/* ─── Hero Section (Direct, Punchy, Value-Focused) ─── */}
-      <section className="pt-28 pb-14 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full text-center">
+      <section className="pt-28 pb-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full text-center">
         {/* Top Direct Badge */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -110,10 +110,29 @@ export default function Home() {
         >
           &ldquo;Pertumbuhan yang paling sering gagal bukan karena rencananya buruk. Tapi karena dijalani dalam ruang kosong — tanpa siapa pun yang tahu apa yang sedang kamu perjuangkan.&rdquo;
         </motion.div>
+
+        {/* ─── Link to Learn More About Thrivin ─── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.25 }}
+          className="mt-8 flex justify-center"
+        >
+          <Link
+            href="/about"
+            className="inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-brand-50 hover:bg-brand-100 border border-brand-200/90 text-xs sm:text-sm font-bold text-brand-950 transition-all shadow-2xs hover:shadow-sm group cursor-pointer"
+          >
+            <BookOpen className="w-4 h-4 text-accent-dark" />
+            <span>Ingin tahu bagaimana sistem pendampingan Thrivin bekerja?</span>
+            <span className="text-accent-dark font-extrabold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+              Pelajari Thrivin Lebih Jauh &rarr;
+            </span>
+          </Link>
+        </motion.div>
       </section>
 
-      {/* ─── 4 Character Portrait Cards (Game Select Style) ─── */}
-      <section id="companions" className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+      {/* ─── 3 Character Portrait Cards (Game Select Style) ─── */}
+      <section id="companions" className="py-12 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
         <div className="text-center mb-10">
           <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-mono">
             Character Selection
@@ -122,12 +141,12 @@ export default function Home() {
             Pilih AI Companion Sesuai Targetmu
           </h2>
           <p className="text-xs sm:text-sm text-text-secondary mt-1.5 max-w-lg mx-auto">
-            Klik kartu companion untuk melihat detail dan memulai pendampingan harianmu.
+            Klik kartu companion untuk melihat detail dan memulai pendampingan harianmu di WhatsApp.
           </p>
         </div>
 
-        {/* Grid of 4 Cards */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+        {/* Grid of 3 Cards */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
           {/* ─── CARD 1: NINA (ACTIVE & AVAILABLE) — FULL CARD CLICKABLE ─── */}
           <Link
             href="/companion/nina"
@@ -152,7 +171,7 @@ export default function Home() {
                 <div className="absolute inset-0 bg-linear-to-t from-brand-950 via-transparent to-transparent opacity-60" />
                 <div className="absolute bottom-3 left-3 right-3 text-white">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-accent font-mono">
-                    Pilar Wellness & Fitness
+                    Wellness & Fitness Companion
                   </div>
                   <h3 className="font-serif text-2xl font-bold text-white flex items-center gap-1.5">
                     <span>Nina</span>
@@ -163,7 +182,7 @@ export default function Home() {
 
               {/* Bio & Pitch */}
               <p className="text-xs text-brand-100/90 leading-relaxed mb-4">
-                Teman akuntabilitas harian untuk diet, gym, dan lari. Baca foto makanan, evaluasi Strava, kurasi video form gerakan YouTube, dan reach out duluan di WhatsApp.
+                Teman akuntabilitas harian untuk diet, gym, dan lari. Baca foto makanan untuk hitung kalori & protein, evaluasi record data Strava, dan reach out duluan di WhatsApp.
               </p>
 
               {/* Capabilities Strengths */}
@@ -186,32 +205,32 @@ export default function Home() {
 
               {/* Selling Tags */}
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-white/10 text-white text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white text-[10px] font-medium">
                   📸 Foto Makanan
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-white/10 text-white text-[10px] font-medium">
-                  🏃 Strava Sync
+                <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white text-[10px] font-medium">
+                  🏃 Record Data Strava
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-white/10 text-white text-[10px] font-medium">
-                  📺 YouTube Form
+                <span className="px-2.5 py-1 rounded-lg bg-white/10 text-white text-[10px] font-medium">
+                  💬 Reminder Santai
                 </span>
               </div>
             </div>
 
-            {/* Direct CTA Button */}
-            <div className="w-full py-3.5 rounded-full bg-accent group-hover:bg-white text-brand-950 font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2">
+            {/* Direct CTA Button (High Contrast Guaranteed) */}
+            <div className="w-full py-3.5 rounded-full bg-accent text-brand-950 group-hover:bg-white group-hover:text-brand-950 font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2">
               <span>Pilih Nina & Mulai</span>
               <ArrowRight className="w-4 h-4 text-brand-950 group-hover:translate-x-1 transition-transform" />
             </div>
           </Link>
 
-          {/* ─── CARD 2: PILAR MINDSET (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
+          {/* ─── CARD 2: MINDSET, HABIT & READING (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
           <div
             onClick={() =>
               setLockedModal({
-                category: "Pilar Mindset & Habit",
-                title: "AI Mindset & Habit Companion",
-                desc: "Pendamping refleksi harian, journaling kilat via WhatsApp, dan pemecah mental block untuk membangun disiplin diri yang kokoh.",
+                category: "Mindset, Habit & Reading",
+                title: "AI Mindset, Habit & Reading Companion",
+                desc: "Pendamping refleksi harian, journaling kilat via WhatsApp, reading companion untuk buku self-development & rangkuman esensial, serta pembongkar mental block untuk membangun konsistensi yang tahan lama.",
               })
             }
             className="group rounded-[2.2rem] bg-slate-900 text-slate-200 p-5 sm:p-6 border-2 border-slate-800 hover:border-slate-600 hover:bg-slate-850 hover:scale-[1.02] shadow-lg hover:shadow-2xl relative flex flex-col justify-between cursor-pointer transition-all duration-300"
@@ -228,46 +247,47 @@ export default function Home() {
                 <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
                 <div className="absolute bottom-3 left-3 right-3 text-left">
                   <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                    Pilar 02
+                    Companion 02
                   </span>
                   <h3 className="font-serif text-xl font-bold text-white">
-                    Mindset & Habits
+                    Mindset, Habit & Reading
                   </h3>
                 </div>
               </div>
 
               <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 font-mono">
-                Daily Journaling & Clarity
+                Daily Journaling & Reading Companion
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                Pendamping refleksi harian, journaling kilat via WhatsApp, dan pemecah mental block untuk membangun disiplin yang tidak mudah patah.
+                Pendamping refleksi harian, journaling kilat via WhatsApp, reading companion untuk buku self-development, serta pembongkar mental block untuk membangun konsistensi diri.
               </p>
 
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
                   #DailyJournal
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
                   #HabitStacking
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
-                  #MentalClarity
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
+                  #ReadingCompanion
                 </span>
               </div>
             </div>
 
-            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+            {/* Action Button (High Contrast Guaranteed) */}
+            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-slate-400" />
               <span>Segera Hadir · Klik Info</span>
             </div>
           </div>
 
-          {/* ─── CARD 3: PILAR PARENTING (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
+          {/* ─── CARD 3: PARENTING & FAMILY (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
           <div
             onClick={() =>
               setLockedModal({
-                category: "Pilar Parenting & Family",
-                title: "AI Parenting Companion",
+                category: "Parenting & Family Care",
+                title: "AI Parenting & Family Companion",
                 desc: "Teman diskusi tenang untuk orang tua. Solusi tantrum berbasis sains, ide stimulasi anak, dan dukungan emosional ayah-ibu saat lelah.",
               })
             }
@@ -285,7 +305,7 @@ export default function Home() {
                 <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
                 <div className="absolute bottom-3 left-3 right-3 text-left">
                   <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                    Pilar 03
+                    Companion 03
                   </span>
                   <h3 className="font-serif text-xl font-bold text-white">
                     Parenting & Family
@@ -301,76 +321,20 @@ export default function Home() {
               </p>
 
               <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
                   #ParentingSains
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
                   #TantrumSolution
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-medium">
                   #FamilyCalm
                 </span>
               </div>
             </div>
 
-            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Segera Hadir · Klik Info</span>
-            </div>
-          </div>
-
-          {/* ─── CARD 4: PILAR CAREER & SKILLS (SILUET ORANG, ABU-ABU HOVER, FULL CLICKABLE) ─── */}
-          <div
-            onClick={() =>
-              setLockedModal({
-                category: "Pilar Karir & Skill",
-                title: "AI Career & Skill Accelerator",
-                desc: "Partner simulasi interview kerja, bedah draft presentasi, dan akselerasi skill komunikasi profesional to-the-point di WhatsApp.",
-              })
-            }
-            className="group rounded-[2.2rem] bg-slate-900 text-slate-200 p-5 sm:p-6 border-2 border-slate-800 hover:border-slate-600 hover:bg-slate-850 hover:scale-[1.02] shadow-lg hover:shadow-2xl relative flex flex-col justify-between cursor-pointer transition-all duration-300"
-          >
-            <div className="absolute top-4 right-4 z-20 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300 tracking-wider uppercase font-mono shadow-xs">
-              <Lock className="w-3 h-3 text-slate-400" />
-              <span>COMING SOON</span>
-            </div>
-
-            <div>
-              {/* Silhouette Portrait */}
-              <div className="relative w-full aspect-4/5 rounded-2xl overflow-hidden mb-5 bg-gradient-to-b from-slate-800 to-slate-950 flex flex-col items-center justify-center border border-white/5 group-hover:border-slate-700 transition-colors">
-                <SilhouetteIcon className="w-32 h-32 text-slate-700 group-hover:text-slate-600 transition-colors duration-300" />
-                <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-70" />
-                <div className="absolute bottom-3 left-3 right-3 text-left">
-                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                    Pilar 04
-                  </span>
-                  <h3 className="font-serif text-xl font-bold text-white">
-                    Career & Skills
-                  </h3>
-                </div>
-              </div>
-
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 font-mono">
-                Professional Communication
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                Partner simulasi interview kerja, bedah draft presentasi, dan akselerasi skill komunikasi profesional to-the-point di WhatsApp.
-              </p>
-
-              <div className="flex flex-wrap gap-1.5 mb-5">
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
-                  #MockInterview
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
-                  #WritingPolish
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[10px] font-medium">
-                  #CareerGrowth
-                </span>
-              </div>
-            </div>
-
-            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-300 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+            {/* Action Button (High Contrast Guaranteed) */}
+            <div className="w-full py-3.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
               <Lock className="w-3.5 h-3.5 text-slate-400" />
               <span>Segera Hadir · Klik Info</span>
             </div>
@@ -409,7 +373,7 @@ export default function Home() {
               <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-6">
                 {lockedModal.desc}
                 <br /><br />
-                Saat ini tim sains Thrivin sedang mematangkan kurikulum dan persona bot untuk pilar ini. Kamu bisa mencoba <strong>Nina (Wellness & Fitness)</strong> yang sudah aktif mendampingi pengguna di WhatsApp hari ini.
+                Saat ini tim sains Thrivin sedang mematangkan kurikulum dan persona bot untuk companion ini. Kamu bisa mencoba <strong>Nina (Wellness & Fitness)</strong> yang sudah aktif mendampingi pengguna di WhatsApp hari ini.
               </p>
 
               <div className="flex flex-col gap-2.5">
@@ -419,7 +383,7 @@ export default function Home() {
                   className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-accent" />
-                  <span>Pilih Nina (Pilar Wellness)</span>
+                  <span>Pilih Nina (Wellness & Fitness)</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
 
@@ -478,7 +442,7 @@ export default function Home() {
                 <Camera className="w-5 h-5 text-accent-dark" />
               </div>
               <h3 className="font-bold text-base text-brand-950 mb-1.5">
-                Kirim Foto & Strava
+                Kirim Foto & Record Data Strava
               </h3>
               <p className="text-xs text-text-secondary leading-relaxed">
                 Tinggal jepret piring makan untuk hitung kalori atau kirim screenshot hasil lari untuk dianalisis pace dan detak jantungnya.
@@ -541,10 +505,10 @@ export default function Home() {
             <div className="pt-2">
               <Link
                 href="/companion/nina"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white hover:text-brand-950 transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
                 <span>Mulai Bersama Nina Sekarang</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 text-brand-950" />
               </Link>
             </div>
           </div>

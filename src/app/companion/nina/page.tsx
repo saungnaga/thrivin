@@ -15,25 +15,18 @@ import {
   ShieldCheck,
   Activity,
   BookOpen,
-  PlayCircle,
   CheckCircle2,
-  Flame,
-  Check
+  Calendar,
+  Utensils
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 20 } as const,
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } } as const,
-};
 
 const ROTATING_WORDS = [
   { text: "menemani dietmu", color: "#38AEC8" },
   { text: "mengingatkan olahragamu", color: "#5ED6F0" },
   { text: "membaca foto piringmu", color: "#7DD3FC" },
   { text: "mengevaluasi larimu", color: "#38BDF8" },
-  { text: "memperbaiki form gerakanmu", color: "#2DD4BF" },
   { text: "menjaga konsistensimu", color: "#06B6D4" },
 ];
 
@@ -146,7 +139,7 @@ export default function NinaPage() {
             </h1>
 
             <p className="text-base sm:text-lg text-text-secondary max-w-xl mx-auto lg:mx-0 leading-relaxed">
-              Kirim foto piring makan untuk hitung kalori, kirim screenshot Strava untuk evaluasi lari, atau tanya form gerakan saat bingung. Nina menyapa duluan di jam rawan agar kamu tidak berhenti di minggu ketiga.
+              Kirim foto piring makan untuk hitung kalori & protein, kirim screenshot untuk evaluasi record data Strava, dan dapatkan pengingat proaktif setiap hari agar kamu konsisten.
             </p>
 
             {/* CTAs */}
@@ -218,7 +211,7 @@ export default function NinaPage() {
         </div>
       </section>
 
-      {/* ─── Nina's 5 Superpowers Grid ─── */}
+      {/* ─── Nina's Core Superpowers Grid ─── */}
       <section className="py-16 bg-brand-950 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-accent/10 rounded-full blur-3xl pointer-events-none" />
         
@@ -255,7 +248,7 @@ export default function NinaPage() {
                 <Activity className="w-5 h-5" />
               </div>
               <h3 className="font-bold text-lg text-white">
-                Catat Lari Strava & Smartwatch
+                Record Data Strava & Smartwatch
               </h3>
               <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
                 Kirim screenshot hasil lari atau aktivitas smartwatch. Nina baca pace, detak jantung, dan memberi saran pemulihan yang pas.
@@ -265,13 +258,13 @@ export default function NinaPage() {
             {/* Feature 3 */}
             <div className="p-6 rounded-3xl bg-white/5 border border-white/10 hover:border-accent/40 transition-colors space-y-3">
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
-                <PlayCircle className="w-5 h-5" />
+                <Utensils className="w-5 h-5" />
               </div>
               <h3 className="font-bold text-lg text-white">
-                Kurasi Video Form Gerakan YouTube
+                Rekomendasi Makronutrisi Personal
               </h3>
               <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
-                Bingung form gerakan (misal RDL atau Squat yang bikin pinggang pegal)? Nina jelaskan kunci gerakannya dan kirim video YouTube kurasi 2 menit.
+                Menyesuaikan target kalori harian (TDEE) dan target protein secara fleksibel tanpa membuatmu merasa tersiksa saat makan di luar.
               </p>
             </div>
 
@@ -363,10 +356,10 @@ export default function NinaPage() {
             <div className="pt-2">
               <Link
                 href="/companion/nina/onboarding/1"
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent text-brand-950 font-black text-sm hover:bg-white hover:text-brand-950 transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
                 <span>Mulai Onboarding Personal (5 Menit)</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 text-brand-950" />
               </Link>
             </div>
           </div>

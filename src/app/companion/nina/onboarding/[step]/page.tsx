@@ -1004,7 +1004,7 @@ export default function OnboardingStepPage({
             <button
               onClick={handleCheckout}
               disabled={isCheckingOut || checkoutComplete}
-              className="w-full rounded-full bg-accent hover:bg-brand-900 hover:text-white text-brand-950 font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full rounded-full bg-accent hover:bg-brand-900 hover:text-white disabled:bg-slate-200 disabled:text-slate-400 text-brand-950 font-black py-4 text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
             >
               {isCheckingOut ? (
                 <span>Menghubungkan Pembayaran...</span>
