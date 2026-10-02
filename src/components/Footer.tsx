@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MessageCircle } from "lucide-react";
 
 export function Footer() {
   return (
@@ -32,6 +33,16 @@ export function Footer() {
           >
             Privacy Policy
           </Link>
+          <a
+            href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-950 font-semibold transition-all shadow-2xs"
+            aria-label="Hubungi Customer Service Thrivin via WhatsApp di 0877-8814-1388"
+          >
+            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+            <span>CS: 0877-8814-1388</span>
+          </a>
         </nav>
       </div>
     </footer>

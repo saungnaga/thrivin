@@ -88,8 +88,16 @@ export default function PrivacyPage() {
             <h2 className="font-serif text-xl font-bold text-brand-950">
               4. Hubungi Kami
             </h2>
-            <p>
-              Jika memiliki pertanyaan mengenai kebijakan privasi atau ingin menghapus data akunmu, silakan hubungi tim Thrivin melalui kontak resmi yang tertera di situs ini.
+            <p className="leading-relaxed">
+              Jika memiliki pertanyaan mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun, silakan hubungi tim Customer Service resmi Thrivin via WhatsApp di{" "}
+              <a
+                href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20punya%20pertanyaan%20seputar%20kebijakan%20privasi%20atau%20data%20akun"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2"
+              >
+                0877-8814-1388
+              </a>.
             </p>
           </section>
         </div>

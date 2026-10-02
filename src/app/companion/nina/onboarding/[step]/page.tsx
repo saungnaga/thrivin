@@ -1721,6 +1721,20 @@ export default function OnboardingStepPage({
                   </>
                 )}
               </button>
+
+              {/* Customer Service Support Link */}
+              <div className="pt-2 text-center text-xs text-text-muted">
+                Punya pertanyaan atau butuh panduan pembayaran?{" "}
+                <a
+                  href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan%20seputar%20paket%20Nina"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 transition-colors underline underline-offset-2"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
+                  <span>Chat Customer Service (0877-8814-1388)</span>
+                </a>
+              </div>
             </div>
           </div>
         )}

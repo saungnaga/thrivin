@@ -17,6 +17,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { Footer } from "@/components/Footer";
 
 interface DomainItem {
   id: string;
@@ -327,9 +328,7 @@ export default function ExplorePage() {
       </main>
 
       {/* ─── Footer ─── */}
-      <footer className="border-t border-surface-border py-8 text-center text-xs text-text-muted bg-surface">
-        <p>© 2026 Thrivin. Never Grow Alone.</p>
-      </footer>
+      <Footer />
     </div>
   );
 }

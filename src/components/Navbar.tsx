@@ -110,6 +110,16 @@ export function Navbar() {
                 </Link>
               </>
             )}
+            <a
+              href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition-colors flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100"
+              aria-label="Customer Service WhatsApp 0877-8814-1388"
+            >
+              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+              <span>CS: 0877-8814-1388</span>
+            </a>
           </nav>
 
           {/* Right: Actions */}
@@ -262,6 +272,20 @@ export function Navbar() {
                   </Link>
                 </>
               )}
+
+              {/* Customer Service Mobile Link */}
+              <a
+                href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsOpen(false)}
+                className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+              >
+                <span>Customer Service</span>
+                <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                  0877-8814-1388
+                </span>
+              </a>
             </nav>
 
             <div className="pt-6 pb-4 flex flex-col gap-3">

@@ -33,7 +33,7 @@ const QUICK_QUESTIONS = [
   "Berapa harganya?",
   "Gimana cara kerja di WhatsApp?",
   "Ada garansi uang kembali?",
-  "Bisa baca Strava & foto makanan?",
+  "Hubungi CS (0877-8814-1388)",
 ];
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -134,6 +134,27 @@ function getBotReply(input: string, hasNina: boolean = false): { text: string; c
       cta: {
         label: "Mulai Onboarding Sekarang",
         href: "/companion/nina/onboarding/1",
+      },
+    };
+  }
+
+  if (
+    query.includes("cs") ||
+    query.includes("customer service") ||
+    query.includes("kontak") ||
+    query.includes("hubungi") ||
+    query.includes("admin") ||
+    query.includes("bantuan") ||
+    query.includes("nomor") ||
+    query.includes("telepon") ||
+    query.includes("0877") ||
+    query.includes("support")
+  ) {
+    return {
+      text: "Tim Customer Service Thrivin siap membantumu! Hubungi kami langsung melalui WhatsApp di nomor 0877-8814-1388 untuk kendala aktivasi, pertanyaan paket, pembayaran, maupun panduan teknis.",
+      cta: {
+        label: "Chat CS via WhatsApp (0877-8814-1388)",
+        href: "https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan",
       },
     };
   }
@@ -272,6 +293,24 @@ export function AIChatWidget() {
               </button>
             </div>
 
+            {/* Customer Service Banner */}
+            <div className="bg-emerald-50/90 border-b border-emerald-200/60 px-4 py-2 flex items-center justify-between text-[11px] text-emerald-950 shrink-0">
+              <span className="flex items-center gap-1.5 font-medium">
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Customer Service:</span>
+              </span>
+              <a
+                href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-emerald-700 hover:text-emerald-900 underline underline-offset-2 flex items-center gap-1 transition-colors"
+                aria-label="Chat Customer Service via WhatsApp di 0877-8814-1388"
+              >
+                <span>0877-8814-1388</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
             {/* Messages Scroll Area */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#f8fafc]">
               {messages.map((msg) => (
@@ -291,14 +330,26 @@ export function AIChatWidget() {
                     <p>{msg.text}</p>
 
                     {msg.cta && (
-                      <Link
-                        href={msg.cta.href}
-                        onClick={() => setIsOpen(false)}
-                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-accent-dark hover:underline pt-1 border-t border-slate-100 w-full"
-                      >
-                        <span>{msg.cta.label}</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
+                      msg.cta.href.startsWith("http") ? (
+                        <a
+                          href={msg.cta.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center justify-between text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline pt-1.5 border-t border-slate-100 w-full"
+                        >
+                          <span>{msg.cta.label}</span>
+                          <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                        </a>
+                      ) : (
+                        <Link
+                          href={msg.cta.href}
+                          onClick={() => setIsOpen(false)}
+                          className="mt-2 inline-flex items-center justify-between text-xs font-bold text-accent-dark hover:underline pt-1.5 border-t border-slate-100 w-full"
+                        >
+                          <span>{msg.cta.label}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                      )
                     )}
                   </div>
                   <span className="text-[9px] text-slate-400 mt-1 px-1 font-mono">
