@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Source_Serif_4 } from "next/font/google";
+import { Inter, Lora } from "next/font/google";
 import "./globals.css";
 
-const plusJakarta = Plus_Jakarta_Sans({
+const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const sourceSerif = Source_Serif_4({
+const lora = Lora({
   subsets: ["latin"],
   variable: "--font-serif",
   display: "swap",
@@ -55,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={`${plusJakarta.variable} ${sourceSerif.variable}`}>
+    <html lang="id" className={`${inter.variable} ${lora.variable}`}>
       <body className="font-sans antialiased">
         <AuthProvider>
           {children}

@@ -4,16 +4,16 @@ import { MessageCircle } from "lucide-react";
 export function Footer() {
   return (
     <footer className="bg-surface-muted border-t border-surface-border mt-auto">
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-12 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Left: Copyright */}
-        <p className="text-xs sm:text-sm text-text-muted text-center sm:text-left">
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-12 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 font-sans">
+        {/* Left: Copyright (Rule 9: Inter Regular small) */}
+        <p className="font-sans font-normal text-xs sm:text-sm text-text-muted text-center sm:text-left">
           &copy; 2026 Thrivin. Never Grow Alone. AI Companion Platform.
         </p>
 
-        {/* Right: Horizontal links */}
+        {/* Right: Horizontal links (Rule 9: Inter Regular small) */}
         <nav
           aria-label="Footer Navigation"
-          className="flex flex-wrap items-center justify-center sm:justify-end gap-5 text-xs sm:text-sm text-text-muted"
+          className="font-sans font-normal flex flex-wrap items-center justify-center sm:justify-end gap-5 text-xs sm:text-sm text-text-muted"
         >
           <Link
             href="/companion/nina"
@@ -37,7 +37,7 @@ export function Footer() {
             href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-950 font-semibold transition-all shadow-2xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-950 font-medium transition-all shadow-2xs"
             aria-label="Hubungi Customer Service Thrivin via WhatsApp di 0877-8814-1388"
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />

@@ -114,12 +114,14 @@ export default function NinaPage() {
         <div className="grid lg:grid-cols-12 gap-10 lg:gap-12 items-center">
           {/* Left Column: Copywriting & Pitch */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold text-accent-dark uppercase tracking-wider font-mono shadow-2xs">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200 text-xs font-semibold text-accent-dark uppercase tracking-wider font-sans shadow-2xs">
               <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
               <span>AI Wellness & Fitness Companion · WhatsApp</span>
             </div>
 
-            <h1 className="font-serif text-2xl xs:text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-brand-950 leading-[1.25] sm:leading-[1.15]">
+            {/* Rule 1: Hero Headline: Inter Bold/Extrabold */}
+            <h1 className="font-sans text-2xl xs:text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.25] sm:leading-[1.15]">
               Meet Nina. Teman akrab yang siap{" "}
               {/* ─── Flash Speed-Dash Effect (Same Color, No Underline, Ghost Echo Trails, Mobile-Safe) ─── */}
               <span className="inline-block max-w-full relative overflow-hidden sm:overflow-visible px-1 py-0.5 align-bottom">
@@ -146,7 +148,7 @@ export default function NinaPage() {
                       filter: "blur(4px)",
                       transition: { duration: 0.18, ease: "easeIn" },
                     }}
-                    className="relative inline-block text-accent font-serif font-bold whitespace-normal sm:whitespace-nowrap break-words"
+                    className="relative inline-block text-accent font-sans font-extrabold whitespace-normal sm:whitespace-nowrap break-words"
                   >
                     {/* Ghost Echo Trail 1 */}
                     <motion.span
@@ -180,17 +182,18 @@ export default function NinaPage() {
               {" "}24/7 di WhatsApp.
             </h1>
 
-            <p className="text-base sm:text-lg text-text-secondary max-w-xl mx-auto lg:mx-0 leading-relaxed">
+            {/* Rule 2: Sub-headline / Deskripsi: Inter Regular */}
+            <p className="text-base sm:text-lg text-text-secondary max-w-xl mx-auto lg:mx-0 leading-relaxed font-sans font-normal">
               Kirim foto piring makan untuk hitung kalori & protein, kirim screenshot untuk evaluasi record data Strava, dan dapatkan pengingat proaktif setiap hari agar kamu konsisten.
             </p>
 
-            {/* CTAs with Guaranteed Clear White Font & Crisp Contrast */}
+            {/* CTAs with Guaranteed Clear White Font & Crisp Contrast (Rule 8: Inter Semibold) */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
                 href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
-                className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-bold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span className="text-white font-bold">
+                <span className="text-white font-semibold">
                   {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Bersama Nina"}
                 </span>
                 <ArrowRight className="w-4 h-4 text-accent" />
@@ -261,13 +264,15 @@ export default function NinaPage() {
         
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center mb-12">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent font-mono block mb-2">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent font-sans block mb-2">
               Superpowers
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold leading-tight">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h2 className="font-sans text-3xl sm:text-4xl font-bold leading-tight">
               Kenapa Nina Bisa Bikin Kamu Konsisten?
             </h2>
-            <p className="text-xs sm:text-sm text-brand-200 mt-2 max-w-lg mx-auto">
+            <p className="text-xs sm:text-sm text-brand-200 mt-2 max-w-lg mx-auto font-sans font-normal">
               Bukan sekadar asisten teks. Nina dibekali kapabilitas spesifik yang terintegrasi langsung dengan keseharianmu.
             </p>
           </div>
@@ -278,10 +283,11 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <Camera className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 Baca Foto Makanan & Porsi
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              {/* Rule 3: Body Text: Lora Regular */}
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Gak perlu pusing timbang gram. Cukup kirim foto piring di WhatsApp, Nina mengenali lauk lokal dan mengestimasi kalori serta proteinnya.
               </p>
             </div>
@@ -291,10 +297,10 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <Activity className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 Record Data Strava & Smartwatch
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Kirim screenshot hasil lari atau aktivitas smartwatch. Nina baca pace, detak jantung, dan memberi saran pemulihan yang pas.
               </p>
             </div>
@@ -304,10 +310,10 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <Utensils className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 Rekomendasi Makronutrisi Personal
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Menyesuaikan target kalori harian (TDEE) dan target protein secara fleksibel tanpa membuatmu merasa tersiksa saat makan di luar.
               </p>
             </div>
@@ -317,10 +323,10 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <BellRing className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 Proaktif Reminder Santai Duluan
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Bukan bot pasif yang menunggu. Nina menyapa pagi dan sore hari di jam kritis saat rasa malas mulai menggoda.
               </p>
             </div>
@@ -330,10 +336,10 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <BrainCircuit className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 Memori Jangka Panjang
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Ingat cedera lutut lamamu, makanan favoritmu, dan jadwal lemburmu tanpa perlu kamu ulang ceritanya setiap hari.
               </p>
             </div>
@@ -343,10 +349,10 @@ export default function NinaPage() {
               <div className="w-11 h-11 rounded-2xl bg-accent/20 text-accent flex items-center justify-center">
                 <Smartphone className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-white">
+              <h3 className="font-sans font-bold text-lg text-white">
                 100% Hidup di WhatsApp
               </h3>
-              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed">
+              <p className="text-xs sm:text-sm text-brand-100/80 leading-relaxed font-serif font-normal">
                 Bebas dari kerumitan unduh aplikasi baru yang memberatkan memori HP. Langsung aktif di aplikasi yang paling sering kamu buka.
               </p>
             </div>
@@ -357,17 +363,20 @@ export default function NinaPage() {
       {/* ─── Social Proof & Dominican University Research ─── */}
       <section className="py-14 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full text-center">
         <div className="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200 shadow-xs">
-          <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark font-mono block mb-2">
+          {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-dark font-sans block mb-2">
             The Science of Accountability
           </span>
-          <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
+          {/* Rule 7: Judul Section: Inter Bold */}
+          <h2 className="font-sans text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
             Bukan Niat yang Kurang. Kamu Hanya Butuh Rekan Akuntabilitas.
           </h2>
-          <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xl mx-auto mb-6">
-            Riset klinis Dr. Gail Matthews (Dominican University) pada 267 orang: mereka yang melaporkan progres harian ke companion menyelesaikan <strong>76% target</strong>, dibanding hanya 43% yang berjuang sendirian.
+          {/* Rule 3: Body Text: Lora Regular */}
+          <p className="text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xl mx-auto mb-6 font-serif font-normal">
+            Riset klinis Dr. Gail Matthews (Dominican University) pada 267 orang: mereka yang melaporkan progres harian ke companion menyelesaikan <strong className="font-sans font-extrabold text-brand-950">76% target</strong>, dibanding hanya <strong className="font-sans font-extrabold text-brand-950">43%</strong> yang berjuang sendirian.
           </p>
 
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-brand-200 text-xs font-bold text-brand-900 shadow-2xs">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-brand-200 text-xs font-semibold text-brand-900 shadow-2xs font-sans">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>Nina dirancang persis dengan protokol akuntabilitas sains ini.</span>
           </div>
@@ -380,30 +389,33 @@ export default function NinaPage() {
           <div className="absolute top-0 right-0 w-80 h-80 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
           
           <div className="relative z-10 max-w-2xl mx-auto space-y-4">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-accent text-xs font-bold uppercase tracking-wider font-mono">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-accent text-xs font-semibold uppercase tracking-wider font-sans">
               <Sparkles className="w-3.5 h-3.5" />
               Mulai Perjalananmu
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold leading-tight">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h2 className="font-sans text-3xl sm:text-4xl font-bold leading-tight">
               Siap Bangun Kebiasaan Sehat Bersama Nina?
             </h2>
-            <p className="text-xs sm:text-sm text-brand-200 leading-relaxed">
-              Mulai dari <strong>Rp 39.000/bulan</strong>. Masukkan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-mono font-bold">TEMANBARU</span> untuk diskon 20% khusus pengguna baru!
+            {/* Rule 2 & 4: Sub-headline Inter Regular + Angka Inter Extrabold */}
+            <p className="text-xs sm:text-sm text-brand-200 leading-relaxed font-sans font-normal">
+              Mulai dari <strong className="font-sans font-extrabold text-white">Rp 39.000/bulan</strong>. Masukkan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">TEMANBARU</span> untuk diskon 20% khusus pengguna baru!
             </p>
 
-            {/* Guarantee Box */}
-            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90">
+            {/* Guarantee Box (Rule 3: Lora Regular) */}
+            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90 font-serif font-normal">
               <ShieldCheck className="w-4 h-4 text-accent shrink-0" />
               <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
             </div>
 
-            {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy */}
+            {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy (Rule 8: Inter Semibold) */}
             <div className="pt-2">
               <Link
                 href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span className="text-white font-black">
+                <span className="text-white font-semibold">
                   {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Personal (5 Menit)"}
                 </span>
                 <ArrowRight className="w-4 h-4 text-accent" />

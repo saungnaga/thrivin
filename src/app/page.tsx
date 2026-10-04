@@ -57,38 +57,38 @@ export default function Home() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200/90 text-xs font-bold text-accent-dark uppercase tracking-wider mb-5 shadow-2xs font-mono"
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200/90 text-xs font-semibold text-accent-dark uppercase tracking-wider mb-5 shadow-2xs font-sans"
         >
           <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
           <span>AI Companion Platform · Langsung di WhatsApp</span>
         </motion.div>
 
-        {/* Main Headline */}
+        {/* Main Headline (Rule 1: Inter Bold/Extrabold 40-56px) */}
         <motion.h1
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.05 }}
-          className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-brand-950 max-w-4xl mx-auto leading-[1.12]"
+          className="font-sans text-3xl sm:text-5xl lg:text-[54px] font-extrabold tracking-tight text-brand-950 max-w-4xl mx-auto leading-[1.14]"
         >
           Pilih AI Companion Pribadimu. Bertumbuh Nyata, 24/7 di WhatsApp.
         </motion.h1>
 
-        {/* Direct Subheading */}
+        {/* Direct Subheading (Rule 2: Inter Regular/Medium) */}
         <motion.p
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.1 }}
-          className="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl mx-auto leading-relaxed"
+          className="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl mx-auto leading-relaxed font-sans font-normal"
         >
           Bukan sekadar bot tanya-jawab yang dingin. Partner akuntabilitas proaktif yang menyapa duluan, mengingat perjalananmu, dan mendampingi targetmu setiap hari tanpa instal aplikasi baru.
         </motion.p>
 
-        {/* Value Strip */}
+        {/* Value Strip (Rule 5: Inter Semibold) */}
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.15 }}
-          className="mt-6 flex flex-wrap items-center justify-center gap-3 sm:gap-6 text-xs sm:text-sm font-semibold text-brand-900"
+          className="mt-6 flex flex-wrap items-center justify-center gap-3 sm:gap-6 text-xs sm:text-sm font-semibold text-brand-900 font-sans"
         >
           <div className="flex items-center gap-1.5">
             <Smartphone className="w-4 h-4 text-accent-dark" />
@@ -106,7 +106,7 @@ export default function Home() {
           </div>
         </motion.div>
 
-        {/* Short Selling Quote */}
+        {/* Short Selling Quote (Rule 6: Lora Italic - satu-satunya tempat italic) */}
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -144,13 +144,13 @@ export default function Home() {
       {/* ─── 3 Floating Asymmetric Bubble Cards ─── */}
       <section id="companions" className="py-14 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full relative">
         <div className="text-center mb-12">
-          <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-mono">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-sans">
             Character Selection
           </span>
-          <h2 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
+          <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold text-brand-950 tracking-tight">
             Pilih AI Companion Sesuai Targetmu
           </h2>
-          <p className="text-xs sm:text-sm text-text-secondary mt-1.5 max-w-lg mx-auto">
+          <p className="text-xs sm:text-sm text-text-secondary mt-1.5 max-w-lg mx-auto font-sans">
             Klik gelembung companion untuk melihat detail dan memulai pendampingan harianmu di WhatsApp.
           </p>
         </div>
@@ -177,8 +177,8 @@ export default function Home() {
               href={ninaCtaUrl}
               className="group relative w-full max-w-[340px] sm:max-w-[350px] aspect-square p-6 sm:p-7 text-white bg-linear-to-b from-[#041622] via-[#082132] to-[#041622] border-2 border-accent shadow-glow flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-300 rounded-[48%_52%_53%_47%/49%_53%_47%_51%] overflow-hidden"
             >
-              {/* Top Status Badge */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-accent/20 border border-accent/40 text-[9px] sm:text-[10px] font-black text-accent tracking-wider uppercase font-mono shadow-xs">
+              {/* Top Status Badge (Rule 5: Inter Semibold uppercase) */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-accent/20 border border-accent/40 text-[9px] sm:text-[10px] font-semibold text-accent tracking-wider uppercase font-sans shadow-xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                 <span>TERSEDIA SEKARANG</span>
               </div>
@@ -197,22 +197,22 @@ export default function Home() {
                 <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-brand-950 shadow-xs" />
               </div>
 
-              {/* Character Details */}
+              {/* Character Details (Rule 7: Inter Bold for Name, Rule 3: Lora Regular for description) */}
               <div className="space-y-1">
-                <h3 className="font-serif text-xl sm:text-2xl font-bold text-white flex items-center justify-center gap-1.5">
+                <h3 className="font-sans text-xl sm:text-2xl font-bold text-white flex items-center justify-center gap-1.5">
                   <span>Nina</span>
                   <span className="text-xs font-sans font-normal text-accent/90">· 24/7 WA</span>
                 </h3>
-                <div className="text-[10px] sm:text-[11px] font-mono font-bold text-accent uppercase tracking-wider">
+                <div className="text-[10px] sm:text-[11px] font-sans font-semibold text-accent uppercase tracking-wider">
                   Wellness & Fitness Companion
                 </div>
-                <p className="text-[11px] sm:text-xs text-brand-100/90 leading-snug line-clamp-2 max-w-[260px]">
+                <p className="text-[11px] sm:text-xs text-brand-100/90 leading-snug line-clamp-2 max-w-[260px] font-serif font-normal">
                   Teman akuntabilitas diet & olahraga. Baca foto makanan, evaluasi record data Strava, dan reach out duluan.
                 </p>
               </div>
 
-              {/* Tags */}
-              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px]">
+              {/* Tags (Rule 5: Inter UI functional) */}
+              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px] font-sans">
                 <span className="px-2 py-0.5 rounded-full bg-white/10 text-white text-[9px] sm:text-[10px] font-medium">
                   📸 Foto Makanan
                 </span>
@@ -224,9 +224,9 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Direct CTA Button (White Font Guaranteed) */}
-              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-1.5">
-                <span className="text-white font-black drop-shadow-xs">
+              {/* Direct CTA Button (Rule 8: Inter Semibold) */}
+              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-1.5">
+                <span className="text-white font-semibold drop-shadow-xs">
                   {hasNina ? "Buka Dashboard Nina" : "Pilih Nina & Mulai"}
                 </span>
                 <ArrowRight className="w-3.5 h-3.5 text-white group-hover:translate-x-1 transition-transform" />
@@ -260,8 +260,8 @@ export default function Home() {
               }
               className="group relative w-full max-w-[340px] sm:max-w-[350px] aspect-square p-6 sm:p-7 text-slate-200 bg-linear-to-b from-slate-900 via-slate-850 to-slate-900 border-2 border-slate-700/80 hover:border-slate-500 shadow-xl flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-300 rounded-[52%_48%_47%_53%/51%_47%_53%_49%] overflow-hidden"
             >
-              {/* Top Status Badge */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] sm:text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono shadow-xs">
+              {/* Top Status Badge (Rule 5: Inter Semibold uppercase) */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase font-sans shadow-xs">
                 <Lock className="w-3 h-3 text-slate-400" />
                 <span>COMING SOON</span>
               </div>
@@ -276,21 +276,21 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Details */}
+              {/* Details (Rule 7: Inter Bold for Name, Rule 3: Lora Regular for description) */}
               <div className="space-y-1">
-                <h3 className="font-serif text-xl sm:text-2xl font-bold text-white">
+                <h3 className="font-sans text-xl sm:text-2xl font-bold text-white">
                   Mindset & Habits
                 </h3>
-                <div className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                <div className="text-[10px] sm:text-[11px] font-sans font-semibold text-slate-400 uppercase tracking-wider">
                   Daily Journal & Reading Companion
                 </div>
-                <p className="text-[11px] sm:text-xs text-slate-400 leading-snug line-clamp-2 max-w-[260px]">
+                <p className="text-[11px] sm:text-xs text-slate-300 leading-snug line-clamp-2 max-w-[260px] font-serif font-normal">
                   Refleksi harian, journaling via WA, reading companion self-dev, dan pemecah mental block.
                 </p>
               </div>
 
-              {/* Tags */}
-              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px]">
+              {/* Tags (Rule 5: Inter UI functional) */}
+              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px] font-sans">
                 <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[9px] sm:text-[10px] font-medium">
                   #DailyJournal
                 </span>
@@ -302,8 +302,8 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Action Button */}
-              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+              {/* Action Button (Rule 8: Inter Semibold) */}
+              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-sans font-semibold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-slate-400" />
                 <span>Segera Hadir · Info</span>
               </div>
@@ -336,8 +336,8 @@ export default function Home() {
               }
               className="group relative w-full max-w-[340px] sm:max-w-[350px] aspect-square p-6 sm:p-7 text-slate-200 bg-linear-to-b from-slate-900 via-slate-850 to-slate-900 border-2 border-slate-700/80 hover:border-slate-500 shadow-xl flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-300 rounded-[49%_51%_52%_48%/53%_48%_52%_47%] overflow-hidden"
             >
-              {/* Top Status Badge */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] sm:text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono shadow-xs">
+              {/* Top Status Badge (Rule 5: Inter Semibold uppercase) */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase font-sans shadow-xs">
                 <Lock className="w-3 h-3 text-slate-400" />
                 <span>COMING SOON</span>
               </div>
@@ -352,21 +352,21 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Details */}
+              {/* Details (Rule 7: Inter Bold for Name, Rule 3: Lora Regular for description) */}
               <div className="space-y-1">
-                <h3 className="font-serif text-xl sm:text-2xl font-bold text-white">
+                <h3 className="font-sans text-xl sm:text-2xl font-bold text-white">
                   Parenting & Family
                 </h3>
-                <div className="text-[10px] sm:text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+                <div className="text-[10px] sm:text-[11px] font-sans font-semibold text-slate-400 uppercase tracking-wider">
                   Parenting Sains & Emosional
                 </div>
-                <p className="text-[11px] sm:text-xs text-slate-400 leading-snug line-clamp-2 max-w-[260px]">
+                <p className="text-[11px] sm:text-xs text-slate-300 leading-snug line-clamp-2 max-w-[260px] font-serif font-normal">
                   Teman diskusi tenang orang tua. Solusi tantrum berbasis sains dan stimulasi anak.
                 </p>
               </div>
 
-              {/* Tags */}
-              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px]">
+              {/* Tags (Rule 5: Inter UI functional) */}
+              <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px] font-sans">
                 <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[9px] sm:text-[10px] font-medium">
                   #ParentingSains
                 </span>
@@ -378,8 +378,8 @@ export default function Home() {
                 </span>
               </div>
 
-              {/* Action Button */}
-              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-bold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
+              {/* Action Button (Rule 8: Inter Semibold) */}
+              <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-slate-800 group-hover:bg-slate-700 text-slate-200 group-hover:text-white font-sans font-semibold text-xs sm:text-sm text-center transition-colors flex items-center justify-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-slate-400" />
                 <span>Segera Hadir · Info</span>
               </div>
@@ -405,18 +405,20 @@ export default function Home() {
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 font-sans">
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-700">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
                   {lockedModal.category} · Segera Hadir
                 </span>
               </div>
 
-              <h3 className="font-serif text-2xl font-bold text-brand-950 mb-2">
+              {/* Title (Rule 7: Inter Bold) */}
+              <h3 className="font-sans text-2xl font-bold text-brand-950 mb-2">
                 {lockedModal.title}
               </h3>
 
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-6">
+              {/* Description (Rule 3: Lora Regular) */}
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-6 font-serif font-normal">
                 {lockedModal.desc}
                 <br /><br />
                 Saat ini tim sains Thrivin sedang mematangkan kurikulum dan persona bot untuk companion ini. Kamu bisa mencoba <strong>Nina (Wellness & Fitness)</strong> yang sudah aktif mendampingi pengguna di WhatsApp hari ini.
@@ -426,7 +428,7 @@ export default function Home() {
                 <Link
                   href={ninaCtaUrl}
                   onClick={() => setLockedModal(null)}
-                  className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-sans font-semibold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-accent" />
                   <span>{hasNina ? "Buka Dashboard Nina" : "Pilih Nina (Wellness & Fitness)"}</span>
@@ -436,7 +438,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setLockedModal(null)}
-                  className="w-full py-2.5 rounded-full text-xs font-semibold text-text-secondary hover:text-brand-950 transition-colors cursor-pointer"
+                  className="w-full py-2.5 rounded-full text-xs font-sans font-semibold text-text-secondary hover:text-brand-950 transition-colors cursor-pointer"
                 >
                   Tutup
                 </button>
@@ -450,10 +452,12 @@ export default function Home() {
       <section className="py-14 bg-surface-muted border-y border-surface-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-mono">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase tracking-wider */}
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-sans">
               Kenapa Thrivin AI Companion Berbeda?
             </span>
-            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-brand-950">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold text-brand-950 tracking-tight">
               Dibangun untuk Hasil Nyata, Bukan Sekadar Basa-Basi
             </h2>
           </div>
@@ -463,10 +467,12 @@ export default function Home() {
               <div className="w-10 h-10 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-center text-accent-dark mb-4">
                 <Smartphone className="w-5 h-5 text-accent-dark" />
               </div>
-              <h3 className="font-bold text-base text-brand-950 mb-1.5">
+              {/* Feature Title: Inter Bold */}
+              <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
                 100% di WhatsApp
               </h3>
-              <p className="text-xs text-text-secondary leading-relaxed">
+              {/* Feature Body: Rule 3 Lora Regular */}
+              <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
                 Tidak ada login aplikasi baru yang membingungkan atau dilupakan. Chatting santai layaknya kontak teman akrab.
               </p>
             </div>
@@ -475,10 +481,10 @@ export default function Home() {
               <div className="w-10 h-10 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-center text-accent-dark mb-4">
                 <MessageCircle className="w-5 h-5 text-accent-dark" />
               </div>
-              <h3 className="font-bold text-base text-brand-950 mb-1.5">
+              <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
                 Reach Out Duluan
               </h3>
-              <p className="text-xs text-text-secondary leading-relaxed">
+              <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
                 Companion menyapa dan menagih janjimu di jam kritis (pagi & sore), saat kemauanmu sedang diuji rasa malas.
               </p>
             </div>
@@ -487,10 +493,10 @@ export default function Home() {
               <div className="w-10 h-10 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-center text-accent-dark mb-4">
                 <Camera className="w-5 h-5 text-accent-dark" />
               </div>
-              <h3 className="font-bold text-base text-brand-950 mb-1.5">
+              <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
                 Kirim Foto & Record Data Strava
               </h3>
-              <p className="text-xs text-text-secondary leading-relaxed">
+              <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
                 Tinggal jepret piring makan untuk hitung kalori atau kirim screenshot hasil lari untuk dianalisis pace dan detak jantungnya.
               </p>
             </div>
@@ -499,10 +505,10 @@ export default function Home() {
               <div className="w-10 h-10 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-center text-accent-dark mb-4">
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
               </div>
-              <h3 className="font-bold text-base text-brand-950 mb-1.5">
+              <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
                 Garansi Uang Kembali
               </h3>
-              <p className="text-xs text-text-secondary leading-relaxed">
+              <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
                 Garansi 3 hari uang kembali 100% jika kamu merasa pendampingan AI companion tidak cocok dengan ritmemu.
               </p>
             </div>
@@ -513,13 +519,16 @@ export default function Home() {
       {/* ─── Social Proof & Science Stat ─── */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full text-center">
         <div className="p-8 sm:p-10 rounded-3xl bg-brand-50 border border-brand-200/90 shadow-xs">
-          <div className="text-4xl sm:text-5xl font-black text-brand-900 font-mono mb-2">
+          {/* Rule 4: Statistik & Angka: Inter Bold/Extrabold */}
+          <div className="text-4xl sm:text-5xl font-extrabold text-brand-900 font-sans tracking-tight mb-2">
             76% vs 43%
           </div>
-          <p className="font-serif text-lg sm:text-xl font-bold text-brand-950 mb-2">
+          {/* Subheading: Inter Bold */}
+          <p className="font-sans text-lg sm:text-xl font-bold text-brand-950 mb-2">
             Peluang Keberhasilan Naik Hampir 2 Kali Lipat
           </p>
-          <p className="text-xs sm:text-sm text-text-secondary max-w-xl mx-auto leading-relaxed">
+          {/* Research summary: Rule 3 & Principle (Lora Regular) */}
+          <p className="text-xs sm:text-sm text-text-secondary max-w-xl mx-auto leading-relaxed font-serif font-normal">
             Riset Dr. Gail Matthews (Dominican University) pada 267 orang: mereka yang memiliki rekan akuntabilitas harian menyelesaikan 76% target mereka, dibanding hanya 43% yang berjuang sendirian.
           </p>
         </div>
@@ -531,29 +540,33 @@ export default function Home() {
           <div className="absolute top-0 right-0 w-72 h-72 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
           
           <div className="relative z-10 space-y-2 max-w-xl">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/30 text-accent text-[11px] font-bold uppercase tracking-wider font-mono">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/30 text-accent text-[11px] font-semibold uppercase tracking-wider font-sans">
               <Sparkles className="w-3.5 h-3.5" />
               <span>Akses Pengguna & Member</span>
             </div>
-            <h3 className="font-serif text-xl sm:text-2xl font-bold text-white leading-snug">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h3 className="font-sans text-xl sm:text-2xl font-bold text-white leading-snug">
               Akses Dashboard Laporan Progress & Materi Scientific
             </h3>
-            <p className="text-xs sm:text-sm text-brand-200/90 leading-relaxed">
+            {/* Rule 3: Body / Penjelasan: Lora Regular */}
+            <p className="text-xs sm:text-sm text-brand-200/90 leading-relaxed font-serif font-normal">
               Sudah terdaftar atau punya companion aktif? Masuk sekarang untuk memantau grafik perkembangan harian, ringkasan interaksi WhatsApp, dan seluruh modul materi sains perilaku.
             </p>
           </div>
 
           <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full sm:w-auto">
+            {/* Rule 8: CTA Button Text: Inter Semibold */}
             <Link
               href="/login"
-              className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center"
             >
               <LogIn className="w-4 h-4 text-white" />
-              <span className="text-white font-black drop-shadow-xs">Login ke Dashboard</span>
+              <span className="text-white font-semibold drop-shadow-xs">Login ke Dashboard</span>
             </Link>
             <Link
               href="/companion/nina/learning"
-              className="w-full sm:w-auto px-5 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
+              className="w-full sm:w-auto px-5 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white font-sans font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
             >
               <BookOpen className="w-4 h-4 text-accent" />
               <span>Materi Scientific</span>
@@ -568,29 +581,33 @@ export default function Home() {
           <div className="absolute top-0 right-0 w-80 h-80 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
           
           <div className="relative z-10 max-w-2xl mx-auto space-y-4">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-accent text-xs font-bold uppercase tracking-wider font-mono">
+            {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/40 text-accent text-xs font-semibold uppercase tracking-wider font-sans">
               <Sparkles className="w-3.5 h-3.5" />
               Mulai Hari Ini
             </span>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold leading-tight">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold leading-tight text-white tracking-tight">
               Investasi Terbaik untuk Konsistensi Hidupmu.
             </h2>
-            <p className="text-xs sm:text-sm text-brand-200 leading-relaxed">
-              Mulai dari <strong>Rp 39.000/bulan</strong>. Gunakan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-mono font-bold">TEMANBARU</span> untuk diskon ekstra 20% khusus pengguna baru.
+            {/* Rule 2 & 4: Sub-headline / Deskripsi Pendukung Inter Regular + Harga Inter Bold */}
+            <p className="text-xs sm:text-sm text-brand-200 leading-relaxed font-sans font-normal">
+              Mulai dari <strong className="font-extrabold text-white font-sans">Rp 39.000/bulan</strong>. Gunakan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">TEMANBARU</span> untuk diskon ekstra 20% khusus pengguna baru.
             </p>
 
-            {/* Guarantee Box */}
-            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90">
+            {/* Guarantee Box (Rule 3: Lora Regular) */}
+            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90 font-serif font-normal">
               <ShieldCheck className="w-4 h-4 text-accent shrink-0" />
               <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
             </div>
 
+            {/* Rule 8: CTA Button Text: Inter Semibold */}
             <div className="pt-2">
               <Link
                 href={ninaCtaUrl}
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
-                <span className="text-white font-black drop-shadow-xs">
+                <span className="text-white font-semibold drop-shadow-xs">
                   {hasNina ? "Buka Dashboard Nina" : "Mulai Bersama Nina Sekarang"}
                 </span>
                 <ArrowRight className="w-4 h-4 text-white" />

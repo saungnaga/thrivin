@@ -37,9 +37,9 @@
   --color-text-secondary: #426374;
   --color-text-muted: #7A9AA8;
 
-  /* Fonts */
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  /* Fonts — Inter (Sans) + Lora (Serif) */
+  --font-sans: var(--font-sans), "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: var(--font-serif), "Lora", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
 
   /* Shadows */
   --shadow-soft: 0 4px 24px rgba(8, 33, 50, 0.05);

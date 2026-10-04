@@ -83,16 +83,16 @@ export default function AboutPage() {
           <span>Kembali ke Beranda</span>
         </Link>
 
-        {/* ─── Hero / Manifest ─── */}
+        {/* ─── Hero / Manifest (Rule 1 & 2: Inter Extrabold Headline & Regular Subheading) ─── */}
         <div className="space-y-4 mb-16 text-center sm:text-left">
-          <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-brand-50 border border-brand-200 text-xs font-bold text-accent-dark uppercase tracking-wider font-mono">
+          <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-brand-50 border border-brand-200 text-xs font-semibold text-accent-dark uppercase tracking-wider font-sans">
             <Sparkles className="w-3.5 h-3.5" />
             Filosofi & Pendekatan Thrivin
           </span>
-          <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold text-brand-950 tracking-tight leading-[1.12]">
+          <h1 className="font-sans text-3xl sm:text-5xl lg:text-[54px] font-extrabold text-brand-950 tracking-tight leading-[1.14]">
             Kami Percaya: Kamu Tidak Dirancang untuk Tumbuh Sendirian.
           </h1>
-          <p className="text-base sm:text-xl text-text-secondary leading-relaxed max-w-3xl">
+          <p className="text-base sm:text-lg text-text-secondary leading-relaxed max-w-3xl font-sans font-normal">
             Thrivin adalah platform penyedia AI Companion spesifik untuk setiap pilar pertumbuhan hidupmu — hidup langsung di WhatsApp, hadir setiap hari, dan menjagamu konsisten pada janji yang kamu buat untuk dirimu sendiri.
           </p>
         </div>
@@ -100,10 +100,10 @@ export default function AboutPage() {
         {/* ─── The Gap Between Knowing & Doing ─── */}
         <section className="mb-20">
           <div className="text-center max-w-2xl mx-auto mb-10">
-            <span className="text-xs font-bold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-mono">
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-dark block mb-2 font-sans">
               The Gap Between Knowing & Doing
             </span>
-            <h2 className="font-serif text-2xl sm:text-4xl font-bold text-brand-950 leading-tight">
+            <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold text-brand-950 leading-tight tracking-tight">
               Internet memberi lautan informasi melimpah. Masalahnya bukan lagi &ldquo;Di mana saya bisa belajar?&rdquo;
             </h2>
           </div>
@@ -115,13 +115,16 @@ export default function AboutPage() {
                 className="p-6 sm:p-7 rounded-3xl bg-surface-muted border border-surface-border flex flex-col justify-between shadow-2xs hover:shadow-sm transition-all"
               >
                 <div>
-                  <span className="text-accent-dark font-mono font-black text-2xl block mb-3">
+                  {/* Stat/Number (Rule 4: Inter Extrabold) */}
+                  <span className="text-accent-dark font-sans font-extrabold text-2xl block mb-3">
                     {card.num}
                   </span>
-                  <h3 className="font-serif text-xl font-bold text-brand-950 mb-2 leading-snug">
+                  {/* Title (Rule 7: Inter Bold) */}
+                  <h3 className="font-sans text-xl font-bold text-brand-950 mb-2 leading-snug">
                     {card.question}
                   </h3>
-                  <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  {/* Body Text (Rule 3: Lora Regular) */}
+                  <p className="text-xs sm:text-sm text-text-secondary leading-relaxed font-serif font-normal">
                     {card.explanation}
                   </p>
                 </div>
@@ -130,10 +133,10 @@ export default function AboutPage() {
           </div>
 
           <div className="mt-8 p-6 rounded-3xl bg-brand-50 border border-brand-200 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-xs sm:text-sm text-brand-950 font-medium leading-relaxed">
+            <p className="text-xs sm:text-sm text-brand-950 font-medium leading-relaxed font-sans">
               <strong>Kesimpulan Sederhana:</strong> Kita tidak kekurangan informasi latihan atau diet. Kita kekurangan struktur, relevansi personal, dan kehadiran partner yang menemani.
             </p>
-            <span className="shrink-0 text-xs font-bold text-accent-dark uppercase tracking-wider font-mono">
+            <span className="shrink-0 text-xs font-semibold text-accent-dark uppercase tracking-wider font-sans">
               Akuntabilitas &gt; Sekadar Teori
             </span>
           </div>
@@ -184,28 +187,28 @@ export default function AboutPage() {
           </div>
         </section>
 
-        {/* ─── The Philosophy Quote Card ─── */}
+        {/* ─── The Philosophy Quote Card (Rule 6: Lora Italic) ─── */}
         <section className="mb-20">
           <div className="p-8 sm:p-12 rounded-[2.5rem] bg-brand-950 text-white text-center shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-80 h-80 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
             <div className="relative z-10 max-w-2xl mx-auto space-y-5">
               <div className="text-accent text-3xl font-serif">✳</div>
               
-              <div className="font-serif text-2xl sm:text-4xl font-bold leading-tight">
+              <div className="font-serif italic text-2xl sm:text-4xl font-medium leading-tight text-white">
                 Mengetahui apa yang harus dilakukan tidak sama dengan mampu melakukannya sendirian.
               </div>
 
-              <div className="space-y-1.5 text-xs sm:text-base text-brand-100/90 leading-relaxed font-sans max-w-lg mx-auto pt-2">
+              <div className="space-y-1.5 text-xs sm:text-base text-brand-100/90 leading-relaxed font-sans font-normal max-w-lg mx-auto pt-2">
                 <p>Sistem belajar memberi arah.</p>
                 <p>Pengetahuan memberi pemahaman.</p>
                 <p>Companion memberi konteks, akuntabilitas, dan kehadiran.</p>
               </div>
 
-              <p className="text-xs text-brand-200 pt-2">
+              <p className="text-xs text-brand-200 pt-2 font-sans font-normal">
                 Dan kamu tetap menjadi orang yang menjalani pertumbuhanmu sendiri.
               </p>
 
-              <div className="font-mono font-bold text-accent uppercase tracking-[0.25em] text-sm pt-4">
+              <div className="font-sans font-semibold text-accent uppercase tracking-[0.25em] text-sm pt-4">
                 — NEVER GROW ALONE.
               </div>
             </div>
@@ -217,27 +220,30 @@ export default function AboutPage() {
           <div className="p-8 rounded-3xl bg-brand-50 border border-brand-200 shadow-xs">
             <div className="grid md:grid-cols-2 gap-8 items-center">
               <div>
-                <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
+                {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent-dark block mb-1 font-sans">
                   Bukti Sains
                 </span>
-                <h3 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
-                  Akuntabilitas Mengubah Peluang dari 43% ke 76%
+                {/* Rule 7: Judul Section: Inter Bold with Inter Extrabold numbers */}
+                <h3 className="font-sans text-2xl sm:text-3xl font-bold text-brand-950 mb-3">
+                  Akuntabilitas Mengubah Peluang dari <span className="font-extrabold text-brand-950">43%</span> ke <span className="font-extrabold text-brand-950">76%</span>
                 </h3>
-                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-4">
-                  Dr. Gail Matthews (Dominican University) meneliti ratusan peserta: mereka yang hanya memikirkan tujuan menyelesaikan 43% target. Mereka yang memiliki companion akuntabilitas harian menyelesaikan <strong>76% target mereka</strong>.
+                {/* Rule 3: Body Text: Lora Regular */}
+                <p className="text-xs sm:text-sm text-text-secondary leading-relaxed mb-4 font-serif font-normal">
+                  Dr. Gail Matthews (Dominican University) meneliti ratusan peserta: mereka yang hanya memikirkan tujuan menyelesaikan 43% target. Mereka yang memiliki companion akuntabilitas harian menyelesaikan <strong className="font-sans font-extrabold text-brand-950">76% target mereka</strong>.
                 </p>
-                <div className="flex items-center gap-2 text-xs font-bold text-brand-950">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Duke University: 3.5× lebih mungkin konsisten jangka panjang.</span>
+                <div className="flex items-center gap-2 text-xs font-sans text-brand-950">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Duke University: <strong className="font-extrabold">3.5×</strong> lebih mungkin konsisten jangka panjang.</span>
                 </div>
               </div>
 
               <div className="p-6 rounded-2xl bg-white border border-brand-200 shadow-2xs space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-brand-950 uppercase tracking-wider font-mono">
+                <div className="flex items-center gap-2 text-xs font-bold text-brand-950 uppercase tracking-wider font-sans">
                   <Smartphone className="w-4 h-4 text-accent-dark" />
                   <span>Mengapa di WhatsApp?</span>
                 </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
+                <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
                   Aplikasi baru sering diabaikan setelah 2 minggu karena terkubur notifikasi. WhatsApp adalah ruang percakapan yang kamu buka setiap hari. Nina hadir tanpa hambatan instalasi baru.
                 </p>
               </div>
@@ -328,18 +334,20 @@ export default function AboutPage() {
         {/* ─── Closing CTA to Nina ─── */}
         <section className="p-8 sm:p-12 rounded-[2.5rem] bg-brand-900 text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-glow">
           <div className="space-y-2 text-center sm:text-left">
-            <h3 className="font-serif text-2xl sm:text-3xl font-bold">
+            {/* Rule 7: Judul Section: Inter Bold */}
+            <h3 className="font-sans text-2xl sm:text-3xl font-bold">
               Siap Memulai Bersama Nina?
             </h3>
-            <p className="text-xs sm:text-sm text-brand-100 max-w-md">
+            <p className="text-xs sm:text-sm text-brand-100 max-w-md font-sans font-normal">
               Setup 5 menit, langsung aktif di WhatsApp hari ini dengan garansi 3 hari uang kembali.
             </p>
           </div>
+          {/* Rule 8: CTA Button Text: Inter Semibold */}
           <Link
             href={ninaCtaUrl}
-            className="px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-sm transition-all shadow-glow hover:scale-105 shrink-0 flex items-center gap-2 cursor-pointer"
+            className="px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 shrink-0 flex items-center gap-2 cursor-pointer"
           >
-            <span className="text-white font-black drop-shadow-xs">
+            <span className="text-white font-semibold drop-shadow-xs">
               {hasNina ? "Buka Dashboard Nina" : "Mulai Bersama Nina"}
             </span>
             <ArrowRight className="w-4 h-4 text-white" />

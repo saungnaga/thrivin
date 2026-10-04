@@ -222,7 +222,7 @@ export function Navbar() {
                   <Link
                     href="/dashboard"
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>Dashboard</span>
                     <Sparkles className="w-5 h-5 text-accent" />
@@ -230,7 +230,7 @@ export function Navbar() {
                   <Link
                     href="/companion/nina/learning"
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>Learning</span>
                     <span className="text-text-muted text-sm">&rarr;</span>
@@ -238,7 +238,7 @@ export function Navbar() {
                   <Link
                     href={user?.activeCompanion === "nina" ? "/dashboard" : "/companion/nina"}
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>{user?.activeCompanion === "nina" ? "Dashboard Nina" : "Companion Nina"}</span>
                     <MessageCircle className="w-5 h-5 text-accent" />
@@ -249,7 +249,7 @@ export function Navbar() {
                   <Link
                     href="/#companions"
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>Pilihan Companion</span>
                     <span className="text-text-muted text-sm">&rarr;</span>
@@ -257,7 +257,7 @@ export function Navbar() {
                   <Link
                     href="/about"
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>About Thrivin</span>
                     <span className="text-text-muted text-sm">&rarr;</span>
@@ -265,7 +265,7 @@ export function Navbar() {
                   <Link
                     href="/privacy"
                     onClick={() => setIsOpen(false)}
-                    className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                    className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
                   >
                     <span>Privacy Policy</span>
                     <span className="text-text-muted text-sm">&rarr;</span>
@@ -279,7 +279,7 @@ export function Navbar() {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setIsOpen(false)}
-                className="font-serif text-2xl text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
+                className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
               >
                 <span>Customer Service</span>
                 <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
