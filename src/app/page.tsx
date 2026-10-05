@@ -78,65 +78,67 @@ export default function Home() {
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.05 }}
-          className="font-sans text-3xl sm:text-5xl lg:text-[54px] font-extrabold tracking-tight text-brand-950 max-w-4xl mx-auto leading-[1.25] sm:leading-[1.18]"
+          className="font-sans text-3xl sm:text-5xl lg:text-[54px] font-extrabold tracking-tight text-brand-950 max-w-4xl mx-auto leading-[1.2] sm:leading-[1.18]"
         >
-          Kamu Ga Harus{" "}
-          <span className="inline-block max-w-full relative overflow-hidden sm:overflow-visible px-1 py-0.5 align-baseline">
-            <AnimatePresence mode="wait">
-              <motion.span
-                key={wordIndex}
-                initial={{ x: -28, opacity: 0, skewX: -14, filter: "blur(3px)" }}
-                animate={{
-                  x: 0,
-                  opacity: 1,
-                  skewX: 0,
-                  filter: "blur(0px)",
-                  transition: {
-                    type: "spring",
-                    stiffness: 380,
-                    damping: 24,
-                    mass: 0.8,
-                  },
-                }}
-                exit={{
-                  x: 30,
-                  opacity: 0,
-                  skewX: 14,
-                  filter: "blur(4px)",
-                  transition: { duration: 0.18, ease: "easeIn" },
-                }}
-                className="relative inline-block text-accent font-sans font-extrabold whitespace-nowrap"
-              >
-                {/* Ghost Echo Trail 1 */}
+          <span className="block">Kamu Ga Harus</span>
+          <span className="inline-flex flex-wrap items-center justify-center gap-x-2.5 sm:gap-x-3.5 mt-1 sm:mt-2">
+            <span className="relative inline-flex items-center justify-center px-1 py-0.5">
+              <AnimatePresence mode="wait">
                 <motion.span
-                  initial={{ opacity: 0.7, x: -10 }}
-                  animate={{ opacity: 0, x: -22 }}
-                  transition={{ duration: 0.35, ease: "easeOut" }}
-                  className="absolute inset-0 text-accent/60 blur-[1.5px] pointer-events-none select-none"
-                  aria-hidden="true"
+                  key={wordIndex}
+                  initial={{ x: -28, opacity: 0, skewX: -14, filter: "blur(3px)" }}
+                  animate={{
+                    x: 0,
+                    opacity: 1,
+                    skewX: 0,
+                    filter: "blur(0px)",
+                    transition: {
+                      type: "spring",
+                      stiffness: 380,
+                      damping: 24,
+                      mass: 0.8,
+                    },
+                  }}
+                  exit={{
+                    x: 30,
+                    opacity: 0,
+                    skewX: 14,
+                    filter: "blur(4px)",
+                    transition: { duration: 0.18, ease: "easeIn" },
+                  }}
+                  className="relative inline-block text-accent font-sans font-extrabold whitespace-nowrap"
                 >
-                  {ROTATING_HERO_WORDS[wordIndex]}
-                </motion.span>
+                  {/* Ghost Echo Trail 1 */}
+                  <motion.span
+                    initial={{ opacity: 0.7, x: -10 }}
+                    animate={{ opacity: 0, x: -22 }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="absolute inset-0 text-accent/60 blur-[1.5px] pointer-events-none select-none"
+                    aria-hidden="true"
+                  >
+                    {ROTATING_HERO_WORDS[wordIndex]}
+                  </motion.span>
 
-                {/* Ghost Echo Trail 2 */}
-                <motion.span
-                  initial={{ opacity: 0.45, x: -18 }}
-                  animate={{ opacity: 0, x: -40 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                  className="absolute inset-0 text-accent-light/40 blur-[3px] pointer-events-none select-none"
-                  aria-hidden="true"
-                >
-                  {ROTATING_HERO_WORDS[wordIndex]}
-                </motion.span>
+                  {/* Ghost Echo Trail 2 */}
+                  <motion.span
+                    initial={{ opacity: 0.45, x: -18 }}
+                    animate={{ opacity: 0, x: -40 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="absolute inset-0 text-accent-light/40 blur-[3px] pointer-events-none select-none"
+                    aria-hidden="true"
+                  >
+                    {ROTATING_HERO_WORDS[wordIndex]}
+                  </motion.span>
 
-                {/* Main Sharp Text */}
-                <span className="relative z-10 text-accent drop-shadow-[0_0_16px_rgba(56,174,200,0.5)]">
-                  {ROTATING_HERO_WORDS[wordIndex]}
-                </span>
-              </motion.span>
-            </AnimatePresence>
-          </span>{" "}
-          Sendirian.
+                  {/* Main Sharp Text */}
+                  <span className="relative z-10 text-accent drop-shadow-[0_0_16px_rgba(56,174,200,0.5)]">
+                    {ROTATING_HERO_WORDS[wordIndex]}
+                  </span>
+                </motion.span>
+              </AnimatePresence>
+            </span>
+            <span>Sendirian.</span>
+          </span>
         </motion.h1>
 
         {/* Direct Subheading (Rule 2: Inter Regular/Medium) */}
