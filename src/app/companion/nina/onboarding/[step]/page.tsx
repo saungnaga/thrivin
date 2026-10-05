@@ -3,8 +3,25 @@
 import React, { useState, useEffect, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import Script from "next/script";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+
+declare global {
+  interface Window {
+    snap?: {
+      pay: (
+        token: string,
+        callbacks: {
+          onSuccess?: (result: any) => void;
+          onPending?: (result: any) => void;
+          onError?: (result: any) => void;
+          onClose?: () => void;
+        }
+      ) => void;
+    };
+  }
+}
 import {
   ArrowLeft,
   ArrowRight,
@@ -89,6 +106,7 @@ export default function OnboardingStepPage({
   const [phoneError, setPhoneError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   // 1-Hour Countdown Timer State for Applied Promo
   const [countdownSeconds, setCountdownSeconds] = useState(3600);
@@ -336,18 +354,72 @@ export default function OnboardingStepPage({
     }, 2200);
   };
 
-  // Checkout simulation
+  // Midtrans Snap Checkout
   const handleCheckout = async () => {
     setIsCheckingOut(true);
-    setTimeout(() => {
+    setCheckoutError("");
+
+    try {
+      const response = await fetch("/api/midtrans/create-transaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: data.selectedPlan,
+          planName: currentPlan.name,
+          amount: finalPrice,
+          customerName: data.name,
+          customerPhone: data.whatsappNumber,
+        }),
+      });
+
+      const resData = await response.json();
+
+      if (!response.ok || !resData.token) {
+        throw new Error(
+          Array.isArray(resData.error)
+            ? resData.error.join(", ")
+            : resData.error || "Gagal menghubungkan sesi pembayaran Midtrans"
+        );
+      }
+
+      const snapToken = resData.token;
+
+      if (typeof window !== "undefined" && window.snap) {
+        window.snap.pay(snapToken, {
+          onSuccess: (result: any) => {
+            setIsCheckingOut(false);
+            setCheckoutComplete(true);
+            const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
+            const planParam = encodeURIComponent(currentPlan.name);
+            const orderParam = encodeURIComponent(result?.order_id || resData.orderId);
+            setTimeout(() => {
+              window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20pembayaran%20${planParam}%20(Order%20ID:%20${orderParam}).%20Siap%20memulai%20pendampingan!`;
+            }, 1200);
+          },
+          onPending: (result: any) => {
+            setIsCheckingOut(false);
+            console.log("Midtrans payment pending:", result);
+          },
+          onError: (err: any) => {
+            setIsCheckingOut(false);
+            console.error("Midtrans payment error:", err);
+            setCheckoutError("Pembayaran belum berhasil diselesaikan. Silakan coba kembali.");
+          },
+          onClose: () => {
+            setIsCheckingOut(false);
+          },
+        });
+      } else if (resData.redirectUrl) {
+        // Fallback to Midtrans Hosted Payment page if snap modal is blocked or unavailable
+        window.location.href = resData.redirectUrl;
+      } else {
+        throw new Error("Sistem pembayaran sedang menyiapkan modul. Coba refresh halaman.");
+      }
+    } catch (err: any) {
       setIsCheckingOut(false);
-      setCheckoutComplete(true);
-      setTimeout(() => {
-        const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
-        const planParam = encodeURIComponent(currentPlan.name);
-        window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20onboarding%20dan%20siap%20memulai%20pendampingan%20dengan%20${planParam}.`;
-      }, 1500);
-    }, 1500);
+      console.error("Checkout error:", err);
+      setCheckoutError(err?.message || "Terjadi kesalahan saat memproses pembayaran.");
+    }
   };
 
   if (!isLoaded) return null;
@@ -1753,6 +1825,14 @@ export default function OnboardingStepPage({
                 </span>
               </div>
 
+              {/* Checkout Error Notice */}
+              {checkoutError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{checkoutError}</span>
+                </div>
+              )}
+
               {/* Checkout Action Button with brand-900 background */}
               <button
                 onClick={handleCheckout}
@@ -1760,13 +1840,13 @@ export default function OnboardingStepPage({
                 className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isCheckingOut ? (
-                  <span className="text-white font-bold">Menghubungkan Pembayaran...</span>
+                  <span className="text-white font-bold">Menyiapkan Pembayaran...</span>
                 ) : checkoutComplete ? (
-                  <span className="text-white font-bold">✓ Berhasil! Membuka WhatsApp Nina...</span>
+                  <span className="text-white font-bold">✓ Pembayaran Berhasil! Membuka WhatsApp Nina...</span>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-accent" />
-                    <span>Ambil Paket & Mulai di WhatsApp</span>
+                    <span>Ambil Paket & Bayar Sekarang</span>
                     <ArrowRight className="w-4 h-4 text-accent" />
                   </>
                 )}
@@ -1789,6 +1869,19 @@ export default function OnboardingStepPage({
           </div>
         )}
       </main>
+
+      {/* Midtrans Snap JS Script */}
+      {stepNum === 9 && (
+        <Script
+          src={
+            process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true"
+              ? "https://app.midtrans.com/snap/snap.js"
+              : "https://app.sandbox.midtrans.com/snap/snap.js"
+          }
+          data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
+          strategy="afterInteractive"
+        />
+      )}
     </div>
   );
 }
