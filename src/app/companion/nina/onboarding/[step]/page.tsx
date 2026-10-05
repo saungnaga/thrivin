@@ -1497,9 +1497,6 @@ export default function OnboardingStepPage({
                           DISKON 20%
                         </span>
                       </div>
-                      <p className="text-[11px] text-emerald-800 mt-0.5 leading-tight">
-                        Harga coret hemat 20% telah otomatis aktif pada semua pilihan paket di bawah.
-                      </p>
                     </div>
                   </div>
 
@@ -1658,7 +1655,7 @@ export default function OnboardingStepPage({
                   <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      Kode promo berhasil terpasang! Diskon 20% otomatis memotong dan mencoret harga di atas (Sisa waktu: {formatCountdown(countdownSeconds)}).
+                      Kode promo {data.promoCode} berhasil terpasang (Diskon 20%).
                     </span>
                   </div>
                 )}
