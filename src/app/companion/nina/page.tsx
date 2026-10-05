@@ -15,7 +15,8 @@ import {
   Activity,
   BookOpen,
   CheckCircle2,
-  Utensils
+  Utensils,
+  MessageCircle,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -29,54 +30,8 @@ const ROTATING_WORDS = [
   "mengevaluasi larimu",
 ];
 
-// Reusable WhatsApp Mockup
-const WAMockup = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col h-[500px]">
-    {/* WA Header */}
-    <div className="bg-[#075E54] px-4 py-3.5 flex items-center justify-between text-white z-10 shrink-0 shadow-md">
-      <div className="flex items-center gap-3">
-        <div className="relative w-10 h-10 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
-          <Image
-            src="/nina-pp.webp"
-            alt="Nina"
-            fill
-            className="object-cover object-top"
-          />
-        </div>
-        <div>
-          <div className="font-semibold text-sm leading-tight text-white">Nina · Thrivin</div>
-          <div className="text-[11px] text-white/80">Online · Personal Companion</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-      </div>
-    </div>
-    
-    {/* Chat Area */}
-    <div className="relative flex-1 bg-[#efeae2] p-4 flex flex-col gap-3 overflow-y-auto z-0 bg-[url('https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg')] bg-cover bg-blend-soft-light bg-center">
-      <div className="absolute inset-0 bg-[#efeae2]/85 z-0 pointer-events-none" />
-      <div className="relative z-10 flex flex-col gap-3 mt-auto">
-        {children}
-      </div>
-    </div>
-
-    {/* Input Area */}
-    <div className="p-2.5 bg-[#f0f2f5] flex items-center gap-2 z-10 shrink-0 border-t border-slate-200">
-      <div className="flex-1 bg-white rounded-full h-10 px-4 flex items-center text-gray-400 text-xs sm:text-sm shadow-xs">
-        Ketik pesan...
-      </div>
-      <div className="w-10 h-10 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs shrink-0">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-        </svg>
-      </div>
-    </div>
-  </div>
-);
-
 const BubbleNina = ({ children, time = "08:15" }: { children: React.ReactNode; time?: string }) => (
-  <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-none px-3.5 py-2.5 text-[13px] sm:text-[14px] text-gray-800 shadow-xs self-start max-w-[88%] relative z-10 leading-snug">
+  <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-none px-3.5 py-2 text-[12px] sm:text-[13px] text-gray-800 shadow-2xs self-start max-w-[90%] relative z-10 leading-snug">
     <div>{children}</div>
     <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">
       {time}
@@ -85,7 +40,7 @@ const BubbleNina = ({ children, time = "08:15" }: { children: React.ReactNode; t
 );
 
 const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; time?: string }) => (
-  <div className="bg-white rounded-2xl rounded-tr-none px-3.5 py-2.5 text-[13px] sm:text-[14px] text-gray-800 shadow-xs self-end max-w-[88%] relative z-10 leading-snug">
+  <div className="bg-white rounded-2xl rounded-tr-none px-3.5 py-2 text-[12px] sm:text-[13px] text-gray-800 shadow-2xs self-end max-w-[88%] relative z-10 leading-snug border border-slate-100">
     <div>{children}</div>
     <span className="text-[9px] text-gray-500 block text-right mt-1 opacity-70 font-mono">
       {time}
@@ -93,17 +48,247 @@ const BubbleUser = ({ children, time = "08:14" }: { children: React.ReactNode; t
   </div>
 );
 
+// Reusable WhatsApp Mockup - Full Height, No Scrollbar
+const WAMockup = ({ 
+  children, 
+  headerSubtitle = "Online · Personal Companion" 
+}: { 
+  children: React.ReactNode; 
+  headerSubtitle?: string;
+}) => (
+  <div className="relative mx-auto w-full max-w-[360px] sm:max-w-[390px] rounded-[2.5rem] bg-slate-100 ring-8 ring-brand-900 shadow-2xl overflow-hidden flex flex-col min-h-[580px] sm:min-h-[640px]">
+    {/* WA Header */}
+    <div className="bg-[#075E54] px-4 py-3 sm:py-3.5 flex items-center justify-between text-white z-10 shrink-0 shadow-md">
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-brand-900 border border-white/40 shrink-0">
+          <Image
+            src="/nina-pp.webp"
+            alt="Nina"
+            fill
+            className="object-cover object-top"
+          />
+        </div>
+        <div>
+          <div className="font-semibold text-sm leading-tight text-white flex items-center gap-1.5">
+            <span>Nina · Thrivin</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+          </div>
+          <div className="text-[11px] text-white/80">{headerSubtitle}</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+      </div>
+    </div>
+    
+    {/* Chat Area - Full Chat Without Scroll */}
+    <div className="relative flex-1 bg-[#efeae2] p-3 sm:p-4 flex flex-col justify-end z-0 bg-[url('https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg')] bg-cover bg-blend-soft-light bg-center overflow-hidden">
+      <div className="absolute inset-0 bg-[#efeae2]/85 z-0 pointer-events-none" />
+      <div className="relative z-10 flex flex-col gap-2 sm:gap-2.5">
+        {children}
+      </div>
+    </div>
+
+    {/* Input Area */}
+    <div className="p-2.5 bg-[#f0f2f5] flex items-center gap-2 z-10 shrink-0 border-t border-slate-200">
+      <div className="flex-1 bg-white rounded-full h-9 sm:h-10 px-4 flex items-center text-gray-400 text-xs sm:text-sm shadow-xs font-sans">
+        Ketik pesan...
+      </div>
+      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#00A884] flex items-center justify-center text-white shadow-xs shrink-0">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      </div>
+    </div>
+  </div>
+);
+
+// WhatsApp Full-Chat Feature Showcase Slides (From Onboarding Features)
+const CHAT_SLIDES = [
+  {
+    id: "food",
+    tabTitle: "Foto Piring",
+    icon: Camera,
+    tag: "Nutrisi & Kalori",
+    headerSubtitle: "Online · Evaluasi Nutrisi Piring",
+    content: (
+      <>
+        <BubbleUser time="12:30">
+          <div className="relative w-full h-24 sm:h-28 rounded-xl overflow-hidden mb-1 border border-brand-900/15 shadow-2xs">
+            <Image
+              src="/nasi-padang.webp"
+              alt="Nasi Padang"
+              fill
+              className="object-cover"
+            />
+          </div>
+          Makan siang Nasi Padang nih Nin! 🍛
+        </BubbleUser>
+
+        <BubbleNina time="12:31">
+          <p className="font-semibold text-[#075E54] mb-0.5">Wah nasi padang! 😍 Aku hitungin ya:</p>
+          <div className="text-[11px] sm:text-xs text-slate-700 space-y-0.5 my-1">
+            <div>• Rendang sapi (~80g): <strong>~24g protein</strong></div>
+            <div>• Daun singkong & sambal: <strong>serat bagus!</strong></div>
+            <div>• Nasi putih (~150g): ~180 kkal</div>
+          </div>
+          <p className="mt-1">
+            Total <strong>~480 kkal, ~27g protein</strong>. Sisa target proteinmu 43g lagi, malam nanti tambahin telur atau tempe ya! 💪
+          </p>
+        </BubbleNina>
+
+        <BubbleUser time="12:32">
+          Praktis banget tinggal foto gini, ga ribet nimbang gram 🔥
+        </BubbleUser>
+
+        <BubbleNina time="12:32">
+          Itu kuncinya! Yang penting konsisten dicatat tiap hari 😊
+        </BubbleNina>
+      </>
+    ),
+  },
+  {
+    id: "reminder",
+    tabTitle: "Reminder Proaktif",
+    icon: BellRing,
+    tag: "Jadwal & Akuntabilitas",
+    headerSubtitle: "Online · Check-in Proaktif",
+    content: (
+      <>
+        <BubbleNina time="07:30">
+          Pagi Ari! 🌅 Hari ini jadwal workout upper body ya. Mau mulai jam berapa nanti? Aku ingetin ya 💪
+        </BubbleNina>
+
+        <BubbleUser time="07:32">
+          Jam 5 sore ya Nin, baru beres meeting kantor
+        </BubbleUser>
+
+        <BubbleNina time="07:32">
+          Siap! Nanti jam 4:45 aku reminder ya biar sempat pemanasan & stretching 🔥
+        </BubbleNina>
+
+        <BubbleNina time="16:45">
+          Tok tok! ⏰ Udah jam 4:45 nih, yuk siap-siap! 40 menit fokus chest & back hari ini 🏋️
+        </BubbleNina>
+
+        <BubbleUser time="16:47">
+          Untung lo nanya duluan, hampir mager kelamaan duduk haha. Otw ganti baju! 🚀
+        </BubbleUser>
+      </>
+    ),
+  },
+  {
+    id: "memory",
+    tabTitle: "Memori Cedera",
+    icon: BrainCircuit,
+    tag: "Riwayat Jangka Panjang",
+    headerSubtitle: "Online · Ingat Riwayat Pribadimu",
+    content: (
+      <>
+        <BubbleNina time="16:15">
+          Eh minggu lalu kan lutut kiri lo agak ngilu sehabis squat, hari ini kita skip squat dulu ya.
+        </BubbleNina>
+
+        <BubbleNina time="16:15">
+          Ganti leg press sama Romanian deadlift aja gimana? Bebannya tetap kena paha tapi lutut lo aman terlindungi 😊
+        </BubbleNina>
+
+        <BubbleUser time="16:18">
+          Wah gila, kok lo inget sih Nin 😂 Padahal gue sendiri hampir maksain tadi
+        </BubbleUser>
+
+        <BubbleNina time="16:19">
+          Ingat dong! Kunci konsistensi itu tanpa cedera. Nanti malam jangan lupa kompres hangat atau foam roll 5 menit ya 🧘‍♀️
+        </BubbleNina>
+      </>
+    ),
+  },
+  {
+    id: "strava",
+    tabTitle: "Data Strava",
+    icon: Activity,
+    tag: "Kardio & Performa",
+    headerSubtitle: "Online · Integrasi Aktivitas Strava",
+    content: (
+      <>
+        <BubbleUser time="06:40">
+          <div className="relative w-full h-24 sm:h-28 rounded-xl overflow-hidden mb-1 border border-brand-900/15 shadow-2xs">
+            <Image
+              src="/strava.webp"
+              alt="Strava Activity"
+              fill
+              className="object-cover"
+            />
+          </div>
+          Kelar lari pagi bareng komunitas nih Nin! 👟
+        </BubbleUser>
+
+        <BubbleNina time="06:41">
+          <p className="font-semibold text-[#075E54] mb-0.5">Lari 5.2 km yang solid pagi ini! 🔥</p>
+          <p className="my-1 text-[11px] sm:text-xs">
+            Pace <strong>5&apos;45&quot;</strong> stabil di Zone 2 aerobik. Heart rate 148 bpm nunjukin adaptasi kardio lo makin efisien dibanding 2 minggu lalu!
+          </p>
+          <p className="mt-1">
+            Jangan lupa rehidrasi 500ml air & sarapan tinggi protein ya 🥛
+          </p>
+        </BubbleNina>
+
+        <BubbleUser time="06:43">
+          Pantesan nafas kerasa jauh lebih enteng dibanding biasa 🙌
+        </BubbleUser>
+      </>
+    ),
+  },
+  {
+    id: "whatsapp",
+    tabTitle: "100% WhatsApp",
+    icon: MessageCircle,
+    tag: "Kemudahan Akses",
+    headerSubtitle: "Online · 100% di WhatsApp",
+    content: (
+      <>
+        <BubbleNina time="09:00">
+          Lo ga perlu download aplikasi apapun lagi. Aku langsung ada di WhatsApp lo. Chat aja santai kayak ngobrol sama teman akrab 😊
+        </BubbleNina>
+
+        <BubbleUser time="09:02">
+          Gampang banget sih, ga bikin memori HP penuh aplikasi baru
+        </BubbleUser>
+
+        <BubbleNina time="09:03">
+          Itu kuncinya! Kunci konsistensi itu akses yang paling gampang. Ga ada login berulang, ga ada notifikasi tenggelam. Kapanpun butuh, aku selalu ada di sini 💬
+        </BubbleNina>
+
+        <BubbleUser time="09:04">
+          Cocok banget buat yang jadwalnya padat 👍
+        </BubbleUser>
+      </>
+    ),
+  },
+];
+
 export default function NinaPage() {
   const { user } = useAuth();
   const hasNina = Boolean(user && user.activeCompanion === "nina");
   const [wordIndex, setWordIndex] = useState(0);
+  const [chatSlide, setChatSlide] = useState(0);
+  const [isChatPaused, setIsChatPaused] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setWordIndex((prev) => (prev + 1) % ROTATING_WORDS.length);
-    }, 1600);
+    }, 1800);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-slide WhatsApp mockup showcase every 5.5 seconds
+  useEffect(() => {
+    if (isChatPaused) return;
+    const timer = setInterval(() => {
+      setChatSlide((prev) => (prev + 1) % CHAT_SLIDES.length);
+    }, 5500);
+    return () => clearInterval(timer);
+  }, [isChatPaused]);
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900 overflow-x-hidden">
@@ -227,33 +412,71 @@ export default function NinaPage() {
             </div>
           </div>
 
-          {/* Right Column: Hero WA Mockup */}
-          <div className="lg:col-span-5 flex justify-center">
-            <WAMockup>
-              <BubbleUser time="12:15">
-                <div className="relative w-full h-32 rounded-xl overflow-hidden mb-1.5 border border-brand-900/20 shadow-2xs">
-                  <Image
-                    src="/nasi-padang.webp"
-                    alt="Nasi Padang"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                Makan siang Nasi Padang nih Nina! 🍛
-              </BubbleUser>
+          {/* Right Column: Hero WA Mockup with Auto-Slide Feature Showcase */}
+          <div 
+            className="lg:col-span-5 flex flex-col items-center justify-center w-full"
+            onMouseEnter={() => setIsChatPaused(true)}
+            onMouseLeave={() => setIsChatPaused(false)}
+            onTouchStart={() => setIsChatPaused(true)}
+            onTouchEnd={() => setTimeout(() => setIsChatPaused(false), 3000)}
+          >
+            {/* Interactive Feature Selector Tabs */}
+            <div className="flex items-center justify-center gap-1 sm:gap-1.5 mb-3.5 overflow-x-auto py-1 max-w-full no-scrollbar">
+              {CHAT_SLIDES.map((slide, idx) => {
+                const Icon = slide.icon;
+                const isActive = chatSlide === idx;
+                return (
+                  <button
+                    key={slide.id}
+                    onClick={() => setChatSlide(idx)}
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold font-sans transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      isActive
+                        ? "bg-brand-900 text-white shadow-xs scale-105"
+                        : "bg-white/90 hover:bg-white text-slate-600 border border-slate-200"
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? "text-accent" : "text-slate-400"}`} />
+                    <span>{slide.tabTitle}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-              <BubbleNina time="12:16">
-                Wah lauk ayam & telur! 😍 Estimasi nutrisinya:<br />
-                • Ayam: ~25g protein<br />
-                • Telur: ~7g protein<br />
-                • Nasi & sayur: ~450 kkal<br />
-                Total ~680 kkal, ~32g protein. Target protein harianmu sisa 40g lagi, nanti malam tambahkan tahu/tempe ya! 💪
-              </BubbleNina>
-
-              <BubbleUser time="12:18">
-                Siap Nina! Praktis banget tinggal foto gini 🔥
-              </BubbleUser>
+            {/* Phone Shell */}
+            <WAMockup headerSubtitle={CHAT_SLIDES[chatSlide].headerSubtitle}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={chatSlide}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{ duration: 0.28, ease: "easeOut" }}
+                  className="flex flex-col gap-2 sm:gap-2.5"
+                >
+                  {CHAT_SLIDES[chatSlide].content}
+                </motion.div>
+              </AnimatePresence>
             </WAMockup>
+
+            {/* Bottom Indicators & Hint */}
+            <div className="flex flex-col items-center gap-1.5 mt-3.5">
+              <div className="flex items-center gap-2">
+                {CHAT_SLIDES.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setChatSlide(idx)}
+                    className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                      chatSlide === idx ? "w-8 bg-accent" : "w-2 bg-slate-300 hover:bg-slate-400"
+                    }`}
+                    aria-label={`Slide ${idx + 1}`}
+                  />
+                ))}
+              </div>
+              <div className="text-[11px] font-sans text-text-secondary flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Otomatis berganti · Sentuh atau arahkan kursor untuk jeda</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
