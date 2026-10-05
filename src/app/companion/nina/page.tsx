@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   Utensils,
   MessageCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -109,7 +111,7 @@ const CHAT_SLIDES = [
     id: "food",
     tabTitle: "Foto Piring",
     icon: Camera,
-    tag: "Nutrisi & Kalori",
+    category: "Foto Piring · Analisis Nutrisi & Kalori",
     headerSubtitle: "Online · Evaluasi Nutrisi Piring",
     content: (
       <>
@@ -151,7 +153,7 @@ const CHAT_SLIDES = [
     id: "reminder",
     tabTitle: "Reminder Proaktif",
     icon: BellRing,
-    tag: "Jadwal & Akuntabilitas",
+    category: "Reminder Proaktif · Pantau Jadwal Workout",
     headerSubtitle: "Online · Check-in Proaktif",
     content: (
       <>
@@ -181,7 +183,7 @@ const CHAT_SLIDES = [
     id: "memory",
     tabTitle: "Memori Cedera",
     icon: BrainCircuit,
-    tag: "Riwayat Jangka Panjang",
+    category: "Memori Personal · Riwayat Cedera & Progres",
     headerSubtitle: "Online · Ingat Riwayat Pribadimu",
     content: (
       <>
@@ -207,7 +209,7 @@ const CHAT_SLIDES = [
     id: "strava",
     tabTitle: "Data Strava",
     icon: Activity,
-    tag: "Kardio & Performa",
+    category: "Integrasi Strava · Evaluasi Kardio & Pace",
     headerSubtitle: "Online · Integrasi Aktivitas Strava",
     content: (
       <>
@@ -243,7 +245,7 @@ const CHAT_SLIDES = [
     id: "whatsapp",
     tabTitle: "100% WhatsApp",
     icon: MessageCircle,
-    tag: "Kemudahan Akses",
+    category: "100% di WhatsApp · Tanpa Instal Aplikasi",
     headerSubtitle: "Online · 100% di WhatsApp",
     content: (
       <>
@@ -273,6 +275,36 @@ export default function NinaPage() {
   const [wordIndex, setWordIndex] = useState(0);
   const [chatSlide, setChatSlide] = useState(0);
   const [isChatPaused, setIsChatPaused] = useState(false);
+  const touchStartXRef = useRef<number>(0);
+  const touchEndXRef = useRef<number>(0);
+
+  const nextSlide = () => {
+    setChatSlide((prev) => (prev + 1) % CHAT_SLIDES.length);
+  };
+
+  const prevSlide = () => {
+    setChatSlide((prev) => (prev - 1 + CHAT_SLIDES.length) % CHAT_SLIDES.length);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchEndXRef.current = e.touches[0].clientX;
+    setIsChatPaused(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndXRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const diff = touchStartXRef.current - touchEndXRef.current;
+    if (diff > 40) {
+      nextSlide();
+    } else if (diff < -40) {
+      prevSlide();
+    }
+    setTimeout(() => setIsChatPaused(false), 4000);
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -281,12 +313,12 @@ export default function NinaPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-slide WhatsApp mockup showcase every 5.5 seconds
+  // Auto-slide WhatsApp mockup showcase every 4.5 seconds (1s faster)
   useEffect(() => {
     if (isChatPaused) return;
     const timer = setInterval(() => {
       setChatSlide((prev) => (prev + 1) % CHAT_SLIDES.length);
-    }, 5500);
+    }, 4500);
     return () => clearInterval(timer);
   }, [isChatPaused]);
 
@@ -417,65 +449,80 @@ export default function NinaPage() {
             className="lg:col-span-5 flex flex-col items-center justify-center w-full"
             onMouseEnter={() => setIsChatPaused(true)}
             onMouseLeave={() => setIsChatPaused(false)}
-            onTouchStart={() => setIsChatPaused(true)}
-            onTouchEnd={() => setTimeout(() => setIsChatPaused(false), 3000)}
           >
-            {/* Interactive Feature Selector Tabs */}
-            <div className="flex items-center justify-center gap-1 sm:gap-1.5 mb-3.5 overflow-x-auto py-1 max-w-full no-scrollbar">
-              {CHAT_SLIDES.map((slide, idx) => {
-                const Icon = slide.icon;
-                const isActive = chatSlide === idx;
-                return (
-                  <button
-                    key={slide.id}
-                    onClick={() => setChatSlide(idx)}
-                    className={`px-2.5 sm:px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-semibold font-sans transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                      isActive
-                        ? "bg-brand-900 text-white shadow-xs scale-105"
-                        : "bg-white/90 hover:bg-white text-slate-600 border border-slate-200"
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 ${isActive ? "text-accent" : "text-slate-400"}`} />
-                    <span>{slide.tabTitle}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Phone Shell */}
-            <WAMockup headerSubtitle={CHAT_SLIDES[chatSlide].headerSubtitle}>
+            {/* Category Title Above Chat */}
+            <div className="flex items-center justify-center mb-3 h-7 text-center px-2">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={chatSlide}
-                  initial={{ opacity: 0, y: 12 }}
+                  initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.28, ease: "easeOut" }}
-                  className="flex flex-col gap-2 sm:gap-2.5"
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold font-sans text-brand-900 tracking-wide"
                 >
-                  {CHAT_SLIDES[chatSlide].content}
+                  {React.createElement(CHAT_SLIDES[chatSlide].icon, { className: "w-4 h-4 text-accent shrink-0" })}
+                  <span>{CHAT_SLIDES[chatSlide].category}</span>
                 </motion.div>
               </AnimatePresence>
-            </WAMockup>
+            </div>
 
-            {/* Bottom Indicators & Hint */}
-            <div className="flex flex-col items-center gap-1.5 mt-3.5">
-              <div className="flex items-center gap-2">
-                {CHAT_SLIDES.map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setChatSlide(idx)}
-                    className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                      chatSlide === idx ? "w-8 bg-accent" : "w-2 bg-slate-300 hover:bg-slate-400"
-                    }`}
-                    aria-label={`Slide ${idx + 1}`}
-                  />
-                ))}
-              </div>
-              <div className="text-[11px] font-sans text-text-secondary flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Otomatis berganti · Sentuh atau arahkan kursor untuk jeda</span>
-              </div>
+            {/* Phone Shell with Swipe Gestures (Mobile) & Minimalist Controls (Desktop/Laptop) */}
+            <div 
+              className="relative w-full max-w-[340px] sm:max-w-[360px] flex items-center justify-center select-none"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              {/* Minimalist Left Chevron Button (Laptop / Desktop) */}
+              <button
+                type="button"
+                onClick={prevSlide}
+                aria-label="Slide sebelumnya"
+                className="hidden sm:flex absolute -left-5 lg:-left-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/95 hover:bg-white border border-slate-200 shadow-md text-brand-900 items-center justify-center transition-all hover:scale-110 active:scale-95 z-20 cursor-pointer"
+              >
+                <ChevronLeft className="w-5 h-5 text-brand-900" />
+              </button>
+
+              {/* Phone Shell */}
+              <WAMockup headerSubtitle={CHAT_SLIDES[chatSlide].headerSubtitle}>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={chatSlide}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12 }}
+                    transition={{ duration: 0.28, ease: "easeOut" }}
+                    className="flex flex-col gap-2 sm:gap-2.5"
+                  >
+                    {CHAT_SLIDES[chatSlide].content}
+                  </motion.div>
+                </AnimatePresence>
+              </WAMockup>
+
+              {/* Minimalist Right Chevron Button (Laptop / Desktop) */}
+              <button
+                type="button"
+                onClick={nextSlide}
+                aria-label="Slide berikutnya"
+                className="hidden sm:flex absolute -right-5 lg:-right-12 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/95 hover:bg-white border border-slate-200 shadow-md text-brand-900 items-center justify-center transition-all hover:scale-110 active:scale-95 z-20 cursor-pointer"
+              >
+                <ChevronRight className="w-5 h-5 text-brand-900" />
+              </button>
+            </div>
+
+            {/* Bottom Indicators */}
+            <div className="flex items-center justify-center gap-2 mt-4">
+              {CHAT_SLIDES.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setChatSlide(idx)}
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    chatSlide === idx ? "w-8 bg-accent" : "w-2 bg-slate-300 hover:bg-slate-400"
+                  }`}
+                  aria-label={`Slide ${idx + 1}`}
+                />
+              ))}
             </div>
           </div>
         </div>
