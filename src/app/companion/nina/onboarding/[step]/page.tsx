@@ -52,7 +52,7 @@ interface OnboardingData {
   biggestChallenge: string;
   communicationStyle: "Santai & Akrab" | "Tegas & Terarah" | "Lembut & Empatik";
   whatsappNumber: string;
-  selectedPlan: "quarter" | "half" | "year";
+  selectedPlan: "month" | "quarter" | "half" | "year";
   promoCode: string;
   promoApplied: boolean;
 }
@@ -227,13 +227,28 @@ export default function OnboardingStepPage({
   const hydrationTarget = ((data.weight || 65) * 0.035).toFixed(1);
 
   // Pricing calculation
-  const PLANS = {
+  const PLANS: Record<string, {
+    name: string;
+    duration: string;
+    totalPrice: number;
+    monthlyPrice: number;
+    badge: string;
+    desc: string;
+  }> = {
+    month: {
+      name: "Paket 1 Bulan (Trial)",
+      duration: "1 Bulan",
+      totalPrice: 99000,
+      monthlyPrice: 99000,
+      badge: "Coba dulu · Tanpa Komitmen Panjang",
+      desc: "Langkah awal mencoba langsung interaksi harian bersama Nina.",
+    },
     quarter: {
       name: "Paket 3 Bulan (Quarter)",
       duration: "3 Bulan",
       totalPrice: 231000,
       monthlyPrice: 77000,
-      badge: "Coba dulu program 3 bulan sesuai fase adaptasi & pembentukan kebiasaan baru",
+      badge: "Fase Adaptasi 90 Hari · Bangun Kebiasaan Baru",
       desc: "Durasi optimal pembentukan kebiasaan baru.",
     },
     half: {
@@ -254,23 +269,26 @@ export default function OnboardingStepPage({
     },
   };
 
-  const currentPlan = PLANS[data.selectedPlan];
-  const discountRate = data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" ? 0.2 : 0;
+  const currentPlan = PLANS[data.selectedPlan] || PLANS.quarter;
+  const isPromoEligible = data.selectedPlan !== "month";
+  const discountRate = data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && isPromoEligible ? 0.2 : 0;
   const discountAmount = Math.round(currentPlan.totalPrice * discountRate);
   const finalPrice = currentPlan.totalPrice - discountAmount;
 
   // Struck-through helper for each card
-  const getPlanPricing = (planKey: "quarter" | "half" | "year") => {
+  const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
     const plan = PLANS[planKey];
-    const disc = Math.round(plan.totalPrice * discountRate);
+    const isPlanPromoEligible = planKey !== "month";
+    const promoRate = data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && isPlanPromoEligible ? 0.2 : 0;
+    const disc = Math.round(plan.totalPrice * promoRate);
     const finalTotal = plan.totalPrice - disc;
-    const finalMonthly = Math.round(plan.monthlyPrice * (1 - discountRate));
+    const finalMonthly = Math.round(plan.monthlyPrice * (1 - promoRate));
     return {
       originalTotal: plan.totalPrice,
       discountedTotal: finalTotal,
       originalMonthly: plan.monthlyPrice,
       discountedMonthly: finalMonthly,
-      hasDiscount: discountRate > 0,
+      hasDiscount: promoRate > 0,
     };
   };
 
@@ -315,7 +333,8 @@ export default function OnboardingStepPage({
       setCheckoutComplete(true);
       setTimeout(() => {
         const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
-        window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20onboarding%20dan%20siap%20memulai%20pendampingan.`;
+        const planParam = encodeURIComponent(currentPlan.name);
+        window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20onboarding%20dan%20siap%20memulai%20pendampingan%20dengan%20${planParam}.`;
       }, 1500);
     }, 1500);
   };
@@ -1469,13 +1488,19 @@ export default function OnboardingStepPage({
 
             {/* ── 2. CARD PILIHAN PAKET (Bukan Form Radio, Simple & Bersih) ── */}
             <div className="space-y-4 pt-2">
-              <div className="text-center sm:text-left">
-                <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
-                  Pilih Paket Pendampingan
-                </h2>
-                <p className="text-xs sm:text-sm text-text-secondary mt-1">
-                  Sistem sekali bayar. Tanpa tagihan otomatis. Garansi uang kembali dalam 3 hari.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
+                    Pilih Paket Pendampingan
+                  </h2>
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1">
+                    Sistem sekali bayar. Tanpa tagihan otomatis berulang.
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold shadow-2xs self-start sm:self-auto shrink-0">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Garansi 100% Uang Kembali 3 Hari</span>
+                </div>
               </div>
 
               {/* Promo Applied & 1-Hour Countdown Banner */}
@@ -1521,7 +1546,7 @@ export default function OnboardingStepPage({
                   {
                     id: "quarter",
                     name: "Paket 3 Bulan",
-                    badge: "Coba dulu program 3 bulan sesuai fase adaptasi & pembentukan kebiasaan baru",
+                    badge: "Fase Adaptasi 90 Hari · Bangun Kebiasaan Baru",
                     badgeColor: "bg-accent/15 text-accent-dark border border-accent/30",
                     pricing: getPlanPricing("quarter"),
                   },
@@ -1620,6 +1645,40 @@ export default function OnboardingStepPage({
                 })}
               </div>
 
+              {/* Subtle 1-Month Trial Option (Escape Hatch) */}
+              <div className="pt-1 flex items-center justify-center text-center">
+                {data.selectedPlan === "month" ? (
+                  <div className="inline-flex items-center gap-2.5 py-2 px-4 rounded-2xl bg-brand-900 text-white text-xs font-semibold shadow-xs border border-brand-700">
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent text-brand-950">
+                      Coba Dulu
+                    </span>
+                    <span>Terpilih: Paket 1 Bulan Trial (Rp 99.000)</span>
+                    <button
+                      type="button"
+                      onClick={() => updateData({ selectedPlan: "quarter" })}
+                      className="text-accent underline text-[11px] ml-1.5 hover:text-white cursor-pointer font-bold"
+                    >
+                      Pilih paket program 3 bulan &rarr;
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => updateData({ selectedPlan: "month" })}
+                    className="text-xs sm:text-sm text-text-secondary hover:text-brand-950 transition-colors inline-flex items-center gap-2 cursor-pointer group py-1.5 px-3 rounded-full hover:bg-surface-muted border border-transparent hover:border-surface-border"
+                  >
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                      Coba dulu
+                    </span>
+                    <span>Belum yakin dengan komitmen panjang?</span>
+                    <span className="underline underline-offset-4 text-brand-900 font-bold group-hover:text-accent-dark">
+                      Coba 1 bulan dulu seharga Rp 99.000
+                    </span>
+                    <span className="text-accent-dark group-hover:translate-x-0.5 transition-transform font-bold">&rarr;</span>
+                  </button>
+                )}
+              </div>
+
               {/* Promo Code Input (Default TEMANBARU 20% Off) */}
               <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border space-y-2">
                 <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
@@ -1655,7 +1714,9 @@ export default function OnboardingStepPage({
                   <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      Kode promo {data.promoCode} berhasil terpasang (Diskon 20%).
+                      {data.selectedPlan === "month"
+                        ? `Kode ${data.promoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
+                        : `Kode promo ${data.promoCode} berhasil terpasang (Diskon 20%).`}
                     </span>
                   </div>
                 )}
