@@ -22,11 +22,11 @@ import { Footer } from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
 
 const ROTATING_WORDS = [
-  "menemani dietmu",
-  "mengingatkan olahragamu",
-  "membaca foto piringmu",
-  "mengevaluasi larimu",
   "menjaga konsistensimu",
+  "mengingatkan jadwalmu",
+  "menemani dietmu",
+  "membaca piringmu",
+  "mengevaluasi larimu",
 ];
 
 // Reusable WhatsApp Mockup
@@ -122,9 +122,9 @@ export default function NinaPage() {
 
             {/* Rule 1: Hero Headline: Inter Bold/Extrabold */}
             <h1 className="font-sans text-2xl xs:text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-brand-950 leading-[1.25] sm:leading-[1.15]">
-              Meet Nina. Teman akrab yang siap{" "}
+              Meet Nina. Teman akrab yang{" "}
               {/* ─── Flash Speed-Dash Effect (Same Color, No Underline, Ghost Echo Trails, Mobile-Safe) ─── */}
-              <span className="inline-block max-w-full relative overflow-hidden sm:overflow-visible px-1 py-0.5 align-bottom">
+              <span className="inline-block max-w-full relative px-1 py-0.5 align-baseline">
                 <AnimatePresence mode="wait">
                   <motion.span
                     key={wordIndex}
@@ -148,7 +148,7 @@ export default function NinaPage() {
                       filter: "blur(4px)",
                       transition: { duration: 0.18, ease: "easeIn" },
                     }}
-                    className="relative inline-block text-accent font-sans font-extrabold whitespace-normal sm:whitespace-nowrap break-words"
+                    className="relative inline-block text-accent font-sans font-extrabold whitespace-nowrap"
                   >
                     {/* Ghost Echo Trail 1 */}
                     <motion.span
@@ -179,12 +179,12 @@ export default function NinaPage() {
                   </motion.span>
                 </AnimatePresence>
               </span>
-              {" "}24/7 di WhatsApp.
+              {", tiap hari."}
             </h1>
 
             {/* Rule 2: Sub-headline / Deskripsi: Inter Regular */}
             <p className="text-base sm:text-lg text-text-secondary max-w-xl mx-auto lg:mx-0 leading-relaxed font-sans font-normal">
-              Kirim foto piring makan untuk hitung kalori & protein, kirim screenshot untuk evaluasi record data Strava, dan dapatkan pengingat proaktif setiap hari agar kamu konsisten.
+              Foto piring makan lo, Nina hitungin kalori dan proteinnya. Screenshot lari Strava lo, Nina baca pace-nya. Dan kalau lo mulai kendor, dia yang duluan nanya kabar.
             </p>
 
             {/* CTAs with Guaranteed Clear White Font & Crisp Contrast (Rule 8: Inter Semibold) */}
