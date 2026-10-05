@@ -48,6 +48,7 @@ export const metadata: Metadata = {
 
 import { AuthProvider } from "@/context/AuthContext";
 import { AIChatWidget } from "@/components/AIChatWidget";
+import { Analytics } from "@vercel/analytics/react";
 
 export default function RootLayout({
   children,
@@ -61,6 +62,7 @@ export default function RootLayout({
           {children}
           <AIChatWidget />
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );
