@@ -14,7 +14,8 @@ export async function POST(req: Request) {
       payment_type,
     } = body;
 
-    const serverKey = process.env.MIDTRANS_SERVER_KEY || "";
+    const serverKey =
+      process.env.MIDTRANS_SERVER_KEY || "Mid-server-FO7bhVK-6_hiMo4vb68XmcQI";
 
     // Verify signature key to prevent spoofing
     const signatureString = `${order_id}${status_code}${gross_amount}${serverKey}`;

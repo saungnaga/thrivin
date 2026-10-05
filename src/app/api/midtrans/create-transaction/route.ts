@@ -5,7 +5,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { planId, planName, amount, customerName, customerPhone } = body;
 
-    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    const serverKey =
+      process.env.MIDTRANS_SERVER_KEY || "Mid-server-FO7bhVK-6_hiMo4vb68XmcQI";
     if (!serverKey) {
       return NextResponse.json(
         { error: "MIDTRANS_SERVER_KEY is not configured" },

@@ -1878,7 +1878,9 @@ export default function OnboardingStepPage({
               ? "https://app.midtrans.com/snap/snap.js"
               : "https://app.sandbox.midtrans.com/snap/snap.js"
           }
-          data-client-key={process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY}
+          data-client-key={
+            process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || "Mid-client-emFk7qioSHogHJZr"
+          }
           strategy="afterInteractive"
         />
       )}
