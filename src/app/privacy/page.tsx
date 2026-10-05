@@ -89,14 +89,14 @@ export default function PrivacyPage() {
               4. Hubungi Kami
             </h2>
             <p className="leading-relaxed">
-              Jika memiliki pertanyaan mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun, silakan hubungi tim Customer Service resmi Thrivin via WhatsApp di{" "}
+              Jika memiliki pertanyaan mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun, silakan{" "}
               <a
                 href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20punya%20pertanyaan%20seputar%20kebijakan%20privasi%20atau%20data%20akun"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2"
               >
-                0877-8814-1388
+                hubungi Customer Service Thrivin via WhatsApp
               </a>.
             </p>
           </section>

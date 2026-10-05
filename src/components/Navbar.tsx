@@ -115,10 +115,10 @@ export function Navbar() {
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition-colors flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100"
-              aria-label="Customer Service WhatsApp 0877-8814-1388"
+              aria-label="Customer Service WhatsApp"
             >
               <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-              <span>CS: 0877-8814-1388</span>
+              <span>Customer Service</span>
             </a>
           </nav>
 
@@ -282,8 +282,8 @@ export function Navbar() {
                 className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
               >
                 <span>Customer Service</span>
-                <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  0877-8814-1388
+                <span className="text-xs font-sans font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                  WhatsApp &rarr;
                 </span>
               </a>
             </nav>

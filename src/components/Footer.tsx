@@ -38,10 +38,10 @@ export function Footer() {
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-950 font-medium transition-all shadow-2xs"
-            aria-label="Hubungi Customer Service Thrivin via WhatsApp di 0877-8814-1388"
+            aria-label="Hubungi Customer Service Thrivin via WhatsApp"
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-            <span>CS: 0877-8814-1388</span>
+            <span>Customer Service</span>
           </a>
         </nav>
       </div>

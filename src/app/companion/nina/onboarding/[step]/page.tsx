@@ -1732,7 +1732,7 @@ export default function OnboardingStepPage({
                   className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800 transition-colors underline underline-offset-2"
                 >
                   <MessageCircle className="w-3.5 h-3.5 text-emerald-600 inline shrink-0" />
-                  <span>Chat Customer Service (0877-8814-1388)</span>
+                  <span>Chat Customer Service via WhatsApp</span>
                 </a>
               </div>
             </div>

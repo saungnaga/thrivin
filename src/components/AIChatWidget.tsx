@@ -33,7 +33,7 @@ const QUICK_QUESTIONS = [
   "Berapa harganya?",
   "Gimana cara kerja di WhatsApp?",
   "Ada garansi uang kembali?",
-  "Hubungi CS (0877-8814-1388)",
+  "Hubungi Customer Service",
 ];
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -151,9 +151,9 @@ function getBotReply(input: string, hasNina: boolean = false): { text: string; c
     query.includes("support")
   ) {
     return {
-      text: "Tim Customer Service Thrivin siap membantumu! Hubungi kami langsung melalui WhatsApp di nomor 0877-8814-1388 untuk kendala aktivasi, pertanyaan paket, pembayaran, maupun panduan teknis.",
+      text: "Tim Customer Service Thrivin siap membantumu! Hubungi kami langsung melalui WhatsApp untuk kendala aktivasi, pertanyaan paket, pembayaran, maupun panduan teknis.",
       cta: {
-        label: "Chat CS via WhatsApp (0877-8814-1388)",
+        label: "Chat Customer Service via WhatsApp",
         href: "https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan",
       },
     };
@@ -304,9 +304,9 @@ export function AIChatWidget() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-bold text-emerald-700 hover:text-emerald-900 underline underline-offset-2 flex items-center gap-1 transition-colors"
-                aria-label="Chat Customer Service via WhatsApp di 0877-8814-1388"
+                aria-label="Chat Customer Service via WhatsApp"
               >
-                <span>0877-8814-1388</span>
+                <span>Chat via WhatsApp</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
