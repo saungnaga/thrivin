@@ -39,6 +39,7 @@ import {
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
+const COUNTDOWN_STORAGE_KEY = "thrivin_promo_1h_countdown";
 
 interface OnboardingData {
   name: string;
@@ -89,35 +90,8 @@ export default function OnboardingStepPage({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
 
-  // 1-Hour Countdown Timer for Promo Diskon 20%
+  // 1-Hour Countdown Timer State for Applied Promo
   const [countdownSeconds, setCountdownSeconds] = useState(3600);
-
-  useEffect(() => {
-    const COUNTDOWN_STORAGE_KEY = "thrivin_promo_1h_countdown";
-    let expiry = Number(localStorage.getItem(COUNTDOWN_STORAGE_KEY));
-    const now = Date.now();
-    if (!expiry || expiry <= now) {
-      expiry = now + 3600 * 1000;
-      try {
-        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
-      } catch (e) {}
-    }
-
-    const updateTimer = () => {
-      const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
-      setCountdownSeconds(remaining);
-      if (remaining === 0) {
-        expiry = Date.now() + 3600 * 1000;
-        try {
-          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
-        } catch (e) {}
-      }
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const formatCountdown = (totalSec: number) => {
     const h = Math.floor(totalSec / 3600);
@@ -176,6 +150,43 @@ export default function OnboardingStepPage({
       return updated;
     });
   };
+
+  // 1-Hour Countdown Timer for Applied Promo (ambiguous session timer, clears code when expired)
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!data.promoApplied) return;
+
+    let expiry = Number(localStorage.getItem(COUNTDOWN_STORAGE_KEY));
+    const now = Date.now();
+    if (!expiry) {
+      expiry = now + 3600 * 1000;
+      try {
+        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
+      } catch (e) {}
+    } else if (expiry <= now) {
+      setCountdownSeconds(0);
+      updateData({ promoApplied: false, promoCode: "" });
+      try {
+        localStorage.removeItem(COUNTDOWN_STORAGE_KEY);
+      } catch (e) {}
+      return;
+    }
+
+    const updateTimer = () => {
+      const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
+      setCountdownSeconds(remaining);
+      if (remaining === 0) {
+        updateData({ promoApplied: false, promoCode: "" });
+        try {
+          localStorage.removeItem(COUNTDOWN_STORAGE_KEY);
+        } catch (e) {}
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isLoaded, data.promoApplied]);
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {
@@ -1503,39 +1514,31 @@ export default function OnboardingStepPage({
                 </div>
               </div>
 
-              {/* Promo Applied & 1-Hour Countdown Banner */}
-              {data.promoApplied && (
-                <div className="p-3.5 sm:p-4 rounded-2xl bg-linear-to-r from-emerald-50 via-teal-50 to-amber-50 border border-emerald-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Check className="w-4 h-4 stroke-[3]" />
+              {/* Promo Applied Banner with ambiguous Countdown directly beside TEMANBARU */}
+              {data.promoApplied && Boolean(data.promoCode) && (
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-300 shadow-xs flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs sm:text-sm font-bold text-emerald-950">
-                          Kode promo berhasil terpasang:
-                        </span>
-                        <span className="font-mono text-xs font-black bg-emerald-700 text-white px-2 py-0.5 rounded-md tracking-wider">
-                          {data.promoCode}
-                        </span>
-                        <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-1.5 py-0.5 rounded">
-                          DISKON 20%
-                        </span>
-                      </div>
+                    <span className="text-xs sm:text-sm font-bold text-emerald-950">
+                      Kode promo terpasang:
+                    </span>
+                    <div className="inline-flex items-center gap-1.5 bg-emerald-800 text-white px-2.5 py-1 rounded-lg font-mono text-xs font-black tracking-wider shadow-2xs">
+                      <span>{data.promoCode}</span>
                     </div>
-                  </div>
 
-                  {/* 1-Hour Countdown Timer */}
-                  <div className="flex items-center gap-2 bg-white/95 border border-amber-300 px-3 py-1.5 rounded-xl shadow-2xs self-start sm:self-auto shrink-0">
-                    <Clock className="w-4 h-4 text-amber-600 animate-pulse shrink-0" />
-                    <div>
-                      <div className="text-[9px] uppercase font-mono font-bold text-text-muted leading-none">
-                        Promo berakhir dalam:
-                      </div>
-                      <div className="font-mono font-black text-sm text-amber-900 leading-tight">
+                    {/* Countdown 1 Jam tepat di samping TEMANBARU (ambigu & tanpa kata promo berakhir) */}
+                    <div className="inline-flex items-center gap-1.5 bg-white/95 border border-emerald-300 px-2.5 py-1 rounded-lg text-emerald-900 shadow-2xs">
+                      <Clock className="w-3.5 h-3.5 text-emerald-700 animate-pulse shrink-0" />
+                      <span className="font-mono font-bold text-xs">
                         {formatCountdown(countdownSeconds)}
-                      </div>
+                      </span>
                     </div>
+
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-md">
+                      DISKON 20%
+                    </span>
                   </div>
                 </div>
               )}
@@ -1693,7 +1696,12 @@ export default function OnboardingStepPage({
                     type="button"
                     onClick={() => {
                       if (data.promoCode.trim().toUpperCase() === "TEMANBARU") {
-                        updateData({ promoApplied: true });
+                        const newExpiry = Date.now() + 3600 * 1000;
+                        try {
+                          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
+                        } catch (e) {}
+                        setCountdownSeconds(3600);
+                        updateData({ promoApplied: true, promoCode: "TEMANBARU" });
                       } else {
                         updateData({ promoApplied: false });
                       }
