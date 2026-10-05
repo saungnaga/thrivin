@@ -6,7 +6,7 @@ export async function POST(req: Request) {
     const { planId, planName, amount, customerName, customerPhone } = body;
 
     const serverKey =
-      process.env.MIDTRANS_SERVER_KEY || "Mid-server-FO7bhVK-6_hiMo4vb68XmcQI";
+      process.env.MIDTRANS_SERVER_KEY || "Mid-server-X-YtdEZ4XuC7foCcW74MJMVH";
     if (!serverKey) {
       return NextResponse.json(
         { error: "MIDTRANS_SERVER_KEY is not configured" },
@@ -14,7 +14,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const isProduction = process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "true";
+    const isProduction =
+      process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION !== "false" &&
+      !serverKey.startsWith("SB-");
     const snapUrl = isProduction
       ? "https://app.midtrans.com/snap/v1/transactions"
       : "https://app.sandbox.midtrans.com/snap/v1/transactions";
