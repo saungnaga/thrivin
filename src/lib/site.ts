@@ -1,0 +1,30 @@
+export const siteConfig = {
+  name: "Thrivin",
+  tagline: "Never Grow Alone",
+  title: "Thrivin — Never Grow Alone | AI Companion Platform 24/7 di WhatsApp",
+  description:
+    "Platform pertumbuhan pribadi dengan AI Companion personal di WhatsApp. Pantau nutrisi, evaluasi foto makanan, progres olahraga, dan bangun kebiasaan harian secara konsisten 24/7 tanpa aplikasi tambahan.",
+  url: process.env.NEXT_PUBLIC_SITE_URL || "https://thrivin.id",
+  locale: "id_ID",
+  links: {
+    whatsapp: "https://wa.me/6287788141388",
+    instagram: "https://instagram.com/ninathrivin",
+  },
+  keywords: [
+    "Thrivin",
+    "Never Grow Alone",
+    "AI companion Indonesia",
+    "AI fitness companion",
+    "personal trainer WhatsApp",
+    "bot whatsapp diet",
+    "hitung kalori WhatsApp",
+    "baca foto makanan AI",
+    "integrasi Strava WhatsApp",
+    "Nina Thrivin",
+    "akuntabilitas fitness",
+    "konsistensi olahraga",
+    "personal growth platform",
+    "kebiasaan sehat",
+    "weight loss companion",
+  ],
+} as const;

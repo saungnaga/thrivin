@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { Inter, Lora } from "next/font/google";
 import "./globals.css";
+import { siteConfig } from "@/lib/site";
+import { AuthProvider } from "@/context/AuthContext";
+import { AIChatWidget } from "@/components/AIChatWidget";
+import { OrganizationJsonLd, WebSiteJsonLd } from "@/components/JsonLd";
+import { Analytics } from "@vercel/analytics/react";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -16,24 +21,47 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Thrivin — Never Grow Alone",
-  description:
-    "Platform pertumbuhan pribadi yang membantu kamu menemukan apa yang perlu dipelajari, memahaminya, dan mengubahnya jadi pertumbuhan nyata — dengan pendamping yang hadir di setiap langkah.",
-  keywords: [
-    "personal growth",
-    "wellness",
-    "self-development",
-    "AI companion",
-    "learning platform",
-    "thrivin",
-  ],
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: siteConfig.title,
+    template: "%s | Thrivin",
+  },
+  description: siteConfig.description,
+  keywords: [...siteConfig.keywords],
+  authors: [{ name: "Thrivin", url: siteConfig.url }],
+  creator: "Thrivin",
+  publisher: "Thrivin",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
-    title: "Thrivin — Never Grow Alone",
-    description:
-      "Temukan apa yang perlu dipelajari. Pahami cara menerapkannya. Bertumbuh bersama pendamping.",
-    siteName: "Thrivin",
-    locale: "id_ID",
+    title: siteConfig.title,
+    description: siteConfig.description,
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    locale: siteConfig.locale,
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteConfig.title,
+    description: siteConfig.description,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
   icons: {
     icon: [
@@ -46,10 +74,6 @@ export const metadata: Metadata = {
   },
 };
 
-import { AuthProvider } from "@/context/AuthContext";
-import { AIChatWidget } from "@/components/AIChatWidget";
-import { Analytics } from "@vercel/analytics/react";
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -57,6 +81,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className={`${inter.variable} ${lora.variable}`}>
+      <head>
+        <OrganizationJsonLd />
+        <WebSiteJsonLd />
+      </head>
       <body className="font-sans antialiased">
         <AuthProvider>
           {children}
