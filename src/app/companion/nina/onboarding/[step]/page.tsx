@@ -1634,12 +1634,6 @@ export default function OnboardingStepPage({
                           )}
                         </div>
                       </div>
-
-                      <div className={`pt-3 mt-3 border-t text-[11px] font-medium ${
-                        isSelected ? "border-white/10 text-brand-200" : "border-slate-100 text-text-secondary"
-                      }`}>
-                        <span>✓ Full akses WhatsApp 24/7 · Foto & Strava</span>
-                      </div>
                     </div>
                   );
                 })}
