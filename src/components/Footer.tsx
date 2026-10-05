@@ -22,6 +22,12 @@ export function Footer() {
             Companion Nina
           </Link>
           <Link
+            href="/companion/nina/learning"
+            className="hover:text-brand-900 transition-colors"
+          >
+            Knowledge Base
+          </Link>
+          <Link
             href="/about"
             className="hover:text-brand-900 transition-colors"
           >

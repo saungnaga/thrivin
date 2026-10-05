@@ -16,12 +16,10 @@ import {
   Camera,
   CheckCircle2,
   X,
-  BookOpen,
-  LogIn
+  BookOpen
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { useAuth } from "@/context/AuthContext";
 
 // Clean vector silhouette for locked companions
 const SilhouetteIcon = ({ className = "w-10 h-10" }: { className?: string }) => (
@@ -43,9 +41,7 @@ interface LockedModalInfo {
 }
 
 export default function Home() {
-  const { user } = useAuth();
-  const hasNina = Boolean(user && user.activeCompanion === "nina");
-  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina";
+  const ninaCtaUrl = "/companion/nina";
   const [lockedModal, setLockedModal] = useState<LockedModalInfo | null>(null);
   const [wordIndex, setWordIndex] = useState(0);
 
@@ -173,7 +169,7 @@ export default function Home() {
           &ldquo;Pertumbuhan yang paling sering gagal bukan karena rencananya buruk. Tapi karena dijalani dalam ruang kosong — tanpa siapa pun yang tahu apa yang sedang kamu perjuangkan.&rdquo;
         </motion.div>
 
-        {/* ─── Link to Learn More About Thrivin & Member Quick Login ─── */}
+        {/* ─── Link to Learn More About Thrivin ─── */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -284,7 +280,7 @@ export default function Home() {
               {/* Direct CTA Button (Rule 8: Inter Semibold) */}
               <div className="w-full max-w-[200px] sm:max-w-[210px] py-2 sm:py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-1.5">
                 <span className="text-white font-semibold drop-shadow-xs">
-                  {hasNina ? "Buka Dashboard Nina" : "Pilih Nina & Mulai"}
+                  Pilih Nina & Mulai
                 </span>
                 <ArrowRight className="w-3.5 h-3.5 text-white group-hover:translate-x-1 transition-transform" />
               </div>
@@ -488,7 +484,7 @@ export default function Home() {
                   className="w-full py-3.5 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-sans font-semibold text-xs sm:text-sm text-center transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 text-accent" />
-                  <span>{hasNina ? "Buka Dashboard Nina" : "Pilih Nina (Wellness & Fitness)"}</span>
+                  <span>Pilih Nina (Wellness & Fitness)</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
 
@@ -530,7 +526,7 @@ export default function Home() {
               </h3>
               {/* Feature Body: Rule 3 Lora Regular */}
               <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
-                Tidak ada login aplikasi baru yang membingungkan atau dilupakan. Chatting santai layaknya kontak teman akrab.
+                Tanpa instal aplikasi baru ataupun konfigurasi rumit. Chatting santai langsung di WhatsApp layaknya teman akrab.
               </p>
             </div>
 
@@ -591,42 +587,38 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─── Member Access Banner: Dashboard & Scientific Materials ─── */}
+      {/* ─── Knowledge Base Showcase Banner (Science-Proven) ─── */}
       <section className="py-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto w-full">
         <div className="p-6 sm:p-8 rounded-3xl bg-linear-to-r from-brand-900 via-brand-950 to-[#031d28] text-white border border-brand-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden text-center md:text-left">
           <div className="absolute top-0 right-0 w-72 h-72 bg-accent/15 rounded-full blur-3xl pointer-events-none" />
           
           <div className="relative z-10 space-y-2 max-w-xl">
             {/* Rule 5: Label Kecil / Badge: Inter Semibold uppercase */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/20 border border-accent/30 text-accent text-[11px] font-semibold uppercase tracking-wider font-sans">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Akses Pengguna & Member</span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[11px] font-semibold uppercase tracking-wider font-sans">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Science-Proven Knowledge Base</span>
             </div>
             {/* Rule 7: Judul Section: Inter Bold */}
             <h3 className="font-sans text-xl sm:text-2xl font-bold text-white leading-snug">
-              Akses Dashboard Laporan Progress & Materi Scientific
+              Pondasi Sains Teruji di Balik Pendampingan Nina
             </h3>
             {/* Rule 3: Body / Penjelasan: Lora Regular */}
             <p className="text-xs sm:text-sm text-brand-200/90 leading-relaxed font-serif font-normal">
-              Sudah terdaftar atau punya companion aktif? Masuk sekarang untuk memantau grafik perkembangan harian, ringkasan interaksi WhatsApp, dan seluruh modul materi sains perilaku.
+              Nina bukan sekadar chatbot biasa. Setiap estimasi piring makanan, strategi konsistensi, dan saran olahraga didasarkan pada riset fisiologi, ilmu nutrisi, dan sains perilaku teruji.
             </p>
           </div>
 
           <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full sm:w-auto">
             {/* Rule 8: CTA Button Text: Inter Semibold */}
             <Link
-              href="/login"
-              className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center"
-            >
-              <LogIn className="w-4 h-4 text-white" />
-              <span className="text-white font-semibold drop-shadow-xs">Login ke Dashboard</span>
-            </Link>
-            <Link
               href="/companion/nina/learning"
-              className="w-full sm:w-auto px-5 py-3.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white font-sans font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center group"
             >
-              <BookOpen className="w-4 h-4 text-accent" />
-              <span>Materi Scientific</span>
+              <BookOpen className="w-4 h-4 text-white" />
+              <span className="text-white font-semibold drop-shadow-xs">Buka Knowledge Base</span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/20 text-white border border-white/30">
+                Science Proven
+              </span>
             </Link>
           </div>
         </div>
@@ -665,7 +657,7 @@ export default function Home() {
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
                 <span className="text-white font-semibold drop-shadow-xs">
-                  {hasNina ? "Buka Dashboard Nina" : "Mulai Bersama Nina Sekarang"}
+                  Mulai Bersama Nina Sekarang
                 </span>
                 <ArrowRight className="w-4 h-4 text-white" />
               </Link>

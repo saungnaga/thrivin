@@ -16,7 +16,6 @@ import {
   MessageCircle,
   CheckCircle2
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
 import { Footer } from "@/components/Footer";
 
 interface DomainItem {
@@ -43,7 +42,7 @@ const ALL_DOMAINS: DomainItem[] = [
     topics: ["Workout & Strength", "Flexibility & Yoga", "Casual Fitness", "Diet & TDEE"],
     active: true,
     href: "/path/wellness",
-    statusText: "Buka Learning Path",
+    statusText: "Buka Knowledge Base",
     curriculumCount: "8 Bab Tersedia",
     highlight: "Sains kebugaran terstruktur tanpa mitos, dipandu AI Companion Nina."
   },
@@ -89,9 +88,7 @@ const ALL_DOMAINS: DomainItem[] = [
 ];
 
 export default function ExplorePage() {
-  const { user } = useAuth();
-  const hasNina = Boolean(user && user.activeCompanion === "nina");
-  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina";
+  const ninaCtaUrl = "/companion/nina";
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDomains = ALL_DOMAINS.filter((d) => {
@@ -135,7 +132,7 @@ export default function ExplorePage() {
               className="inline-flex items-center gap-2 rounded-full bg-brand-900 text-white px-4 py-1.5 text-xs sm:text-sm font-medium hover:bg-brand-800 transition-all shadow-sm"
             >
               <MessageCircle className="w-4 h-4 text-accent" />
-              <span>{hasNina ? "Dashboard Nina" : "Kenali Nina"}</span>
+              <span>Kenali Nina</span>
             </Link>
           </div>
         </div>
@@ -149,9 +146,11 @@ export default function ExplorePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4 }}
           >
-            <span className="inline-block text-xs font-bold uppercase tracking-[0.25em] text-accent mb-3">
-              The Learning Hub · 4 Domain Pertumbuhan
-            </span>
+            <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-accent mb-3 bg-brand-50 px-3 py-1 rounded-full border border-brand-200 font-mono">
+              <span>Knowledge Base · 4 Domain Pertumbuhan</span>
+              <span className="w-1 h-1 rounded-full bg-accent" />
+              <span className="text-emerald-700 font-bold lowercase tracking-normal">science proven</span>
+            </div>
             <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold text-text-primary tracking-tight mb-4">
               Temukan apa yang ingin kamu <span className="text-gradient">tumbuhkan.</span>
             </h1>
@@ -312,14 +311,14 @@ export default function ExplorePage() {
               >
                 <MessageCircle className="w-4 h-4 text-accent" />
                 <span className="text-white">
-                  {hasNina ? "Buka Dashboard Nina" : "Pelajari Pendampingan Nina"}
+                  Pelajari Pendampingan Nina
                 </span>
               </Link>
               <Link
                 href="/path/wellness"
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors"
               >
-                <span>Mulai dari Silabus Wellness</span>
+                <span>Mulai dari Knowledge Base Wellness</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>

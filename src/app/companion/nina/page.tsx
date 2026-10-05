@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { useAuth } from "@/context/AuthContext";
 
 const ROTATING_WORDS = [
   "menjaga konsistensimu",
@@ -258,7 +257,7 @@ const CHAT_SLIDES = [
         </BubbleUser>
 
         <BubbleNina time="09:03">
-          Itu kuncinya! Kunci konsistensi itu akses yang paling gampang. Ga ada login berulang, ga ada notifikasi tenggelam. Kapanpun butuh, aku selalu ada di sini 💬
+          Itu kuncinya! Kunci konsistensi itu akses yang paling gampang. Ga ada aplikasi baru yang ribet, ga ada notifikasi tenggelam. Kapanpun butuh, aku selalu ada di sini 💬
         </BubbleNina>
 
         <BubbleUser time="09:04">
@@ -270,8 +269,6 @@ const CHAT_SLIDES = [
 ];
 
 export default function NinaPage() {
-  const { user } = useAuth();
-  const hasNina = Boolean(user && user.activeCompanion === "nina");
   const [wordIndex, setWordIndex] = useState(0);
   const [chatSlide, setChatSlide] = useState(0);
   const [isChatPaused, setIsChatPaused] = useState(false);
@@ -407,21 +404,24 @@ export default function NinaPage() {
             {/* CTAs with Guaranteed Clear White Font & Crisp Contrast (Rule 8: Inter Semibold) */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
-                href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
+                href="/companion/nina/onboarding/1"
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span className="text-white font-semibold">
-                  {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Bersama Nina"}
+                  Mulai Onboarding Bersama Nina
                 </span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </Link>
 
               <Link
                 href="/companion/nina/learning"
-                className="w-full sm:w-auto px-6 py-4 rounded-full bg-white hover:bg-slate-100 border border-slate-300 text-[#071F2D] font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                className="w-full sm:w-auto px-6 py-4 rounded-full bg-white hover:bg-slate-100 border border-slate-300 text-[#071F2D] font-bold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs cursor-pointer group"
               >
                 <BookOpen className="w-4 h-4 text-accent-dark" />
-                <span className="text-[#071F2D] font-bold">Buka Learning Hub (100% Free)</span>
+                <span className="text-[#071F2D] font-bold">Knowledge Base</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Science Proven
+                </span>
               </Link>
             </div>
 
@@ -682,11 +682,11 @@ export default function NinaPage() {
             {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy (Rule 8: Inter Semibold) */}
             <div className="pt-2">
               <Link
-                href={hasNina ? "/dashboard" : "/companion/nina/onboarding/1"}
+                href="/companion/nina/onboarding/1"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
                 <span className="text-white font-semibold">
-                  {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding Personal (5 Menit)"}
+                  Mulai Onboarding Personal (5 Menit)
                 </span>
                 <ArrowRight className="w-4 h-4 text-accent" />
               </Link>

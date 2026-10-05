@@ -13,7 +13,7 @@ const domains = [
     description: "Bangun fondasi fisik yang membuatmu hadir penuh untuk hal-hal penting.",
     tags: ["Workout", "Yoga", "Nutrisi"],
     active: true,
-    linkText: "Lihat learning path",
+    linkText: "Lihat Knowledge Base",
     linkHref: "/path/wellness",
     badge: "✦ Nina Companion Available",
   },

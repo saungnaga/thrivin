@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Kurikulum & Panduan Wellness Nina — Nutrisi, Latihan & Habit",
+  title: "Knowledge Base Sains Nina — Science-Proven Wellness & Habit",
   description:
-    "Pelajari fundamental nutrisi, program latihan beban, panduan kardio & Strava, serta strategi membangun kebiasaan hidup sehat yang berkelanjutan bersama Nina.",
+    "Dasar pengetahuan ilmiah di balik Nina: riset nutrisi, fisiologi latihan, panduan kardio & Strava, serta strategi konsistensi berbasis sains (science-proven).",
   alternates: {
     canonical: "/companion/nina/learning",
   },
   openGraph: {
-    title: "Kurikulum Wellness Nina — Thrivin",
+    title: "Knowledge Base Sains Nina (Science-Proven) — Thrivin",
     description:
-      "Panduan komprehensif nutrisi, strength training, dan recovery yang dipersonalisasi bersama AI Companion di WhatsApp.",
+      "Dasar sains teruji di balik AI Wellness Companion Nina di WhatsApp. Pelajari fundamental fisiologi, nutrisi, dan kebiasaan sehat.",
     url: "/companion/nina/learning",
   },
 };

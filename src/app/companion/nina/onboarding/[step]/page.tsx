@@ -36,7 +36,6 @@ import {
   MessageCircle,
   Smartphone
 } from "lucide-react";
-import { useAuth } from "@/context/AuthContext";
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
@@ -83,14 +82,6 @@ export default function OnboardingStepPage({
   const resolvedParams = use(params);
   const stepNum = parseInt(resolvedParams.step, 10) || 1;
   const router = useRouter();
-  const { user, login } = useAuth();
-
-  // If user is already logged in and has Nina companion, direct them straight to their dashboard
-  useEffect(() => {
-    if (user && user.activeCompanion === "nina" && stepNum < 9) {
-      router.replace("/dashboard");
-    }
-  }, [user, stepNum, router]);
 
   const [data, setData] = useState<OnboardingData>(DEFAULT_DATA);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -319,14 +310,13 @@ export default function OnboardingStepPage({
   // Checkout simulation
   const handleCheckout = async () => {
     setIsCheckingOut(true);
-    setTimeout(async () => {
+    setTimeout(() => {
       setIsCheckingOut(false);
       setCheckoutComplete(true);
-      // Auto login user into dashboard
-      await login(data.name || "Kawan Thrivin", "demo123");
       setTimeout(() => {
-        router.push("/dashboard");
-      }, 1200);
+        const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
+        window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20onboarding%20dan%20siap%20memulai%20pendampingan.`;
+      }, 1500);
     }, 1500);
   };
 
@@ -1712,7 +1702,7 @@ export default function OnboardingStepPage({
                 {isCheckingOut ? (
                   <span className="text-white font-bold">Menghubungkan Pembayaran...</span>
                 ) : checkoutComplete ? (
-                  <span className="text-white font-bold">✓ Berhasil! Mengalihkan ke Dashboard...</span>
+                  <span className="text-white font-bold">✓ Berhasil! Membuka WhatsApp Nina...</span>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-accent" />

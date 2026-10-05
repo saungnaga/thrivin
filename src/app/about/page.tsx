@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
-import { useAuth } from "@/context/AuthContext";
 
 const journeyStages = [
   {
@@ -65,9 +64,7 @@ const problemCards = [
 ];
 
 export default function AboutPage() {
-  const { user } = useAuth();
-  const hasNina = Boolean(user && user.activeCompanion === "nina");
-  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina";
+  const ninaCtaUrl = "/companion/nina";
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
@@ -283,7 +280,7 @@ export default function AboutPage() {
                 href={ninaCtaUrl}
                 className="w-full py-2.5 rounded-full bg-accent hover:bg-accent-dark text-white font-black text-xs text-center transition-colors block shadow-xs"
               >
-                {hasNina ? "Buka Dashboard Nina →" : "Kenali Nina →"}
+                Kenali Nina →
               </Link>
             </div>
 
@@ -348,7 +345,7 @@ export default function AboutPage() {
             className="px-8 py-4 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 shrink-0 flex items-center gap-2 cursor-pointer"
           >
             <span className="text-white font-semibold drop-shadow-xs">
-              {hasNina ? "Buka Dashboard Nina" : "Mulai Bersama Nina"}
+              Mulai Bersama Nina
             </span>
             <ArrowRight className="w-4 h-4 text-white" />
           </Link>

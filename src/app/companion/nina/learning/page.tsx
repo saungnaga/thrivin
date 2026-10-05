@@ -22,22 +22,18 @@ import {
   ArrowUp,
   Layers,
   SlidersHorizontal,
-  Bookmark,
-  UserPlus
+  Bookmark
 } from "lucide-react";
 import {
   WELLNESS_TRACKS,
   WELLNESS_CHAPTERS,
   TrackInfo
 } from "@/data/wellness-curriculum";
-import { useAuth } from "@/context/AuthContext";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
 export default function NinaLearningHubPage() {
-  const { user } = useAuth();
-  const hasNina = Boolean(user && user.activeCompanion === "nina");
-  const ninaCtaUrl = hasNina ? "/dashboard" : "/companion/nina/onboarding/1";
+  const ninaCtaUrl = "/companion/nina/onboarding/1";
   const [selectedTrackId, setSelectedTrackId] = useState<TrackInfo["id"]>("workout");
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
 
@@ -232,40 +228,30 @@ export default function NinaLearningHubPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
             >
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.25em] text-accent-dark mb-3 bg-brand-50 px-3 py-1 rounded-full border border-brand-200/80 font-mono">
-                <BookOpen className="w-3.5 h-3.5" />
-                Nina Knowledge Hub · Kurikulum Terbuka
-              </span>
+              <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-accent-dark mb-3 bg-brand-50 px-3.5 py-1.5 rounded-full border border-brand-200/80 font-mono shadow-2xs">
+                <BookOpen className="w-3.5 h-3.5 text-accent" />
+                <span>Nina Knowledge Base</span>
+                <span className="w-1 h-1 rounded-full bg-accent" />
+                <span className="text-emerald-700 font-bold lowercase tracking-normal">science proven</span>
+              </div>
               <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl font-bold text-text-primary tracking-tight mb-4">
-                Sains Wellness Nina.
+                Dasar Pengetahuan Sains Nina.
               </h1>
               <p className="text-text-secondary text-base sm:text-lg max-w-2xl mx-auto leading-relaxed mb-6">
-                Semua prinsip sains yang digunakan Nina di WhatsApp tersedia gratis di sini. Pahami logikanya, lalu terapkan di keseharianmu bersama Nina.
+                Nina bukan chatbot umum tanpa arah. Setiap respons, kalkulasi nutrisi, dan rekomendasi workout di WhatsApp dibangun di atas dasar sains teruji. Pelajari fondasi ilmiahnya di sini.
               </p>
             </motion.div>
 
-            {/* Guest vs User Signup Banner */}
-            {!user ? (
-              <div className="max-w-2xl mx-auto mb-6 p-3.5 rounded-2xl bg-brand-50 border border-brand-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-brand-950 shadow-2xs">
-                <div className="flex items-center gap-2 text-left">
-                  <UserPlus className="w-4 h-4 text-accent-dark shrink-0" />
-                  <span>
-                    Kamu sedang membaca sebagai <strong>Tamu</strong>. Daftar akun untuk menyimpan progres membaca & akses dashboard.
-                  </span>
-                </div>
-                <Link
-                  href="/signup"
-                  className="px-4 py-1.5 rounded-full bg-brand-900 text-white font-bold text-xs hover:bg-brand-800 transition-colors shrink-0 shadow-xs"
-                >
-                  Daftar Gratis
-                </Link>
-              </div>
-            ) : (
-              <div className="max-w-2xl mx-auto mb-6 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center gap-2 text-xs font-semibold text-emerald-900">
-                <Check className="w-4 h-4 text-emerald-700" />
-                <span>Halo {user.username}! Progres membacamu tersimpan otomatis di akunmu.</span>
-              </div>
-            )}
+            {/* Science-Proven Knowledge Base Trust Banner */}
+            <div className="max-w-2xl mx-auto mb-6 p-3.5 sm:p-4 rounded-2xl bg-white border border-brand-200/90 flex flex-col sm:flex-row items-center gap-3 text-xs sm:text-sm text-brand-950 shadow-2xs">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 font-mono font-bold text-[10px] uppercase tracking-wider shrink-0">
+                <Sparkles className="w-3 h-3 text-emerald-600" />
+                <span>Science Proven</span>
+              </span>
+              <span className="text-text-secondary text-center sm:text-left leading-relaxed">
+                Setiap materi, estimasi kalori harian, dan strategi pembentukan kebiasaan didasarkan pada riset fisiologi, ilmu nutrisi, dan studi pembentukan habit terbukti.
+              </span>
+            </div>
 
             {/* 4 Tracks Navigation Tabs */}
             <div className="mt-4">
@@ -409,7 +395,7 @@ export default function NinaLearningHubPage() {
                   className="block text-center text-xs font-black bg-[#082132] hover:bg-[#041622] border border-accent/40 text-white py-2.5 px-3 rounded-xl transition-all shadow-xs cursor-pointer"
                 >
                   <span className="text-white font-black drop-shadow-xs">
-                    {hasNina ? "Buka Dashboard Nina →" : "Mulai dengan Nina →"}
+                    Mulai dengan Nina →
                   </span>
                 </Link>
               </div>
@@ -721,7 +707,7 @@ export default function NinaLearningHubPage() {
                     >
                       <Sparkles className="w-4 h-4 text-accent shrink-0" />
                       <span className="text-white font-black drop-shadow-xs">
-                        {hasNina ? "Buka Dashboard Nina" : "Mulai Onboarding dengan Nina"}
+                        Mulai Onboarding dengan Nina
                       </span>
                       <ArrowRight className="w-4 h-4 text-accent shrink-0" />
                     </Link>
@@ -777,7 +763,7 @@ export default function NinaLearningHubPage() {
                       <div>
                         <span className="text-[10px] uppercase font-bold text-accent block">Selesai 8 Bab!</span>
                         <span className="text-xs sm:text-sm font-black text-white block drop-shadow-xs">
-                          {hasNina ? "Ke Dashboard Nina →" : "Mulai Bersama Nina →"}
+                          Mulai Bersama Nina →
                         </span>
                       </div>
                       <ArrowRight className="w-4 h-4 text-accent shrink-0" />
@@ -1024,7 +1010,7 @@ export default function NinaLearningHubPage() {
                               href={ninaCtaUrl}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-900 text-xs font-bold transition-colors cursor-pointer"
                             >
-                              <span className="text-brand-900 font-bold">{hasNina ? "Buka di Dashboard" : "Terapkan dengan Nina"}</span>
+                              <span className="text-brand-900 font-bold">Terapkan dengan Nina</span>
                               <ArrowRight className="w-3.5 h-3.5 text-accent-dark" />
                             </Link>
                           </div>

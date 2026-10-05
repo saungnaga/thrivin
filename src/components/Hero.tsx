@@ -136,7 +136,7 @@ export function Hero() {
             href="#domains"
             className="group flex items-center justify-center gap-2 px-8 py-4 bg-brand-900 text-white rounded-full font-sans font-semibold transition-all hover:bg-brand-800 hover:shadow-glow hover:-translate-y-0.5 w-full sm:w-auto cursor-pointer"
           >
-            Jelajahi Learning Path
+            Jelajahi Knowledge Base
             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
           </a>
           <a
