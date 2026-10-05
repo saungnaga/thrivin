@@ -53,14 +53,6 @@ export function Hero() {
         whileInView="visible"
         viewport={{ once: true, margin: "-100px" }}
       >
-        {/* Badge */}
-        <motion.div variants={itemVariants} className="mb-8">
-          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface-elevated border border-surface-muted text-sm font-medium text-text-primary shadow-sm font-sans">
-            <Sparkles className="w-4 h-4 text-accent" />
-            Never Grow Alone
-          </span>
-        </motion.div>
-
         {/* Headline with Speed-Dash Effect (Same as companion/nina) */}
         <motion.h1 
           className="text-4xl md:text-5xl lg:text-6xl font-sans font-extrabold text-brand-950 tracking-tight leading-[1.2] sm:leading-[1.18] mb-8"

@@ -62,17 +62,6 @@ export default function Home() {
 
       {/* ─── Hero Section (Direct, Punchy, Value-Focused) ─── */}
       <section className="pt-28 pb-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full text-center">
-        {/* Top Direct Badge */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-50 border border-brand-200/90 text-xs font-semibold text-accent-dark uppercase tracking-wider mb-5 shadow-2xs font-sans"
-        >
-          <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-          <span>AI Companion Platform · Langsung di WhatsApp</span>
-        </motion.div>
-
         {/* Main Headline (Rule 1: Inter Bold/Extrabold 40-56px) */}
         <motion.h1
           initial={{ opacity: 0, y: 15 }}
