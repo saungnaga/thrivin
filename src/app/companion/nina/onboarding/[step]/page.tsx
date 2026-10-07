@@ -22,6 +22,8 @@ declare global {
     };
   }
 }
+
+import { fbqTrack } from "@/components/MetaPixel";
 import {
   ArrowLeft,
   ArrowRight,
@@ -337,6 +339,9 @@ export default function OnboardingStepPage({
       return;
     }
     setPhoneError("");
+    fbqTrack("Lead", {
+      content_name: "Onboarding WhatsApp Submission",
+    });
     setIsSyncing(true);
     setSyncStep(1);
 
@@ -358,6 +363,13 @@ export default function OnboardingStepPage({
   const handleCheckout = async () => {
     setIsCheckingOut(true);
     setCheckoutError("");
+
+    // Meta Pixel: InitiateCheckout
+    fbqTrack("InitiateCheckout", {
+      content_name: currentPlan.name,
+      value: finalPrice,
+      currency: "IDR",
+    });
 
     try {
       const response = await fetch("/api/midtrans/create-transaction", {
@@ -389,6 +401,15 @@ export default function OnboardingStepPage({
           onSuccess: (result: any) => {
             setIsCheckingOut(false);
             setCheckoutComplete(true);
+
+            // Meta Pixel: Purchase
+            fbqTrack("Purchase", {
+              content_name: currentPlan.name,
+              value: finalPrice,
+              currency: "IDR",
+              order_id: result?.order_id || resData.orderId,
+            });
+
             const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
             const planParam = encodeURIComponent(currentPlan.name);
             const orderParam = encodeURIComponent(result?.order_id || resData.orderId);

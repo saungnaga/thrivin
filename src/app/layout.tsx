@@ -5,6 +5,7 @@ import { siteConfig } from "@/lib/site";
 import { AuthProvider } from "@/context/AuthContext";
 import { AIChatWidget } from "@/components/AIChatWidget";
 import { OrganizationJsonLd, WebSiteJsonLd } from "@/components/JsonLd";
+import { MetaPixel } from "@/components/MetaPixel";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
@@ -87,6 +88,7 @@ export default function RootLayout({
         <WebSiteJsonLd />
       </head>
       <body className="font-sans antialiased">
+        <MetaPixel />
         <AuthProvider>
           {children}
           <AIChatWidget />
