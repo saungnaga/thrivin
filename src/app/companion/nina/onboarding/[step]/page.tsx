@@ -303,25 +303,24 @@ export default function OnboardingStepPage({
   const activePromoCode = data.promoCode.trim().toUpperCase();
   const isSecretPromo = data.promoApplied && activePromoCode === "TEMANBAIKHATI";
   const isPublicPromo = data.promoApplied && activePromoCode === "TEMANBARU";
-  const isPromoEligible = data.selectedPlan !== "month" || isSecretPromo;
+  const isPromoEligible = data.selectedPlan !== "month";
   const discountRate = isPublicPromo && isPromoEligible ? 0.2 : 0;
-  const discountAmount = isSecretPromo
-    ? Math.max(0, currentPlan.totalPrice - 10000)
-    : Math.round(currentPlan.totalPrice * discountRate);
+  const discountAmount =
+    isSecretPromo && data.selectedPlan === "quarter"
+      ? Math.max(0, currentPlan.totalPrice - 10000)
+      : Math.round(currentPlan.totalPrice * discountRate);
   const finalPrice = currentPlan.totalPrice - discountAmount;
 
   // Struck-through helper for each card
   const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
     const plan = PLANS[planKey];
-    const isPlanPromoEligible = planKey !== "month" || isSecretPromo;
-    if (isSecretPromo) {
-      const months =
-        planKey === "month" ? 1 : planKey === "quarter" ? 3 : planKey === "half" ? 6 : 12;
+    const isPlanPromoEligible = planKey !== "month";
+    if (isSecretPromo && planKey === "quarter") {
       return {
         originalTotal: plan.totalPrice,
         discountedTotal: 10000,
         originalMonthly: plan.monthlyPrice,
-        discountedMonthly: Math.round(10000 / months),
+        discountedMonthly: Math.round(10000 / 3),
         hasDiscount: true,
       };
     }
@@ -396,12 +395,16 @@ export default function OnboardingStepPage({
           amount: finalPrice,
           customerName: data.name,
           customerPhone: data.whatsappNumber,
+          promoCode: data.promoApplied ? activePromoCode : "",
         }),
       });
 
       const resData = await response.json();
 
       if (!response.ok || !resData.paymentUrl) {
+        if (resData.codeAlreadyUsed) {
+          updateData({ promoCode: "TEMANBARU", promoApplied: true });
+        }
         throw new Error(
           resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
         );
@@ -1766,15 +1769,44 @@ export default function OnboardingStepPage({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const typedCode = data.promoCode.trim().toUpperCase();
-                      if (typedCode === "TEMANBARU" || typedCode === "TEMANBAIKHATI") {
+                      setCheckoutError("");
+                      if (typedCode === "TEMANBARU") {
                         const newExpiry = Date.now() + 3600 * 1000;
                         try {
                           localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
                         } catch (e) {}
                         setCountdownSeconds(3600);
-                        updateData({ promoApplied: true, promoCode: typedCode });
+                        updateData({ promoApplied: true, promoCode: "TEMANBARU" });
+                      } else if (typedCode === "TEMANBAIKHATI") {
+                        try {
+                          const checkRes = await fetch("/api/scalev/create-order", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              checkPromoOnly: true,
+                              promoCode: "TEMANBAIKHATI",
+                              customerPhone: data.whatsappNumber,
+                            }),
+                          });
+                          const checkData = await checkRes.json();
+                          if (!checkRes.ok && checkData.codeAlreadyUsed) {
+                            updateData({ promoApplied: false });
+                            setCheckoutError(checkData.error);
+                            return;
+                          }
+                        } catch (e) {}
+                        const newExpiry = Date.now() + 3600 * 1000;
+                        try {
+                          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
+                        } catch (e) {}
+                        setCountdownSeconds(3600);
+                        updateData({
+                          promoApplied: true,
+                          promoCode: "TEMANBAIKHATI",
+                          selectedPlan: "quarter",
+                        });
                       } else {
                         updateData({ promoApplied: false });
                       }
@@ -1790,7 +1822,9 @@ export default function OnboardingStepPage({
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
                       {isSecretPromo
-                        ? `Kode promo ${activePromoCode} berhasil terpasang (Harga Spesial Rp 10.000).`
+                        ? data.selectedPlan === "quarter"
+                          ? `Kode promo ${activePromoCode} berhasil terpasang (Paket 3 Bulan jadi Rp 10.000 · 1x per nomor).`
+                          : `Kode ${activePromoCode} khusus untuk Paket Program 3 Bulan (Rp 10.000).`
                         : data.selectedPlan === "month"
                         ? `Kode ${activePromoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
                         : `Kode promo ${activePromoCode} berhasil terpasang (Diskon 20%).`}

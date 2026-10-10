@@ -27,17 +27,92 @@ const FALLBACK_VARIANTS: Record<
   },
 };
 
+const PAID_ORDER_STATUSES = new Set([
+  "confirmed",
+  "in_process",
+  "ready",
+  "shipped",
+  "completed",
+  "closed",
+]);
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { planId, planName, amount, customerName, customerPhone } = body;
+    const {
+      planId,
+      planName,
+      amount,
+      customerName,
+      customerPhone,
+      promoCode,
+      checkPromoOnly,
+    } = body;
 
     const apiKey = process.env.SCALEV_API_KEY || DEFAULT_SCALEV_API_KEY;
     const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
 
+    // Normalize phone number to 628... format
+    let cleanPhone = String(customerPhone || "").replace(/\D/g, "");
+    if (cleanPhone.startsWith("0")) {
+      cleanPhone = "62" + cleanPhone.slice(1);
+    } else if (cleanPhone.length > 0 && !cleanPhone.startsWith("62")) {
+      cleanPhone = "62" + cleanPhone;
+    }
+    if (cleanPhone.length < 10) {
+      cleanPhone = "6281234567890";
+    }
+
+    const normalizedPromo = String(promoCode || "")
+      .trim()
+      .toUpperCase();
     const rawAmount = Math.round(Number(amount) || 184800);
-    // Scalev E-Payment / PayLink enforces a strict minimum gross_revenue of Rp 10.000
     const targetAmount = Math.max(10000, rawAmount);
+
+    // Enforce 1x paid usage per phone number for secret promo TEMANBAIKHATI
+    if (normalizedPromo === "TEMANBAIKHATI" || targetAmount <= 10000) {
+      try {
+        const historyRes = await fetch(
+          `https://api.scalev.com/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
+            cleanPhone
+          )}`,
+          {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            cache: "no-store",
+          }
+        );
+
+        if (historyRes.ok) {
+          const historyData = await historyRes.json();
+          const orders: any[] = historyData?.data || [];
+
+          const alreadyUsedPaidPromo = orders.some((order) => {
+            const isPaid =
+              PAID_ORDER_STATUSES.has(String(order.status || "").toLowerCase()) ||
+              Number(order.net_payment_revenue || 0) > 0;
+            const isTenKPromoOrder = Number(order.gross_revenue || 0) <= 10000;
+            return isPaid && isTenKPromoOrder;
+          });
+
+          if (alreadyUsedPaidPromo) {
+            return NextResponse.json(
+              {
+                error:
+                  "Kode promo TEMANBAIKHATI hanya berlaku 1 kali per nomor WhatsApp dan sudah pernah digunakan oleh nomor ini.",
+                codeAlreadyUsed: true,
+              },
+              { status: 400 }
+            );
+          }
+        }
+      } catch (checkErr) {
+        console.warn("Failed checking TEMANBAIKHATI history:", checkErr);
+      }
+    }
+
+    if (checkPromoOnly) {
+      return NextResponse.json({ valid: true });
+    }
 
     // 1. Dynamically resolve variants from Scalev Store (with fast fallback)
     let selectedVariant = FALLBACK_VARIANTS[planId] || FALLBACK_VARIANTS.quarter;
@@ -88,22 +163,11 @@ export async function POST(req: Request) {
     const grossVariantTotal = unitPrice * quantity;
     const productDiscount = Math.max(0, grossVariantTotal - targetAmount);
 
-    // 3. Normalize phone number to 628... format
-    let cleanPhone = String(customerPhone || "").replace(/\D/g, "");
-    if (cleanPhone.startsWith("0")) {
-      cleanPhone = "62" + cleanPhone.slice(1);
-    } else if (cleanPhone.length > 0 && !cleanPhone.startsWith("62")) {
-      cleanPhone = "62" + cleanPhone;
-    }
-    if (cleanPhone.length < 10) {
-      cleanPhone = "6281234567890";
-    }
-
     const cleanName = customerName
       ? String(customerName).trim().substring(0, 60)
       : "Kawan Thrivin";
 
-    // 4. Create Order in Scalev via POST /v3/orders with PayLink
+    // 3. Create Order in Scalev via POST /v3/orders with PayLink
     const orderPayload = {
       store_unique_id: storeId,
       customer_name: cleanName,
@@ -116,7 +180,9 @@ export async function POST(req: Request) {
       ],
       product_discount: productDiscount,
       payment_method: "payment_link",
-      notes: `Onboarding Thrivin - ${planName || planId} (Rp ${targetAmount.toLocaleString("id-ID")})`,
+      notes: `Onboarding Thrivin - ${planName || planId}${
+        normalizedPromo ? ` [Promo: ${normalizedPromo}]` : ""
+      } (Rp ${targetAmount.toLocaleString("id-ID")})`,
     };
 
     const orderRes = await fetch("https://api.scalev.com/v3/orders", {
