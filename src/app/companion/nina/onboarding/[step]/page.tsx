@@ -144,12 +144,18 @@ export default function OnboardingStepPage({
     };
   }, [stepNum]);
 
-  // Load saved state from localStorage
+  // Load saved state from localStorage (always auto-apply TEMANBARU on load)
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        setData({ ...DEFAULT_DATA, ...JSON.parse(stored) });
+        const parsed = JSON.parse(stored);
+        setData({
+          ...DEFAULT_DATA,
+          ...parsed,
+          promoCode: "TEMANBARU",
+          promoApplied: true,
+        });
       }
     } catch (e) {
       console.error("Failed to load onboarding data", e);
@@ -171,25 +177,18 @@ export default function OnboardingStepPage({
     });
   };
 
-  // 1-Hour Countdown Timer for Applied Promo (ambiguous session timer, clears code when expired)
+  // 1-Hour Countdown Timer for Applied Promo (runs on Step 9, auto-resets if previous session expired)
   useEffect(() => {
     if (!isLoaded) return;
     if (!data.promoApplied) return;
 
     let expiry = Number(localStorage.getItem(COUNTDOWN_STORAGE_KEY));
     const now = Date.now();
-    if (!expiry) {
+    if (!expiry || expiry <= now) {
       expiry = now + 3600 * 1000;
       try {
         localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
       } catch (e) {}
-    } else if (expiry <= now) {
-      setCountdownSeconds(0);
-      updateData({ promoApplied: false, promoCode: "" });
-      try {
-        localStorage.removeItem(COUNTDOWN_STORAGE_KEY);
-      } catch (e) {}
-      return;
     }
 
     const updateTimer = () => {
