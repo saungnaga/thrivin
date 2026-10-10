@@ -300,16 +300,27 @@ export default function OnboardingStepPage({
   };
 
   const currentPlan = PLANS[data.selectedPlan] || PLANS.quarter;
-  const isPromoEligible = data.selectedPlan !== "month";
-  const discountRate = data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && isPromoEligible ? 0.2 : 0;
+  const activePromoCode = data.promoCode.trim().toUpperCase();
+  const isSecretPromo = data.promoApplied && activePromoCode === "TEMANBAIKHATI";
+  const isPublicPromo = data.promoApplied && activePromoCode === "TEMANBARU";
+  const isPromoEligible = data.selectedPlan !== "month" || isSecretPromo;
+  const discountRate = isSecretPromo
+    ? 0.99
+    : isPublicPromo && isPromoEligible
+    ? 0.2
+    : 0;
   const discountAmount = Math.round(currentPlan.totalPrice * discountRate);
   const finalPrice = currentPlan.totalPrice - discountAmount;
 
   // Struck-through helper for each card
   const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
     const plan = PLANS[planKey];
-    const isPlanPromoEligible = planKey !== "month";
-    const promoRate = data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && isPlanPromoEligible ? 0.2 : 0;
+    const isPlanPromoEligible = planKey !== "month" || isSecretPromo;
+    const promoRate = isSecretPromo
+      ? 0.99
+      : isPublicPromo && isPlanPromoEligible
+      ? 0.2
+      : 0;
     const disc = Math.round(plan.totalPrice * promoRate);
     const finalTotal = plan.totalPrice - disc;
     const finalMonthly = Math.round(plan.monthlyPrice * (1 - promoRate));
@@ -1701,7 +1712,10 @@ export default function OnboardingStepPage({
                     <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent text-brand-950">
                       Coba Dulu
                     </span>
-                    <span>Terpilih: Paket 1 Bulan Trial (Rp 99.000)</span>
+                    <span>
+                      Terpilih: Paket 1 Bulan Trial (Rp{" "}
+                      {getPlanPricing("month").discountedTotal.toLocaleString("id-ID")})
+                    </span>
                     <button
                       type="button"
                       onClick={() => updateData({ selectedPlan: "quarter" })}
@@ -1721,7 +1735,8 @@ export default function OnboardingStepPage({
                     </span>
                     <span>Belum yakin dengan komitmen panjang?</span>
                     <span className="underline underline-offset-4 text-brand-900 font-bold group-hover:text-accent-dark">
-                      Coba 1 bulan dulu seharga Rp 99.000
+                      Coba 1 bulan dulu seharga Rp{" "}
+                      {getPlanPricing("month").discountedTotal.toLocaleString("id-ID")}
                     </span>
                     <span className="text-accent-dark group-hover:translate-x-0.5 transition-transform font-bold">&rarr;</span>
                   </button>
@@ -1747,13 +1762,14 @@ export default function OnboardingStepPage({
                   <button
                     type="button"
                     onClick={() => {
-                      if (data.promoCode.trim().toUpperCase() === "TEMANBARU") {
+                      const typedCode = data.promoCode.trim().toUpperCase();
+                      if (typedCode === "TEMANBARU" || typedCode === "TEMANBAIKHATI") {
                         const newExpiry = Date.now() + 3600 * 1000;
                         try {
                           localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
                         } catch (e) {}
                         setCountdownSeconds(3600);
-                        updateData({ promoApplied: true, promoCode: "TEMANBARU" });
+                        updateData({ promoApplied: true, promoCode: typedCode });
                       } else {
                         updateData({ promoApplied: false });
                       }
@@ -1764,13 +1780,15 @@ export default function OnboardingStepPage({
                   </button>
                 </div>
 
-                {data.promoApplied && data.promoCode.toUpperCase() === "TEMANBARU" && (
+                {data.promoApplied && (isPublicPromo || isSecretPromo) && (
                   <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      {data.selectedPlan === "month"
-                        ? `Kode ${data.promoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
-                        : `Kode promo ${data.promoCode} berhasil terpasang (Diskon 20%).`}
+                      {isSecretPromo
+                        ? `Kode promo ${activePromoCode} berhasil terpasang (Diskon 99%).`
+                        : data.selectedPlan === "month"
+                        ? `Kode ${activePromoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
+                        : `Kode promo ${activePromoCode} berhasil terpasang (Diskon 20%).`}
                     </span>
                   </div>
                 )}
@@ -1784,7 +1802,9 @@ export default function OnboardingStepPage({
                 </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>Diskon Promo 20% (TEMANBARU)</span>
+                    <span>
+                      Diskon Promo {Math.round(discountRate * 100)}% ({activePromoCode})
+                    </span>
                     <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
                   </div>
                 )}

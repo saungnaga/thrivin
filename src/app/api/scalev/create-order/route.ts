@@ -35,7 +35,9 @@ export async function POST(req: Request) {
     const apiKey = process.env.SCALEV_API_KEY || DEFAULT_SCALEV_API_KEY;
     const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
 
-    const targetAmount = Math.round(Number(amount) || 184800);
+    const rawAmount = Math.round(Number(amount) || 184800);
+    // Scalev E-Payment / PayLink enforces a strict minimum gross_revenue of Rp 10.000
+    const targetAmount = Math.max(10000, rawAmount);
 
     // 1. Dynamically resolve variants from Scalev Store (with fast fallback)
     let selectedVariant = FALLBACK_VARIANTS[planId] || FALLBACK_VARIANTS.quarter;
