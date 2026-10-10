@@ -359,7 +359,7 @@ export default function OnboardingStepPage({
     }, 2200);
   };
 
-  // Midtrans Snap Checkout
+  // Scalev API Dynamic Checkout (checkout.thrivin.id)
   const handleCheckout = async () => {
     setIsCheckingOut(true);
     setCheckoutError("");
@@ -372,7 +372,7 @@ export default function OnboardingStepPage({
     });
 
     try {
-      const response = await fetch("/api/midtrans/create-transaction", {
+      const response = await fetch("/api/scalev/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -386,60 +386,20 @@ export default function OnboardingStepPage({
 
       const resData = await response.json();
 
-      if (!response.ok || !resData.token) {
+      if (!response.ok || !resData.paymentUrl) {
         throw new Error(
-          Array.isArray(resData.error)
-            ? resData.error.join(", ")
-            : resData.error || "Gagal menghubungkan sesi pembayaran Midtrans"
+          resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
         );
       }
 
-      const snapToken = resData.token;
-
-      if (typeof window !== "undefined" && window.snap) {
-        window.snap.pay(snapToken, {
-          onSuccess: (result: any) => {
-            setIsCheckingOut(false);
-            setCheckoutComplete(true);
-
-            // Meta Pixel: Purchase
-            fbqTrack("Purchase", {
-              content_name: currentPlan.name,
-              value: finalPrice,
-              currency: "IDR",
-              order_id: result?.order_id || resData.orderId,
-            });
-
-            const nameParam = encodeURIComponent(data.name || "Kawan Thrivin");
-            const planParam = encodeURIComponent(currentPlan.name);
-            const orderParam = encodeURIComponent(result?.order_id || resData.orderId);
-            setTimeout(() => {
-              window.location.href = `https://wa.me/6287788141388?text=Halo%20Nina!%20Saya%20${nameParam}%20sudah%20selesai%20pembayaran%20${planParam}%20(Order%20ID:%20${orderParam}).%20Siap%20memulai%20pendampingan!`;
-            }, 1200);
-          },
-          onPending: (result: any) => {
-            setIsCheckingOut(false);
-            console.log("Midtrans payment pending:", result);
-          },
-          onError: (err: any) => {
-            setIsCheckingOut(false);
-            console.error("Midtrans payment error:", err);
-            setCheckoutError("Pembayaran belum berhasil diselesaikan. Silakan coba kembali.");
-          },
-          onClose: () => {
-            setIsCheckingOut(false);
-          },
-        });
-      } else if (resData.redirectUrl) {
-        // Fallback to Midtrans Hosted Payment page if snap modal is blocked or unavailable
-        window.location.href = resData.redirectUrl;
-      } else {
-        throw new Error("Sistem pembayaran sedang menyiapkan modul. Coba refresh halaman.");
-      }
+      setCheckoutComplete(true);
+      window.location.href = resData.paymentUrl;
     } catch (err: any) {
       setIsCheckingOut(false);
-      console.error("Checkout error:", err);
-      setCheckoutError(err?.message || "Terjadi kesalahan saat memproses pembayaran.");
+      console.error("Scalev checkout error:", err);
+      setCheckoutError(
+        err?.message || "Terjadi kesalahan saat menyiapkan halaman pembayaran."
+      );
     }
   };
 
@@ -1861,9 +1821,9 @@ export default function OnboardingStepPage({
                 className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isCheckingOut ? (
-                  <span className="text-white font-bold">Menyiapkan Pembayaran...</span>
+                  <span className="text-white font-bold">Menyiapkan Halaman Pembayaran...</span>
                 ) : checkoutComplete ? (
-                  <span className="text-white font-bold">✓ Pembayaran Berhasil! Membuka WhatsApp Nina...</span>
+                  <span className="text-white font-bold">✓ Mengalihkan ke checkout.thrivin.id...</span>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-accent" />
@@ -1890,21 +1850,6 @@ export default function OnboardingStepPage({
           </div>
         )}
       </main>
-
-      {/* Midtrans Snap JS Script */}
-      {stepNum === 9 && (
-        <Script
-          src={
-            process.env.NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION === "false"
-              ? "https://app.sandbox.midtrans.com/snap/snap.js"
-              : "https://app.midtrans.com/snap/snap.js"
-          }
-          data-client-key={
-            process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || "Mid-client-S9_tofxC0A1DLayl"
-          }
-          strategy="afterInteractive"
-        />
-      )}
     </div>
   );
 }
