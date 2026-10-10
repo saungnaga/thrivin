@@ -142,10 +142,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const paymentUrl =
+    let paymentUrl: string =
       orderData?.pg_payment_info?.payment_url ||
       orderData?.payment_url ||
-      orderData?.public_order_url;
+      orderData?.public_order_url ||
+      "";
+
+    // Automatically check if custom domain SSL (checkout.thrivin.id) is active;
+    // if SSL certificate is still provisioning/failing handshake, fallback to thrivin.myscalev.com
+    if (paymentUrl.includes("checkout.thrivin.id")) {
+      try {
+        await fetch(paymentUrl, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(1500),
+        });
+      } catch {
+        paymentUrl = paymentUrl.replace(
+          "checkout.thrivin.id",
+          "thrivin.myscalev.com"
+        );
+      }
+    }
 
     return NextResponse.json({
       orderId: orderData.order_id,
