@@ -304,23 +304,28 @@ export default function OnboardingStepPage({
   const isSecretPromo = data.promoApplied && activePromoCode === "TEMANBAIKHATI";
   const isPublicPromo = data.promoApplied && activePromoCode === "TEMANBARU";
   const isPromoEligible = data.selectedPlan !== "month" || isSecretPromo;
-  const discountRate = isSecretPromo
-    ? 0.99
-    : isPublicPromo && isPromoEligible
-    ? 0.2
-    : 0;
-  const discountAmount = Math.round(currentPlan.totalPrice * discountRate);
+  const discountRate = isPublicPromo && isPromoEligible ? 0.2 : 0;
+  const discountAmount = isSecretPromo
+    ? Math.max(0, currentPlan.totalPrice - 10000)
+    : Math.round(currentPlan.totalPrice * discountRate);
   const finalPrice = currentPlan.totalPrice - discountAmount;
 
   // Struck-through helper for each card
   const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
     const plan = PLANS[planKey];
     const isPlanPromoEligible = planKey !== "month" || isSecretPromo;
-    const promoRate = isSecretPromo
-      ? 0.99
-      : isPublicPromo && isPlanPromoEligible
-      ? 0.2
-      : 0;
+    if (isSecretPromo) {
+      const months =
+        planKey === "month" ? 1 : planKey === "quarter" ? 3 : planKey === "half" ? 6 : 12;
+      return {
+        originalTotal: plan.totalPrice,
+        discountedTotal: 10000,
+        originalMonthly: plan.monthlyPrice,
+        discountedMonthly: Math.round(10000 / months),
+        hasDiscount: true,
+      };
+    }
+    const promoRate = isPublicPromo && isPlanPromoEligible ? 0.2 : 0;
     const disc = Math.round(plan.totalPrice * promoRate);
     const finalTotal = plan.totalPrice - disc;
     const finalMonthly = Math.round(plan.monthlyPrice * (1 - promoRate));
@@ -1785,7 +1790,7 @@ export default function OnboardingStepPage({
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
                       {isSecretPromo
-                        ? `Kode promo ${activePromoCode} berhasil terpasang (Diskon 99%).`
+                        ? `Kode promo ${activePromoCode} berhasil terpasang (Harga Spesial Rp 10.000).`
                         : data.selectedPlan === "month"
                         ? `Kode ${activePromoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
                         : `Kode promo ${activePromoCode} berhasil terpasang (Diskon 20%).`}
@@ -1803,7 +1808,9 @@ export default function OnboardingStepPage({
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-emerald-700 font-semibold">
                     <span>
-                      Diskon Promo {Math.round(discountRate * 100)}% ({activePromoCode})
+                      {isSecretPromo
+                        ? `Potongan Kode Khusus (${activePromoCode})`
+                        : `Diskon Promo ${Math.round(discountRate * 100)}% (${activePromoCode})`}
                     </span>
                     <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
                   </div>
