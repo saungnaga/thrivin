@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { saveOnboardingSnapshot } from "@/lib/onboarding-store";
 
-const DEFAULT_SCALEV_API_KEY =
-  "sk_d9aoSFp3FUKA8qyG6J0JpOTM3909cTqwvwF5cVr775g4b1YHashK99q4i2sb4twu";
+// No hardcoded fallback: a leaked key in a public repo is a live payment
+// credential. Fail closed instead of silently using a baked-in secret.
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
 // Default variant mapping from store_ius5tpSzfbS8SlB8GTjdGaBA (Thrivin.id)
@@ -47,9 +48,16 @@ export async function POST(req: Request) {
       customerPhone,
       promoCode,
       checkPromoOnly,
+      onboarding,
     } = body;
 
-    const apiKey = process.env.SCALEV_API_KEY || DEFAULT_SCALEV_API_KEY;
+    const apiKey = process.env.SCALEV_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "SCALEV_API_KEY is not configured" },
+        { status: 500 }
+      );
+    }
     const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
 
     // Normalize phone number to 628... format
@@ -167,6 +175,34 @@ export async function POST(req: Request) {
       ? String(customerName).trim().substring(0, 60)
       : "Kawan Thrivin";
 
+    // Save onboarding snapshot temporarily if provided
+    if (onboarding) {
+      await saveOnboardingSnapshot(cleanPhone, null, onboarding);
+    }
+
+    let orderNotes = `Onboarding Thrivin - ${planName || planId}${
+      normalizedPromo ? ` [Promo: ${normalizedPromo}]` : ""
+    } (Rp ${targetAmount.toLocaleString("id-ID")})`;
+
+    if (onboarding) {
+      const summaryParts: string[] = [];
+      if (onboarding.gender) summaryParts.push(String(onboarding.gender));
+      if (onboarding.age) summaryParts.push(`${onboarding.age}th`);
+      if (onboarding.weight && onboarding.height) {
+        summaryParts.push(`${onboarding.weight}kg/${onboarding.height}cm`);
+      }
+      if (onboarding.activityLevel) summaryParts.push(String(onboarding.activityLevel));
+      if (onboarding.programFocus) {
+        const focusStr = Array.isArray(onboarding.programFocus)
+          ? onboarding.programFocus.join(", ")
+          : String(onboarding.programFocus);
+        if (focusStr) summaryParts.push(`Fokus: ${focusStr}`);
+      }
+      if (summaryParts.length > 0) {
+        orderNotes += ` | Profil: ${summaryParts.join(" • ")}`;
+      }
+    }
+
     // 3. Create Order in Scalev via POST /v3/orders with PayLink
     const orderPayload = {
       store_unique_id: storeId,
@@ -180,9 +216,7 @@ export async function POST(req: Request) {
       ],
       product_discount: productDiscount,
       payment_method: "payment_link",
-      notes: `Onboarding Thrivin - ${planName || planId}${
-        normalizedPromo ? ` [Promo: ${normalizedPromo}]` : ""
-      } (Rp ${targetAmount.toLocaleString("id-ID")})`,
+      notes: orderNotes,
     };
 
     const orderRes = await fetch("https://api.scalev.com/v3/orders", {
@@ -230,6 +264,11 @@ export async function POST(req: Request) {
           "thrivin.myscalev.com"
         );
       }
+    }
+
+    const createdOrderId = orderData.order_id || orderData.id || null;
+    if (onboarding && createdOrderId) {
+      await saveOnboardingSnapshot(cleanPhone, String(createdOrderId), onboarding);
     }
 
     return NextResponse.json({

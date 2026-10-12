@@ -14,8 +14,13 @@ export async function POST(req: Request) {
       payment_type,
     } = body;
 
-    const serverKey =
-      process.env.MIDTRANS_SERVER_KEY || "Mid-server-X-YtdEZ4XuC7foCcW74MJMVH";
+    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    if (!serverKey) {
+      return NextResponse.json(
+        { error: "MIDTRANS_SERVER_KEY is not configured" },
+        { status: 500 }
+      );
+    }
 
     // Verify signature key to prevent spoofing
     const signatureString = `${order_id}${status_code}${gross_amount}${serverKey}`;

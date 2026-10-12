@@ -396,6 +396,17 @@ export default function OnboardingStepPage({
           customerName: data.name,
           customerPhone: data.whatsappNumber,
           promoCode: data.promoApplied ? activePromoCode : "",
+          onboarding: {
+            gender: data.gender,
+            age: data.age,
+            weight: data.weight,
+            height: data.height,
+            activityLevel: data.activityLevel,
+            workoutLocation: data.workoutLocation,
+            programFocus: data.programFocus,
+            biggestChallenge: data.biggestChallenge,
+            communicationStyle: data.communicationStyle,
+          },
         }),
       });
 
