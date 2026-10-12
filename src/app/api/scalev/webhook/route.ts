@@ -1,24 +1,23 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { normalizePhone } from "@/lib/phone";
+import { resolveSubscriptionPlan } from "@/lib/plans";
+import { limitRequest } from "@/lib/rate-limit";
 import {
   getOnboardingSnapshot,
-  isWebhookEventProcessed,
-  recordWebhookEvent,
+  claimWebhookEvent,
+  finalizeWebhookEvent,
   activateUserSubscription,
   isTimestampWithinReplayWindow,
+  buildAuditPayload,
   redactError,
 } from "@/lib/onboarding-store";
 
-function safeNormalizePhone(phone: string): string {
-  let clean = String(phone || "").replace(/\D/g, "");
-  if (clean.startsWith("0")) {
-    clean = "62" + clean.slice(1);
-  } else if (clean.length > 0 && !clean.startsWith("62")) {
-    clean = "62" + clean;
-  }
-  return clean;
-}
-
+/**
+ * Scalev signs with HMAC-SHA256 and transmits base64 (L-1). The previous
+ * "guess hex vs base64 from length" heuristic could silently mis-parse a
+ * 64-char base64 signature; the spec is base64, so we only accept base64.
+ */
 function verifyScalevSignature(
   rawBody: string,
   signatureHeader: string | null,
@@ -26,86 +25,64 @@ function verifyScalevSignature(
 ): boolean {
   if (!signatureHeader) return false;
   try {
-    const expected = crypto
-      .createHmac("sha256", secret)
-      .update(rawBody)
-      .digest();
-
-    let received: Buffer;
-    if (signatureHeader.length === 64 && !signatureHeader.includes("=")) {
-      // Hex encoding
-      received = Buffer.from(signatureHeader, "hex");
-    } else {
-      // Base64 encoding (official Scalev specification)
-      received = Buffer.from(signatureHeader, "base64");
-    }
-
-    if (received.length !== expected.length) {
-      return false;
-    }
-
+    const expected = crypto.createHmac("sha256", secret).update(rawBody).digest();
+    const received = Buffer.from(signatureHeader, "base64");
+    if (received.length !== expected.length) return false;
     return crypto.timingSafeEqual(received, expected);
   } catch {
     return false;
   }
 }
 
+// Per-IP ceiling: Scalev retries are a handful of deliveries per order.
+const IP_LIMIT = 120;
+const PHONE_LIMIT = 60;
+
 export async function POST(req: Request) {
   try {
-    const rawBody = await req.text();
-    const signature =
-      req.headers.get("x-scalev-hmac-sha256") ||
-      req.headers.get("X-Scalev-Hmac-Sha256");
-
-    const secret = process.env.SCALEV_WEBHOOK_SECRET || process.env.SCALEV_API_KEY || "";
+    // B-1: exactly one source of truth for the signing secret. It is NOT the
+    // API key — different credential, different rotation. Missing config means
+    // we refuse to verify rather than HMAC with an empty key (which accepted
+    // any attacker-computed signature).
+    const secret = process.env.SCALEV_WEBHOOK_SECRET;
     if (!secret) {
-      console.error("[Scalev Webhook] No signing secret configured — rejecting");
+      console.error(
+        "[Scalev Webhook] SCALEV_WEBHOOK_SECRET is not configured — refusing to verify"
+      );
       return NextResponse.json(
         { error: "Webhook signing secret is not configured" },
         { status: 500 }
       );
     }
 
+    const rawBody = await req.text();
+    const signature =
+      req.headers.get("x-scalev-hmac-sha256") ||
+      req.headers.get("X-Scalev-Hmac-Sha256");
+
     // 1. Signature Verification with Constant-Time Comparison
-    const isValid = verifyScalevSignature(rawBody, signature, secret);
-    if (!isValid) {
+    if (!verifyScalevSignature(rawBody, signature, secret)) {
       console.warn("[Scalev Webhook] Invalid HMAC signature rejected");
-      return NextResponse.json(
-        { error: "Invalid signature" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
     // 2. Parse Body
-    let body: any;
+    let body: Record<string, any>;
     try {
       body = JSON.parse(rawBody);
     } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
-
-    const event = body.event || body.type;
 
     // 3. Replay guard: reject bodies whose signed timestamp is outside the window.
     const eventTimestamp =
-      body.created_at || body.timestamp || body.event_created_at || body.data?.created_at;
+      body.timestamp || body.created_at || body.event_created_at || body.data?.created_at;
     const replay = isTimestampWithinReplayWindow(eventTimestamp);
     if (!replay.ok) {
       console.warn(
         `[Scalev Webhook] Replay/stale timestamp rejected (skew=${
-          replay.skewSeconds === null ? "n/a" : `${replay.skewSeconds}s`
+          replay.skewSeconds === null ? "n/a" : `${Math.round(replay.skewSeconds)}s`
         })`
-      );
-      await recordWebhookEvent(
-        String(body.unique_id || body.id || `evt_${Date.now()}`),
-        event || "unknown",
-        body,
-        null,
-        null,
-        { status: "failed", error: "replay_window_exceeded" }
       );
       return NextResponse.json(
         { ok: false, error: "Stale or missing timestamp", code: "REPLAY_WINDOW_EXCEEDED" },
@@ -113,27 +90,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Handle Scalev Test Event (Settings > Developers > Webhooks activation)
+    const event = body.event || body.type;
+
+    // 4. Scalev handshake (Settings > Developers > Webhooks activation)
     if (event === "business.test_event") {
-      console.log("[Scalev Webhook] business.test_event verified and accepted");
       return NextResponse.json({ ok: true, message: "Test event received" });
     }
 
-    // 5. Handle Payment Received Event
+    // 5. Payment fulfilment
     if (event === "payment.received" || event === "order.paid") {
-      const eventId =
-        body.unique_id ||
-        body.event_id ||
-        body.id ||
-        `evt_${Date.now()}`;
+      const eventId = body.unique_id || body.event_id || body.id || `evt_${Date.now()}`;
+      const data = (body.data || body) as Record<string, any>;
 
-      const data = body.data || body;
       const orderUniqueId =
-        data.order_unique_id ||
-        data.order_id ||
-        data.unique_id ||
-        data.id ||
-        null;
+        data.order_id || data.order_unique_id || data.unique_id || data.id || null;
 
       const rawPhone =
         data.customer_phone ||
@@ -141,7 +111,13 @@ export async function POST(req: Request) {
         data.customer?.phone ||
         data.phone ||
         "";
-      const cleanPhone = safeNormalizePhone(rawPhone);
+      const cleanPhone = normalizePhone(rawPhone);
+      if (!cleanPhone) {
+        return NextResponse.json(
+          { ok: false, error: "Missing or invalid customer phone", code: "INVALID_PHONE" },
+          { status: 400 }
+        );
+      }
 
       const customerName =
         data.customer_name ||
@@ -150,106 +126,91 @@ export async function POST(req: Request) {
         data.name ||
         "Kawan Thrivin";
 
-      // Fulfillment key: paid and settled for the SAME order are the same logical
-      // event. Dedup by order first so out-of-order deliveries (settled before
-      // paid, or a replay of either) collapse to one activation.
-      const paymentStatus = String(
-        data.payment_status || data.status || ""
-      ).toLowerCase();
-      const fulfillmentKey = orderUniqueId || eventId;
-
-      // Idempotency / Deduplication Check (out-of-order safe: keyed on order)
-      const isAlreadyProcessed = await isWebhookEventProcessed(
-        eventId,
-        fulfillmentKey
-      );
-
-      if (isAlreadyProcessed) {
-        console.log(
-          `[Scalev Webhook] Dedup hit: event ${eventId} / fulfillment ${fulfillmentKey} already processed`
+      // Rate limit per IP + per phone number (B-2).
+      const limited = limitRequest(req, "scalev-webhook", {
+        ipLimit: IP_LIMIT,
+        phoneLimit: PHONE_LIMIT,
+        phone: cleanPhone,
+      });
+      if (!limited.ok) {
+        return NextResponse.json(
+          { ok: false, error: "Too many requests", code: "RATE_LIMITED" },
+          { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } }
         );
-        // Persist the duplicate for audit + out-of-order visibility.
-        await recordWebhookEvent(
-          eventId,
-          event,
-          body,
-          orderUniqueId,
-          cleanPhone,
-          { status: "duplicate" }
+      }
+
+      // paid and settled for the SAME order are one logical fulfilment. The key
+      // is the order, so out-of-order or replayed deliveries collapse to one.
+      const fulfillmentKey = String(orderUniqueId || eventId);
+
+      // H-6: the dedup decision IS the insert. Only the delivery that wins the
+      // unique index on (tenant_id, source, fulfillment_key) may activate.
+      const auditPayload = buildAuditPayload(data, rawBody);
+      let claim;
+      try {
+        claim = await claimWebhookEvent({
+          eventId: String(eventId),
+          eventType: String(event),
+          orderId: orderUniqueId ? String(orderUniqueId) : null,
+          phone: cleanPhone,
+          fulfillmentKey,
+          payload: auditPayload,
+        });
+      } catch (err) {
+        console.error("[Scalev Webhook] Claim failed — event NOT processed:", redactError(err));
+        return NextResponse.json(
+          { ok: false, error: "Failed to record event; retry expected", code: "CLAIM_FAILED" },
+          { status: 500 }
         );
+      }
+
+      if (!claim.claimed) {
+        // Lost the race (or a replay). Do not activate; 200 so Scalev stops retrying.
         return NextResponse.json({
           ok: true,
-          message: "Event already processed (idempotent)",
-          eventId,
+          eventId: String(eventId),
           orderId: orderUniqueId,
+          message: "Event already processed (idempotent)",
         });
       }
 
-      // Fetch snapshot data (from Supabase or local persistent fallback)
-      const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
-
-      // Activate user & format Nina memory profile
-      let activation: { success: boolean; memory: string; userId?: string };
       try {
-        activation = await activateUserSubscription(
-          cleanPhone,
-          customerName,
-          snapshot
-        );
-      } catch (err) {
-        // Never leak PII/secrets into the durable error column.
-        await recordWebhookEvent(eventId, event, body, orderUniqueId, cleanPhone, {
-          status: "failed",
-          error: err,
+        const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
+        const plan = resolveSubscriptionPlan(snapshot?.plan_key);
+        const activation = await activateUserSubscription(cleanPhone, customerName, snapshot);
+        await finalizeWebhookEvent(String(eventId), {
+          status: activation.success ? "completed" : "failed",
         });
+
+        // M-4: event/order ids only — no phone number, no customer name.
+        console.log(
+          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success}`
+        );
+
+        // M-3: no PII echoed back to the caller or any intermediary log.
+        return NextResponse.json({
+          ok: true,
+          eventId: String(eventId),
+          orderId: orderUniqueId,
+          userActivated: activation.success,
+        });
+      } catch (err) {
+        await finalizeWebhookEvent(String(eventId), { status: "failed", error: err });
         throw err;
       }
-
-      // Record into durable inbox (status transition: received -> completed)
-      await recordWebhookEvent(
-        eventId,
-        event,
-        body,
-        orderUniqueId,
-        cleanPhone,
-        { status: activation.success ? "completed" : "failed" }
-      );
-
-      console.log(
-        `[Scalev Webhook] Successfully processed payment for ${cleanPhone} (${customerName}), order: ${orderUniqueId}, status: ${paymentStatus || "unknown"}`
-      );
-
-      return NextResponse.json({
-        ok: true,
-        eventId,
-        orderId: orderUniqueId,
-        phone: cleanPhone,
-        customerName,
-        paymentStatus: paymentStatus || null,
-        userActivated: activation.success,
-        memoryFormatted: true,
-      });
     }
 
-    // 5. Default 200 for other recognized webhook events
-    return NextResponse.json({
-      ok: true,
-      event,
-      message: "Event acknowledged",
-    });
+    // 6. Default 200 for other recognised webhook events
+    return NextResponse.json({ ok: true, event, message: "Event acknowledged" });
   } catch (error: any) {
-    console.error("[Scalev Webhook] Unhandled exception:", error);
+    console.error("[Scalev Webhook] Unhandled exception:", redactError(error));
     return NextResponse.json(
-      { error: error?.message || "Internal server error" },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    service: "thrivin-scalev-webhook",
-    version: "2.0.0",
-  });
+  return NextResponse.json({ status: "ok", service: "thrivin-scalev-webhook" });
 }

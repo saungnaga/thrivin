@@ -1,32 +1,21 @@
 import { NextResponse } from "next/server";
-import { saveOnboardingSnapshot } from "@/lib/onboarding-store";
+import { normalizePhone } from "@/lib/phone";
+import {
+  PLAN_CATALOG,
+  PLAN_LOOKUP_KEYWORDS,
+  isPlanKey,
+  resolvePlanPrice,
+  type PlanKey,
+} from "@/lib/plans";
+import { validateOnboardingProfile } from "@/lib/validate-onboarding";
+import { limitRequest } from "@/lib/rate-limit";
+import { saveOnboardingSnapshot, redactError } from "@/lib/onboarding-store";
 
-// No hardcoded fallback: a leaked key in a public repo is a live payment
-// credential. Fail closed instead of silently using a baked-in secret.
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
-// Default variant mapping from store_ius5tpSzfbS8SlB8GTjdGaBA (Thrivin.id)
-const FALLBACK_VARIANTS: Record<
-  string,
-  { uniqueId: string; price: number }
-> = {
-  month: {
-    uniqueId: "variant_vF4j4Pwv1wIizRu3VP6FVOgt", // Checkout Nina 1 Bulan
-    price: 99000,
-  },
-  quarter: {
-    uniqueId: "variant_HQdTVIe99NfKi4yjdryOprFc", // Checkout Nina 3 Bulan
-    price: 219000,
-  },
-  half: {
-    uniqueId: "variant_f_rx-DoyHQGghKA9LCQsaoz9", // Checkout Nina 6 Bulan
-    price: 359000,
-  },
-  year: {
-    uniqueId: "variant_f_rx-DoyHQGghKA9LCQsaoz9", // Checkout Nina 6 Bulan (x2 = 12 Bulan fallback)
-    price: 359000,
-  },
-};
+// Test seam (M-7): the suite points this at a local mock so no test ever creates
+// a real order in the Scalev production account. Default is the real API.
+const SCALEV_API_BASE = process.env.SCALEV_API_BASE_URL || "https://api.scalev.com";
 
 const PAID_ORDER_STATUSES = new Set([
   "confirmed",
@@ -37,64 +26,133 @@ const PAID_ORDER_STATUSES = new Set([
   "closed",
 ]);
 
+const IP_LIMIT = 10;
+const PHONE_LIMIT = 5;
+
+function tooMany(limited: { retryAfterSeconds: number }) {
+  return NextResponse.json(
+    { error: "Terlalu banyak permintaan. Coba lagi sebentar lagi.", code: "RATE_LIMITED" },
+    { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } }
+  );
+}
+
+/**
+ * Resolve the live Scalev variant for a plan. The variant's registered price is
+ * the source of truth for what Scalev will charge; `product_discount` is only
+ * used to honour a promo.
+ */
+async function lookupVariant(
+  storeId: string,
+  apiKey: string,
+  plan: PlanKey
+): Promise<{ uniqueId: string; price: number }> {
+  const fallback = {
+    uniqueId: PLAN_CATALOG[plan].fallbackVariantId,
+    price: PLAN_CATALOG[plan].fallbackVariantPrice,
+  };
+  try {
+    const res = await fetch(`${SCALEV_API_BASE}/v3/stores/${storeId}/products`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      next: { revalidate: 60 },
+    } as RequestInit);
+    if (!res.ok) return fallback;
+    const json = await res.json();
+    const products: any[] = json?.data || [];
+    const keywords = PLAN_LOOKUP_KEYWORDS[plan];
+    const match = products.find((p) =>
+      keywords.some((kw) => String(p.name || "").toLowerCase().includes(kw))
+    );
+    const variant = match?.variants?.[0];
+    if (!variant?.unique_id) return fallback;
+    return {
+      uniqueId: variant.unique_id,
+      price: Math.round(Number(variant.price)) || fallback.price,
+    };
+  } catch (err) {
+    console.warn("Scalev product lookup fallback used:", redactError(err));
+    return fallback;
+  }
+}
+
+/**
+ * Map a variant's registered price back onto a plan key, but only when the
+ * mapping is unambiguous (L-7 / M-6). Returns null when two plans share a price
+ * so quota is never guessed.
+ */
+function planKeyFromVariantPrice(price: number): PlanKey | null {
+  const matches = (Object.keys(PLAN_CATALOG) as PlanKey[]).filter(
+    (k) => PLAN_CATALOG[k].fallbackVariantPrice === price
+  );
+  if (matches.length === 0) return null;
+  // Identical fallback variant × price (half/year) is not unambiguous.
+  const distinctVariants = new Set(matches.map((k) => PLAN_CATALOG[k].fallbackVariantId));
+  return distinctVariants.size === 1 ? null : matches[0];
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const {
-      planId,
-      planName,
-      amount,
-      customerName,
-      customerPhone,
-      promoCode,
-      checkPromoOnly,
-      onboarding,
-    } = body;
+    const { planId, customerName, customerPhone, promoCode, checkPromoOnly, onboarding } = body;
 
     const apiKey = process.env.SCALEV_API_KEY;
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "SCALEV_API_KEY is not configured" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "SCALEV_API_KEY is not configured" }, { status: 500 });
     }
     const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
 
-    // Normalize phone number to 628... format
-    let cleanPhone = String(customerPhone || "").replace(/\D/g, "");
-    if (cleanPhone.startsWith("0")) {
-      cleanPhone = "62" + cleanPhone.slice(1);
-    } else if (cleanPhone.length > 0 && !cleanPhone.startsWith("62")) {
-      cleanPhone = "62" + cleanPhone;
-    }
-    if (cleanPhone.length < 10) {
-      cleanPhone = "6281234567890";
+    // M-5: one shared normaliser; invalid input is rejected, never substituted
+    // with a hardcoded number (which could merge two customers into one).
+    const cleanPhone = normalizePhone(customerPhone);
+    if (!cleanPhone) {
+      return NextResponse.json(
+        { error: "Nomor WhatsApp tidak valid.", code: "INVALID_PHONE" },
+        { status: 400 }
+      );
     }
 
-    const normalizedPromo = String(promoCode || "")
-      .trim()
-      .toUpperCase();
-    const rawAmount = Math.round(Number(amount) || 184800);
-    const targetAmount = Math.max(10000, rawAmount);
+    const limited = limitRequest(req, "scalev-create-order", {
+      ipLimit: IP_LIMIT,
+      phoneLimit: PHONE_LIMIT,
+      phone: cleanPhone,
+    });
+    if (!limited.ok) return tooMany(limited);
 
-    // Enforce 1x paid usage per phone number for secret promo TEMANBAIKHATI
-    if (normalizedPromo === "TEMANBAIKHATI" || targetAmount <= 10000) {
+    const normalizedPromo = String(promoCode || "").trim().toUpperCase();
+
+    if (!isPlanKey(planId)) {
+      return NextResponse.json(
+        { error: "Paket tidak dikenal.", code: "INVALID_PLAN" },
+        { status: 400 }
+      );
+    }
+    const plan = planId;
+
+    // B-2: server-side validation of the onboarding profile. 400 on anything
+    // outside the documented ranges/enums — the browser form is not a control.
+    const validated = validateOnboardingProfile(onboarding);
+    if (!validated.ok) {
+      return NextResponse.json(
+        { error: "Data onboarding tidak valid.", code: "INVALID_ONBOARDING", details: validated.errors },
+        { status: 400 }
+      );
+    }
+    const onboardingProfile = validated.profile;
+
+    // Enforce 1x paid usage per phone number for the TEMANBAIKHATI secret promo.
+    const provisionalPrice = resolvePlanPrice(plan, normalizedPromo).price;
+    if (normalizedPromo === "TEMANBAIKHATI" || provisionalPrice <= 10000) {
       try {
         const historyRes = await fetch(
-          `https://api.scalev.com/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
+          `${SCALEV_API_BASE}/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
             cleanPhone
           )}`,
-          {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            cache: "no-store",
-          }
+          { headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store" } as RequestInit
         );
 
         if (historyRes.ok) {
           const historyData = await historyRes.json();
           const orders: any[] = historyData?.data || [];
-
-          const alreadyUsedPaidPromo = orders.some((order) => {
+          const rollBackPromo = orders.some((order: any) => {
             const isPaid =
               PAID_ORDER_STATUSES.has(String(order.status || "").toLowerCase()) ||
               Number(order.net_payment_revenue || 0) > 0;
@@ -102,7 +160,7 @@ export async function POST(req: Request) {
             return isPaid && isTenKPromoOrder;
           });
 
-          if (alreadyUsedPaidPromo) {
+          if (rollBackPromo) {
             return NextResponse.json(
               {
                 error:
@@ -114,7 +172,7 @@ export async function POST(req: Request) {
           }
         }
       } catch (checkErr) {
-        console.warn("Failed checking TEMANBAIKHATI history:", checkErr);
+        console.warn("Failed checking TEMANBAIKHATI history:", redactError(checkErr));
       }
     }
 
@@ -122,52 +180,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ valid: true });
     }
 
-    // 1. Dynamically resolve variants from Scalev Store (with fast fallback)
-    let selectedVariant = FALLBACK_VARIANTS[planId] || FALLBACK_VARIANTS.quarter;
+    // B-2: price comes from the server catalog + the live variant price, never
+    // from the client. The request's `amount` field is ignored entirely.
+    const variant = await lookupVariant(storeId, apiKey, plan);
+    const { price: targetAmount, promoApplied } = resolvePlanPrice(plan, normalizedPromo);
+    // Quota follows the plan actually bought (M-6).
+    const planKey = planKeyFromVariantPrice(variant.price) ?? plan;
 
-    try {
-      const prodRes = await fetch(
-        `https://api.scalev.com/v3/stores/${storeId}/products`,
-        {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          next: { revalidate: 60 },
-        }
-      );
-
-      if (prodRes.ok) {
-        const prodJson = await prodRes.json();
-        const products: any[] = prodJson?.data || [];
-
-        const matchKeyword =
-          planId === "month"
-            ? ["1 bulan", "30 hari"]
-            : planId === "quarter"
-            ? ["3 bulan", "90 hari"]
-            : planId === "half"
-            ? ["6 bulan", "180 hari"]
-            : ["1 tahun", "12 bulan", "365 hari"];
-
-        const matchedProduct = products.find((p) => {
-          const nameLower = String(p.name || "").toLowerCase();
-          return matchKeyword.some((kw) => nameLower.includes(kw));
-        });
-
-        if (matchedProduct?.variants?.[0]) {
-          const v = matchedProduct.variants[0];
-          selectedVariant = {
-            uniqueId: v.unique_id,
-            price: Math.round(Number(v.price) || selectedVariant.price),
-          };
-        }
-      }
-    } catch (lookupErr) {
-      console.warn("Scalev dynamic product lookup fallback used:", lookupErr);
-    }
-
-    // 2. Calculate quantity & product_discount so final price on Scalev matches targetAmount 100%
-    const unitPrice = selectedVariant.price;
-    const quantity =
-      targetAmount > unitPrice ? Math.ceil(targetAmount / unitPrice) : 1;
+    const unitPrice = variant.price;
+    const quantity = targetAmount > unitPrice ? Math.ceil(targetAmount / unitPrice) : 1;
     const grossVariantTotal = unitPrice * quantity;
     const productDiscount = Math.max(0, grossVariantTotal - targetAmount);
 
@@ -175,51 +196,24 @@ export async function POST(req: Request) {
       ? String(customerName).trim().substring(0, 60)
       : "Kawan Thrivin";
 
-    // Save onboarding snapshot temporarily if provided
-    if (onboarding) {
-      await saveOnboardingSnapshot(cleanPhone, null, onboarding);
-    }
-
-    let orderNotes = `Onboarding Thrivin - ${planName || planId}${
-      normalizedPromo ? ` [Promo: ${normalizedPromo}]` : ""
+    // B-2: PII (weight/height/gender/age) is deliberately NOT written to the
+    // Scalev order notes — that is a third-party system with its own retention.
+    // Customer service reads the profile from the Nina dashboard instead.
+    const orderNotes = `Onboarding Thrivin - ${PLAN_CATALOG[plan].name}${
+      promoApplied ? ` [Promo: ${promoApplied}]` : ""
     } (Rp ${targetAmount.toLocaleString("id-ID")})`;
 
-    if (onboarding) {
-      const summaryParts: string[] = [];
-      if (onboarding.gender) summaryParts.push(String(onboarding.gender));
-      if (onboarding.age) summaryParts.push(`${onboarding.age}th`);
-      if (onboarding.weight && onboarding.height) {
-        summaryParts.push(`${onboarding.weight}kg/${onboarding.height}cm`);
-      }
-      if (onboarding.activityLevel) summaryParts.push(String(onboarding.activityLevel));
-      if (onboarding.programFocus) {
-        const focusStr = Array.isArray(onboarding.programFocus)
-          ? onboarding.programFocus.join(", ")
-          : String(onboarding.programFocus);
-        if (focusStr) summaryParts.push(`Fokus: ${focusStr}`);
-      }
-      if (summaryParts.length > 0) {
-        orderNotes += ` | Profil: ${summaryParts.join(" • ")}`;
-      }
-    }
-
-    // 3. Create Order in Scalev via POST /v3/orders with PayLink
     const orderPayload = {
       store_unique_id: storeId,
       customer_name: cleanName,
       customer_phone: cleanPhone,
-      ordervariants: [
-        {
-          variant_unique_id: selectedVariant.uniqueId,
-          quantity,
-        },
-      ],
+      ordervariants: [{ variant_unique_id: variant.uniqueId, quantity }],
       product_discount: productDiscount,
       payment_method: "payment_link",
       notes: orderNotes,
     };
 
-    const orderRes = await fetch("https://api.scalev.com/v3/orders", {
+    const orderRes = await fetch(`${SCALEV_API_BASE}/v3/orders`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -232,7 +226,7 @@ export async function POST(req: Request) {
     const orderData = await orderRes.json();
 
     if (!orderRes.ok) {
-      console.error("Scalev order creation failed:", orderData);
+      console.error("Scalev order creation failed:", redactError(orderData));
       return NextResponse.json(
         {
           error:
@@ -250,25 +244,27 @@ export async function POST(req: Request) {
       orderData?.public_order_url ||
       "";
 
-    // Automatically check if custom domain SSL (checkout.thrivin.id) is active;
-    // if SSL certificate is still provisioning/failing handshake, fallback to thrivin.myscalev.com
+    // Custom domain SSL (checkout.thrivin.id) may still be provisioning.
     if (paymentUrl.includes("checkout.thrivin.id")) {
       try {
-        await fetch(paymentUrl, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(1500),
-        });
+        await fetch(paymentUrl, { method: "HEAD", signal: AbortSignal.timeout(1500) });
       } catch {
-        paymentUrl = paymentUrl.replace(
-          "checkout.thrivin.id",
-          "thrivin.myscalev.com"
-        );
+        paymentUrl = paymentUrl.replace("checkout.thrivin.id", "thrivin.myscalev.com");
       }
     }
 
     const createdOrderId = orderData.order_id || orderData.id || null;
-    if (onboarding && createdOrderId) {
-      await saveOnboardingSnapshot(cleanPhone, String(createdOrderId), onboarding);
+
+    // H-5: the snapshot is written exactly once, AFTER the order exists, with a
+    // non-null order_id (upsert on (tenant_id, order_id)). The old pre-order
+    // write used order_id = NULL, which never collides — one row per checkout.
+    if (onboardingProfile && createdOrderId) {
+      await saveOnboardingSnapshot({
+        phone: cleanPhone,
+        orderId: String(createdOrderId),
+        planKey,
+        snapshot: onboardingProfile,
+      });
     }
 
     return NextResponse.json({
@@ -279,10 +275,7 @@ export async function POST(req: Request) {
       amount: orderData.gross_revenue,
     });
   } catch (error: any) {
-    console.error("Scalev API exception:", error);
-    return NextResponse.json(
-      { error: error?.message || "Internal server error" },
-      { status: 500 }
-    );
+    console.error("Scalev API exception:", redactError(error));
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

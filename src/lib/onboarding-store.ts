@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
+import { normalizePhone } from "./phone.ts";
+import { resolveSubscriptionPlan, type PlanKey } from "./plans.ts";
 
 export interface OnboardingProfile {
   gender?: "Laki-laki" | "Perempuan" | string;
@@ -10,20 +13,38 @@ export interface OnboardingProfile {
   workoutLocation?: "Di Rumah" | "Di Gym" | "Luar Ruangan" | "Fleksibel" | string;
   programFocus?: string[] | string;
   biggestChallenge?: string;
-  communicationStyle?: "Santai & Akrab" | "Tegas & Terarah" | "Lembut & Empatik" | string;
-  [key: string]: any;
+  communicationStyle?: string;
+  /** Plan the customer actually bought; drives quota provisioning (M-6). */
+  plan_key?: PlanKey;
+  [key: string]: unknown;
 }
 
-const STORAGE_DIR = process.env.ONBOARDING_DATA_DIR || path.join(process.cwd(), ".data", "onboarding");
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const STORAGE_DIR =
+  process.env.ONBOARDING_DATA_DIR || path.join(process.cwd(), ".data", "onboarding");
 
 // Replay guard: reject webhooks whose signed timestamp is older than this window.
 const REPLAY_WINDOW_SECONDS = Number(process.env.SCALEV_WEBHOOK_REPLAY_WINDOW_SECONDS || 300);
+// Tolerance for a clock that runs slightly ahead of ours (L-2).
+const REPLAY_FUTURE_SKEW_SECONDS = 30;
+
+export const TENANT_ID = process.env.THRIVIN_TENANT_ID || "thrivin";
+export const WEBHOOK_SOURCE = "scalev";
+
+/** Raised when required Supabase configuration is missing — never swallowed. */
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigError";
+  }
+}
 
 /**
  * Replay/timestamp guard. Scalev signs the raw body; a captured body can be
  * replayed forever unless we bound it in time. Accepts an ISO-8601 timestamp
- * (event `created_at`) or a unix epoch (seconds/millis) and rejects anything
- * outside +/- REPLAY_WINDOW_SECONDS of now.
+ * (event `timestamp`) or a unix epoch (seconds/millis) and rejects anything
+ * more than REPLAY_WINDOW_SECONDS in the past (small future skew tolerated so a
+ * clock that runs slightly ahead does not lock the endpoint — L-2).
  */
 export function isTimestampWithinReplayWindow(
   timestamp: string | number | null | undefined,
@@ -40,7 +61,10 @@ export function isTimestampWithinReplayWindow(
     ms = Date.parse(String(timestamp));
   }
   if (!Number.isFinite(ms)) return { ok: false, skewSeconds: null };
-  const skewSeconds = Math.abs(now - ms) / 1000;
+  const skewSeconds = (now - ms) / 1000; // positive = in the past
+  if (skewSeconds < -REPLAY_FUTURE_SKEW_SECONDS) {
+    return { ok: false, skewSeconds };
+  }
   return { ok: skewSeconds <= REPLAY_WINDOW_SECONDS, skewSeconds };
 }
 
@@ -55,284 +79,324 @@ export function redactError(input: unknown): string {
     .replace(/\b\d{10,16}\b/g, "[phone]")
     .replace(/\b(sk|pk|mid|midtrans|bearer|token|secret)[_-]?[\w-]{6,}/gi, "[secret]")
     .replace(/\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{5,}\b/g, "[jwt]");
-  return s.length > 500 ? s.slice(0, 500) + "…" : s;
+  // Cap the stored error at 500 chars INCLUDING the ellipsis.
+  return s.length > 500 ? s.slice(0, 497) + "..." : s;
 }
 
-function ensureStorageDir(): string {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    return STORAGE_DIR;
-  } catch {
-    const tmpDir = path.join("/tmp", "thrivin-onboarding");
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    return tmpDir;
-  }
-}
-
-function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    "";
-  return { url: url.replace(/\/$/, ""), key };
-}
-
-function safeNormalizePhone(phone: string): string {
-  let clean = String(phone || "").replace(/\D/g, "");
-  if (clean.startsWith("0")) {
-    clean = "62" + clean.slice(1);
-  } else if (clean.length > 0 && !clean.startsWith("62")) {
-    clean = "62" + clean;
-  }
-  return clean;
+/** sha256 hex digest, truncated — used for opaque file names (H-3). */
+function opaqueKey(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 32);
 }
 
 /**
- * Save onboarding snapshot to Supabase and persistent local disk.
+ * Local disk storage is a DEVELOPMENT-ONLY fallback (H-3).
+ * In production Supabase is the only store: no plaintext PII on disk, no /tmp
+ * copy shared with every other process on the box.
  */
-export async function saveOnboardingSnapshot(
-  phone: string,
-  orderId: string | null,
-  snapshot: OnboardingProfile
-): Promise<void> {
-  const cleanPhone = safeNormalizePhone(phone);
+export function diskFallbackEnabled(): boolean {
+  return !IS_PRODUCTION;
+}
+
+function ensureStorageDir(): string {
+  if (!diskFallbackEnabled()) {
+    throw new ConfigError(
+      "[OnboardingStore] Disk fallback is disabled in production; Supabase must be configured"
+    );
+  }
+  if (!fs.existsSync(STORAGE_DIR)) {
+    fs.mkdirSync(STORAGE_DIR, { recursive: true });
+  }
+  return STORAGE_DIR;
+}
+
+/**
+ * H-1: the service-role key is the only accepted key. `SUPABASE_ANON_KEY` was
+ * silently substituted before, which turned every write into an RLS denial that
+ * only produced a `console.warn` — events vanished while still 200-ing Scalev.
+ * A partial configuration now raises instead of degrading.
+ */
+export function getSupabaseConfig(): { url: string; key: string } {
+  const url = String(
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+  ).replace(/\/$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
+
+  if (url && !key) {
+    throw new ConfigError(
+      "[OnboardingStore] SUPABASE_URL is set but no service-role key " +
+        "(SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_KEY). Refusing to fall back to anon."
+    );
+  }
+  if (key && !url) {
+    throw new ConfigError("[OnboardingStore] Service-role key set but SUPABASE_URL is missing.");
+  }
+  return { url, key };
+}
+
+export function isSupabaseConfigured(): boolean {
+  const { url, key } = getSupabaseConfig();
+  return Boolean(url && key);
+}
+
+/** Fails loudly when Supabase is required and not configured (production). */
+function requireSupabase(): { url: string; key: string } {
+  const config = getSupabaseConfig();
+  if (!config.url || !config.key) {
+    throw new ConfigError(
+      "[OnboardingStore] Supabase is not configured. Set SUPABASE_URL and " +
+        "SUPABASE_SERVICE_ROLE_KEY (disk fallback is development-only)."
+    );
+  }
+  return config;
+}
+
+function serviceHeaders(key: string): Record<string, string> {
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+  };
+}
+
+/**
+ * H-2: only a whitelist subset of the webhook body is persisted, plus a sha256
+ * of the raw body for tamper-evidence. The raw body carries customer name,
+ * phone, e-mail and address — none of which audit needs.
+ */
+export function buildAuditPayload(
+  data: Record<string, unknown> | null | undefined,
+  rawBody: string
+): Record<string, unknown> {
+  const d = data || {};
+  return {
+    payment_status: (d.payment_status as string) ?? null,
+    gross_revenue: (d.gross_revenue as string | number) ?? null,
+    body_sha256: crypto.createHash("sha256").update(rawBody).digest("hex"),
+  };
+}
+
+/**
+ * Save the onboarding snapshot AFTER the order exists (H-5).
+ * Pre-order writes used `order_id = NULL`, and in Postgres NULL never conflicts
+ * with NULL, so `UNIQUE (tenant_id, order_id)` let every checkout insert a fresh
+ * row. Writes are now upserts keyed on `(tenant_id, order_id)`.
+ */
+export async function saveOnboardingSnapshot(input: {
+  phone: string;
+  orderId: string;
+  planKey?: PlanKey;
+  snapshot: OnboardingProfile;
+}): Promise<void> {
+  const cleanPhone = normalizePhone(input.phone);
+  if (!cleanPhone) throw new ConfigError("[OnboardingStore] Invalid phone number for snapshot");
+  if (!input.orderId) throw new ConfigError("[OnboardingStore] orderId is required for snapshot");
+
   const now = new Date().toISOString();
-  const dir = ensureStorageDir();
+  const snapshot: OnboardingProfile = { ...input.snapshot };
+  if (input.planKey) snapshot.plan_key = input.planKey;
 
   const record = {
+    tenant_id: TENANT_ID,
     phone: cleanPhone,
-    order_id: orderId || null,
+    order_id: input.orderId,
     snapshot,
     created_at: now,
   };
 
-  // 1. Local disk fallback
-  try {
-    if (cleanPhone) {
-      fs.writeFileSync(path.join(dir, `phone_${cleanPhone}.json`), JSON.stringify(record, null, 2));
+  if (diskFallbackEnabled()) {
+    const dir = ensureStorageDir();
+    try {
+      // File name is a hash of the order id; the phone number is never on disk
+      // in the path (H-3).
+      fs.writeFileSync(
+        path.join(dir, `snapshot_${opaqueKey(input.orderId)}.json`),
+        JSON.stringify(record, null, 2)
+      );
+    } catch (err) {
+      console.warn("[OnboardingStore] Failed to write local snapshot file:", redactError(err));
     }
-    if (orderId) {
-      fs.writeFileSync(path.join(dir, `order_${orderId}.json`), JSON.stringify(record, null, 2));
-    }
-  } catch (err) {
-    console.warn("[OnboardingStore] Failed to write local snapshot file:", err);
   }
 
-  // 2. Supabase staging if configured
-  const { url, key } = getSupabaseConfig();
+  const { url, key } = IS_PRODUCTION ? requireSupabase() : getSupabaseConfig();
   if (url && key) {
-    try {
-      const res = await fetch(`${url}/rest/v1/onboarding_snapshots`, {
-        method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify({
-          phone: cleanPhone,
-          order_id: orderId || null,
-          snapshot,
-          created_at: now,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.warn("[OnboardingStore] Supabase save snapshot warning:", res.status, errText);
-      }
-    } catch (err) {
-      console.warn("[OnboardingStore] Supabase network error saving snapshot:", err);
+    const res = await fetch(`${url}/rest/v1/onboarding_snapshots?on_conflict=tenant_id,order_id`, {
+      method: "POST",
+      headers: {
+        ...serviceHeaders(key),
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(record),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      // Loud: a lost snapshot means the webhook cannot personalise the user.
+      throw new Error(
+        `[OnboardingStore] Supabase snapshot write failed: ${res.status} ${redactError(errText)}`
+      );
     }
   }
 }
 
 /**
- * Retrieve onboarding snapshot by phone or orderId.
+ * Retrieve onboarding snapshot by order id (preferred) or phone.
  */
 export async function getOnboardingSnapshot(
   phone: string,
   orderId?: string | null
 ): Promise<OnboardingProfile | null> {
-  const cleanPhone = safeNormalizePhone(phone);
+  const cleanPhone = normalizePhone(phone);
 
-  // 1. Check Supabase first if available
-  const { url, key } = getSupabaseConfig();
+  const { url, key } = IS_PRODUCTION ? requireSupabase() : getSupabaseConfig();
   if (url && key) {
-    try {
-      let queryUrl = "";
-      if (orderId) {
-        queryUrl = `${url}/rest/v1/onboarding_snapshots?order_id=eq.${encodeURIComponent(orderId)}&order=created_at.desc&limit=1`;
-      } else if (cleanPhone) {
-        queryUrl = `${url}/rest/v1/onboarding_snapshots?phone=eq.${encodeURIComponent(cleanPhone)}&order=created_at.desc&limit=1`;
+    let queryUrl = "";
+    if (orderId) {
+      queryUrl = `${url}/rest/v1/onboarding_snapshots?order_id=eq.${encodeURIComponent(
+        orderId
+      )}&order=created_at.desc&limit=1`;
+    } else if (cleanPhone) {
+      queryUrl = `${url}/rest/v1/onboarding_snapshots?phone=eq.${encodeURIComponent(
+        cleanPhone
+      )}&order=created_at.desc&limit=1`;
+    }
+    if (queryUrl) {
+      const res = await fetch(queryUrl, {
+        headers: { ...serviceHeaders(key), Accept: "application/json" },
+      });
+      if (!res.ok) {
+        throw new Error(`[OnboardingStore] Supabase snapshot read failed: ${res.status}`);
       }
-
-      if (queryUrl) {
-        const res = await fetch(queryUrl, {
-          headers: {
-            apikey: key,
-            Authorization: `Bearer ${key}`,
-            Accept: "application/json",
-          },
-        });
-        if (res.ok) {
-          const rows = await res.json();
-          if (Array.isArray(rows) && rows.length > 0 && rows[0]?.snapshot) {
-            return rows[0].snapshot;
-          }
-        }
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0 && rows[0]?.snapshot) {
+        return rows[0].snapshot as OnboardingProfile;
       }
-    } catch (err) {
-      console.warn("[OnboardingStore] Supabase fetch snapshot error, falling back to disk:", err);
     }
   }
 
-  // 2. Local disk fallback
-  const dir = ensureStorageDir();
-  try {
-    if (orderId) {
-      const orderFile = path.join(dir, `order_${orderId}.json`);
-      if (fs.existsSync(orderFile)) {
-        const raw = JSON.parse(fs.readFileSync(orderFile, "utf-8"));
-        if (raw?.snapshot) return raw.snapshot;
+  if (diskFallbackEnabled()) {
+    const dir = ensureStorageDir();
+    try {
+      const candidates = orderId
+        ? [path.join(dir, `snapshot_${opaqueKey(orderId)}.json`)]
+        : [];
+      if (cleanPhone) candidates.push(path.join(dir, `phone_${opaqueKey(cleanPhone)}.json`));
+      for (const file of candidates) {
+        if (fs.existsSync(file)) {
+          const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+          if (raw?.snapshot) return raw.snapshot as OnboardingProfile;
+        }
       }
+    } catch (err) {
+      console.warn("[OnboardingStore] Disk read snapshot error:", redactError(err));
     }
-    if (cleanPhone) {
-      const phoneFile = path.join(dir, `phone_${cleanPhone}.json`);
-      if (fs.existsSync(phoneFile)) {
-        const raw = JSON.parse(fs.readFileSync(phoneFile, "utf-8"));
-        if (raw?.snapshot) return raw.snapshot;
-      }
-    }
-  } catch (err) {
-    console.warn("[OnboardingStore] Disk read snapshot error:", err);
   }
 
   return null;
 }
 
-/**
- * Check if webhook event or order was already processed (Idempotency).
- */
-export async function isWebhookEventProcessed(
-  eventId: string,
-  orderId?: string | null
-): Promise<boolean> {
-  // Check local disk first
-  const dir = ensureStorageDir();
-  const eventFile = path.join(dir, `event_${eventId}.json`);
-  if (fs.existsSync(eventFile)) {
-    return true;
-  }
-  if (orderId) {
-    const processedOrderFile = path.join(dir, `order_processed_${orderId}.json`);
-    if (fs.existsSync(processedOrderFile)) {
-      return true;
-    }
-  }
+export interface WebhookClaim {
+  eventId: string;
+  eventType: string;
+  orderId?: string | null;
+  phone?: string | null;
+  fulfillmentKey: string;
+  payload: Record<string, unknown>;
+}
 
-  // Check Supabase
-  const { url, key } = getSupabaseConfig();
-  if (url && key) {
-    try {
-      const res = await fetch(
-        `${url}/rest/v1/webhook_events_inbox?event_id=eq.${encodeURIComponent(eventId)}&select=id,status`,
-        {
-          headers: {
-            apikey: key,
-            Authorization: `Bearer ${key}`,
-            Accept: "application/json",
-          },
-        }
-      );
-      if (res.ok) {
-        const rows = await res.json();
-        if (Array.isArray(rows) && rows.length > 0) {
-          return true;
-        }
-      }
-    } catch (err) {
-      console.warn("[OnboardingStore] Supabase check webhook dedup error:", err);
-    }
-  }
-
-  return false;
+export interface WebhookClaimResult {
+  /** True only for the delivery that won the atomic insert; losers must not activate. */
+  claimed: boolean;
+  id?: string;
 }
 
 /**
- * Record received webhook event into inbox.
+ * H-6: idempotency is claimed by the INSERT itself, not by a read-then-write.
+ *
+ * The previous flow did `isWebhookEventProcessed()` (read) ... `await` network
+ * ... `activateUserSubscription()` (write). Two concurrent deliveries of the
+ * same order (`paid` then `settled`) both read "not processed" and both
+ * activated, producing two subscriptions and double token quota.
+ *
+ * Now: one INSERT with `Prefer: resolution=ignore-duplicates` against the
+ * unique index on `(tenant_id, source, fulfillment_key)`. PostgREST returns the
+ * inserted row only to the winner; the loser gets an empty array or 409 and
+ * must stop.
  */
-export async function recordWebhookEvent(
-  eventId: string,
-  eventType: string,
-  payload: any,
-  orderId?: string | null,
-  phone?: string | null,
-  opts?: { status?: string; error?: unknown; payloadVersion?: string }
-): Promise<void> {
-  const dir = ensureStorageDir();
-  const now = new Date().toISOString();
-  const cleanPhone = phone ? safeNormalizePhone(phone) : null;
-
-  // Allowed status transitions: received -> processing -> completed | failed;
-  // duplicate marks a replay seen after completion.
-  const status = opts?.status || "completed";
+export async function claimWebhookEvent(claim: WebhookClaim): Promise<WebhookClaimResult> {
+  const cleanPhone = claim.phone ? normalizePhone(claim.phone) : null;
   const record = {
-    event_id: eventId,
-    event_type: eventType,
-    order_id: orderId || null,
+    tenant_id: TENANT_ID,
+    source: WEBHOOK_SOURCE,
+    event_id: claim.eventId,
+    fulfillment_key: claim.fulfillmentKey,
+    event_type: claim.eventType,
+    order_id: claim.orderId || null,
     phone: cleanPhone,
-    payload_version: opts?.payloadVersion || "v2",
-    payload,
-    status,
-    error_redacted: opts?.error ? redactError(opts.error) : null,
-    received_at: now,
-    processed_at: status === "completed" || status === "failed" ? now : null,
+    payload_version: "v2",
+    payload: claim.payload,
+    status: "processing",
   };
 
-  try {
-    fs.writeFileSync(path.join(dir, `event_${eventId}.json`), JSON.stringify(record, null, 2));
-    if (orderId) {
-      fs.writeFileSync(path.join(dir, `order_processed_${orderId}.json`), JSON.stringify(record, null, 2));
+  const { url, key } = requireSupabase();
+
+  const res = await fetch(
+    `${url}/rest/v1/webhook_events_inbox?on_conflict=tenant_id,source,fulfillment_key`,
+    {
+      method: "POST",
+      headers: {
+        ...serviceHeaders(key),
+        Prefer: "resolution=ignore-duplicates,return=representation",
+      },
+      body: JSON.stringify(record),
     }
-  } catch (err) {
-    console.warn("[OnboardingStore] Failed to write event inbox file:", err);
+  );
+
+  if (res.status === 409) return { claimed: false };
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`[OnboardingStore] Webhook claim failed: ${res.status} ${redactError(errText)}`);
   }
 
-  const { url, key } = getSupabaseConfig();
-  if (url && key) {
-    try {
-      await fetch(`${url}/rest/v1/webhook_events_inbox`, {
-        method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates",
-        },
-        body: JSON.stringify(record),
-      });
-    } catch (err) {
-      console.warn("[OnboardingStore] Supabase record webhook event error:", err);
-    }
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) return { claimed: false };
+  return { claimed: true, id: rows[0]?.id };
+}
+
+/** Terminal status update for a claimed event. Never throws into the webhook path. */
+export async function finalizeWebhookEvent(
+  eventId: string,
+  opts: { status: "completed" | "failed"; error?: unknown }
+): Promise<void> {
+  try {
+    const { url, key } = requireSupabase();
+    await fetch(
+      `${url}/rest/v1/webhook_events_inbox?tenant_id=eq.${TENANT_ID}&source=eq.${WEBHOOK_SOURCE}&event_id=eq.${encodeURIComponent(
+        eventId
+      )}`,
+      {
+        method: "PATCH",
+        headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          status: opts.status,
+          processed_at: new Date().toISOString(),
+          error_redacted: opts.error ? redactError(opts.error) : null,
+        }),
+      }
+    );
+  } catch (err) {
+    console.warn("[OnboardingStore] Failed to finalize webhook event:", redactError(err));
   }
 }
 
 /**
- * Format Nina user profile memory text so Nina's first greeting is aware of user's stats and preferences.
+ * Format Nina user profile memory text so Nina's first greeting is aware of the
+ * user's stats and preferences.
  */
 export function formatNinaProfileMemory(
   customerName: string,
   phone: string,
   snapshot?: OnboardingProfile | null
 ): string {
-  const cleanPhone = safeNormalizePhone(phone);
+  const cleanPhone = normalizePhone(phone) || "";
   const name = customerName || "Kawan Thrivin";
 
   if (!snapshot) {
@@ -366,89 +430,85 @@ export function formatNinaProfileMemory(
 }
 
 /**
- * Activate user in Supabase staging (users and subscriptions).
+ * Activate user + subscription in Supabase.
+ *
+ * Must only be called by the delivery that won `claimWebhookEvent` (H-6).
+ * Quota comes from the plan recorded on the snapshot, never hardcoded (M-6).
  */
 export async function activateUserSubscription(
   phone: string,
   name: string,
-  snapshot: OnboardingProfile | null,
-  planOptions?: { planName?: string; durationDays?: number }
+  snapshot: OnboardingProfile | null
 ): Promise<{ success: boolean; memory: string; userId?: string }> {
-  const cleanPhone = safeNormalizePhone(phone);
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) {
+    return { success: false, memory: "", userId: undefined };
+  }
   const memoryText = formatNinaProfileMemory(name, cleanPhone, snapshot);
-  const durationDays = planOptions?.durationDays || 30;
 
-  const { url, key } = getSupabaseConfig();
+  const { url, key } = IS_PRODUCTION ? requireSupabase() : getSupabaseConfig();
   if (!url || !key) {
-    // If Supabase is not configured (e.g. offline testing), record locally
-    console.log(`[OnboardingStore] Mock activating user ${cleanPhone} (${name}) with memory:`, memoryText);
+    // Development only: no Supabase configured, nothing to write.
+    console.log("[OnboardingStore] Dev mode: skipping Supabase activation (plan from snapshot)");
     return { success: true, memory: memoryText, userId: "local-user-id" };
   }
 
-  try {
-    // 1. Upsert user in `users`
-    const upsertRes = await fetch(`${url}/rest/v1/users`, {
-      method: "POST",
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        Prefer: "resolution=merge-duplicates,return=representation",
-      },
-      body: JSON.stringify({
-        phone: cleanPhone,
-        name: name || "Kawan Thrivin",
-        memory: memoryText,
-        onboarding_complete: true,
-        onboarding_step: "done",
-        onboarding_data: snapshot || {},
-        updated_at: new Date().toISOString(),
-      }),
-    });
+  const plan = resolveSubscriptionPlan(snapshot?.plan_key);
 
-    let userId: string | undefined;
-    if (upsertRes.ok) {
-      const usersData = await upsertRes.json();
-      if (Array.isArray(usersData) && usersData.length > 0) {
-        userId = usersData[0]?.id;
-      }
-    } else {
-      // If table users has unique constraint on phone, fetch user id
-      const fetchUser = await fetch(`${url}/rest/v1/users?phone=eq.${encodeURIComponent(cleanPhone)}&select=id`, {
-        headers: { apikey: key, Authorization: `Bearer ${key}` },
-      });
-      if (fetchUser.ok) {
-        const u = await fetchUser.json();
-        userId = u?.[0]?.id;
-      }
-    }
+  const upsertRes = await fetch(`${url}/rest/v1/users?on_conflict=phone`, {
+    method: "POST",
+    headers: {
+      ...serviceHeaders(key),
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({
+      phone: cleanPhone,
+      name: name || "Kawan Thrivin",
+      memory: memoryText,
+      onboarding_complete: true,
+      onboarding_step: "done",
+      onboarding_data: snapshot || {},
+      updated_at: new Date().toISOString(),
+    }),
+  });
 
-    // 2. Activate subscription if userId is available
-    if (userId) {
-      const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
-      await fetch(`${url}/rest/v1/subscriptions`, {
-        method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          plan_id: 2, // Pro plan default
-          status: "active",
-          started_at: new Date().toISOString(),
-          expires_at: expiresAt,
-          token_used: 0,
-          token_limit: 500000,
-        }),
-      });
-    }
-
-    return { success: true, memory: memoryText, userId };
-  } catch (err) {
-    console.error("[OnboardingStore] Failed to activate user in Supabase:", err);
-    return { success: false, memory: memoryText };
+  if (!upsertRes.ok) {
+    const errText = await upsertRes.text();
+    throw new Error(
+      `[OnboardingStore] Supabase user upsert failed: ${upsertRes.status} ${redactError(errText)}`
+    );
   }
+
+  const usersData = await upsertRes.json();
+  const userId: string | undefined = Array.isArray(usersData) ? usersData[0]?.id : undefined;
+  if (!userId) {
+    throw new Error("[OnboardingStore] Supabase user upsert returned no id");
+  }
+
+  const expiresAt = new Date(
+    Date.now() + plan.durationDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const subRes = await fetch(`${url}/rest/v1/subscriptions`, {
+    method: "POST",
+    headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
+    body: JSON.stringify({
+      user_id: userId,
+      plan_id: plan.planId,
+      status: "active",
+      started_at: new Date().toISOString(),
+      expires_at: expiresAt,
+      token_used: 0,
+      token_limit: plan.tokenLimit,
+    }),
+  });
+
+  if (!subRes.ok) {
+    const errText = await subRes.text();
+    throw new Error(
+      `[OnboardingStore] Supabase subscription insert failed: ${subRes.status} ${redactError(errText)}`
+    );
+  }
+
+  return { success: true, memory: memoryText, userId };
 }
