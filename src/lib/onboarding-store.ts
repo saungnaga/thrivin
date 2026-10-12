@@ -73,7 +73,18 @@ export function isTimestampWithinReplayWindow(
  * string before it is persisted in webhook_events_inbox.error_redacted.
  */
 export function redactError(input: unknown): string {
-  let s = input instanceof Error ? input.message : String(input ?? "");
+  let s: string;
+  if (input instanceof Error) {
+    s = `${input.name}: ${input.message}`;
+  } else if (typeof input === "object" && input !== null) {
+    try {
+      s = JSON.stringify(input);
+    } catch {
+      s = String(input);
+    }
+  } else {
+    s = String(input ?? "");
+  }
   s = s
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[email]")
     .replace(/\b\d{10,16}\b/g, "[phone]")
@@ -249,7 +260,11 @@ export async function getOnboardingSnapshot(
   const { url, key } = IS_PRODUCTION ? requireSupabase() : getSupabaseConfig();
   if (url && key) {
     let queryUrl = "";
-    if (orderId) {
+    if (orderId && cleanPhone) {
+      queryUrl = `${url}/rest/v1/onboarding_snapshots?order_id=eq.${encodeURIComponent(
+        orderId
+      )}&phone=eq.${encodeURIComponent(cleanPhone)}&order=created_at.desc&limit=1`;
+    } else if (orderId) {
       queryUrl = `${url}/rest/v1/onboarding_snapshots?order_id=eq.${encodeURIComponent(
         orderId
       )}&order=created_at.desc&limit=1`;
@@ -282,6 +297,9 @@ export async function getOnboardingSnapshot(
       for (const file of candidates) {
         if (fs.existsSync(file)) {
           const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+          if (cleanPhone && raw?.phone && raw.phone !== cleanPhone) {
+            continue;
+          }
           if (raw?.snapshot) return raw.snapshot as OnboardingProfile;
         }
       }
@@ -291,6 +309,30 @@ export async function getOnboardingSnapshot(
   }
 
   return null;
+}
+
+/** Record Nina's first-touch greeting delivery status in Supabase. */
+export async function recordGreetingSent(orderId: string): Promise<void> {
+  if (!orderId) return;
+  const { url, key } = getSupabaseConfig();
+  if (!url || !key) return;
+  try {
+    await fetch(
+      `${url}/rest/v1/onboarding_snapshots?tenant_id=eq.${TENANT_ID}&order_id=eq.${encodeURIComponent(
+        orderId
+      )}`,
+      {
+        method: "PATCH",
+        headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          first_greeting_status: "sent",
+          first_greeting_sent_at: new Date().toISOString(),
+        }),
+      }
+    );
+  } catch (err) {
+    console.warn("[OnboardingStore] Failed to update greeting status:", redactError(err));
+  }
 }
 
 export interface WebhookClaim {

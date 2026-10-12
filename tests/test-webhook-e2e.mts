@@ -581,6 +581,38 @@ async function main() {
     assertOk(h1Res.status >= 500, "H-1  missing service key -> loud failure, not a silent 200", `got ${h1Res.status}`);
     assertEq(countRows("subscriptions"), 0, "H-1  no subscription was silently created");
 
+    // ── Payment Status Contract (Atlas QC probe check) ────────────────────────
+    console.log("\n── Negative: unfulfilled payment_status rejected (no activation) ──");
+    stopApp();
+    app = await startApp({ SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET });
+    truncateAll();
+    for (const badStatus of ["pending", "failed", "conflict", "unpaid"]) {
+      const badEvt = paymentEvent({
+        eventId: `evt_neg_${badStatus}_${Date.now()}`,
+        orderId: `250130NEG${badStatus.toUpperCase()}`,
+        phone: "6281299900099",
+        paymentStatus: badStatus,
+      });
+      const badRes = await postWebhook(badEvt);
+      assertEq(badRes.status, 400, `payment_status=${badStatus} rejected with 400`);
+      const badBody = await badRes.json();
+      assertEq(badBody.code, "PAYMENT_NOT_SETTLED", `error code PAYMENT_NOT_SETTLED for ${badStatus}`);
+    }
+    assertEq(countRows("subscriptions"), 0, "no subscriptions activated for pending/failed status");
+    assertEq(countRows("users"), 0, "no users activated for pending/failed status");
+
+    const promoEvt = paymentEvent({
+      eventId: `evt_promo_zero_${Date.now()}`,
+      orderId: `250130PROMOZERO`,
+      phone: "6281299900088",
+      paymentStatus: "paid",
+      gross: "0.00",
+    });
+    const promoRes = await postWebhook(promoEvt);
+    assertEq(promoRes.status, 200, "paid status with 0 gross (valid promo) succeeds");
+    const promoBody = await promoRes.json();
+    assertOk("welcomeSent" in promoBody, "welcomeSent field returned in response");
+
     console.log("\n==============================================================");
     let failed = 0;
     for (const [status, name] of results) {

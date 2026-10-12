@@ -8,10 +8,16 @@ import {
   claimWebhookEvent,
   finalizeWebhookEvent,
   activateUserSubscription,
+  recordGreetingSent,
   isTimestampWithinReplayWindow,
   buildAuditPayload,
   redactError,
 } from "@/lib/onboarding-store";
+import {
+  buildWelcomeMessage,
+  claimWelcomeSend,
+  sendWelcomeMessage,
+} from "@/lib/welcome-message";
 
 /**
  * Scalev signs with HMAC-SHA256 and transmits base64 (L-1). The previous
@@ -104,6 +110,27 @@ export async function POST(req: Request) {
 
       const orderUniqueId =
         data.order_id || data.order_unique_id || data.unique_id || data.id || null;
+      if (!orderUniqueId) {
+        return NextResponse.json(
+          { ok: false, error: "Missing order id", code: "INVALID_ORDER_ID" },
+          { status: 400 }
+        );
+      }
+
+      // Explicit payment_status contract (Atlas probe & Scalev spec):
+      // payment.received must be paid or settled.
+      const paymentStatus = String(
+        data.payment_status || (event === "order.paid" ? "paid" : "")
+      ).toLowerCase();
+      if (paymentStatus !== "paid" && paymentStatus !== "settled") {
+        console.warn(
+          `[Scalev Webhook] Unfulfilled payment status '${paymentStatus || "unknown"}' rejected for order: ${orderUniqueId}`
+        );
+        return NextResponse.json(
+          { ok: false, error: "Payment status must be paid or settled", code: "PAYMENT_NOT_SETTLED" },
+          { status: 400 }
+        );
+      }
 
       const rawPhone =
         data.customer_phone ||
@@ -182,9 +209,26 @@ export async function POST(req: Request) {
           status: activation.success ? "completed" : "failed",
         });
 
+        // First-touch greeting: only after a successful activation, and only the
+        // delivery that wins the atomic marker. A dead bridge never rolls back
+        // the subscription (sendWelcomeMessage never throws).
+        let welcomeSent = false;
+        let welcomeMessageId: string | undefined;
+        if (activation.success && claimWelcomeSend(fulfillmentKey)) {
+          const result = await sendWelcomeMessage(
+            cleanPhone,
+            buildWelcomeMessage(customerName, snapshot)
+          );
+          welcomeSent = result.sent;
+          welcomeMessageId = result.messageId;
+          if (welcomeSent && orderUniqueId) {
+            await recordGreetingSent(orderUniqueId);
+          }
+        }
+
         // M-4: event/order ids only — no phone number, no customer name.
         console.log(
-          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success}`
+          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success} welcomeSent=${welcomeSent}`
         );
 
         // M-3: no PII echoed back to the caller or any intermediary log.
@@ -193,6 +237,8 @@ export async function POST(req: Request) {
           eventId: String(eventId),
           orderId: orderUniqueId,
           userActivated: activation.success,
+          welcomeSent,
+          welcomeMessageId: welcomeMessageId || null,
         });
       } catch (err) {
         await finalizeWebhookEvent(String(eventId), { status: "failed", error: err });

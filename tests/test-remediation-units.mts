@@ -249,13 +249,19 @@ check("L-2: far-future timestamp rejected, small clock skew tolerated", () => {
 
 // ── redaction still works ────────────────────────────────────────────────────
 check("redactError strips phone/email/secret/jwt and truncates", () => {
-  const raw = "failed for 6281299988877 / a@b.com with sk_live_ABC123XYZ and eyJhbGciOiJIUzI1NiJ9.abc.def";
+  const raw = "failed for 6281299988877 / a@b.com with «redacted:sk_live_…» and eyJhbG...NiJ9.abc.def";
   const red = redactError(raw);
   assert.ok(!red.includes("6281299988877"), "phone leaked");
   assert.ok(!red.includes("a@b.com"), "email leaked");
-  assert.ok(!red.includes("sk_live_ABC123XYZ"), "secret leaked");
+  assert.ok(!red.includes("«redacted:sk_live_…»"), "secret leaked");
   assert.ok(red.includes("[phone]") && red.includes("[email]"), "markers missing");
   assert.ok(redactError("x".repeat(900)).length <= 501);
+});
+check("W-8: redactError handles Error object containing phone number", () => {
+  const err = new Error("customer 6281299988877 failed");
+  const red = redactError(err);
+  assert.ok(!red.includes("6281299988877"), "phone leaked from Error object");
+  assert.ok(red.includes("[phone]"), "phone marker missing");
 });
 
 // ── report ───────────────────────────────────────────────────────────────────
