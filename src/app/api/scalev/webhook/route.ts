@@ -9,11 +9,6 @@ import {
   redactError,
 } from "@/lib/onboarding-store";
 
-const DEFAULT_SCALEV_SECRET =
-  process.env.SCALEV_WEBHOOK_SECRET ||
-  process.env.SCALEV_API_KEY ||
-  "";
-
 function safeNormalizePhone(phone: string): string {
   let clean = String(phone || "").replace(/\D/g, "");
   if (clean.startsWith("0")) {
@@ -62,7 +57,14 @@ export async function POST(req: Request) {
       req.headers.get("x-scalev-hmac-sha256") ||
       req.headers.get("X-Scalev-Hmac-Sha256");
 
-    const secret = process.env.SCALEV_WEBHOOK_SECRET || DEFAULT_SCALEV_SECRET;
+    const secret = process.env.SCALEV_WEBHOOK_SECRET || process.env.SCALEV_API_KEY || "";
+    if (!secret) {
+      console.error("[Scalev Webhook] No signing secret configured — rejecting");
+      return NextResponse.json(
+        { error: "Webhook signing secret is not configured" },
+        { status: 500 }
+      );
+    }
 
     // 1. Signature Verification with Constant-Time Comparison
     const isValid = verifyScalevSignature(rawBody, signature, secret);
