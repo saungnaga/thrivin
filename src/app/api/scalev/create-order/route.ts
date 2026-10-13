@@ -343,7 +343,17 @@ export async function POST(req: Request) {
     // Ikat reservasi promo ke order supaya webhook pembayaran bisa
     // meng-consume-nya (dan menegakkan 1x per nomor).
     if (promo?.redemptionId && createdOrderId) {
-      await attachPromoOrder(promo.redemptionId, String(createdOrderId));
+      const linked = await attachPromoOrder(promo.redemptionId, String(createdOrderId));
+      if (!linked) {
+        // C-6: order sudah tercetak di Scalev tapi reservasinya tidak terikat ->
+        // webhook tidak bisa consume (audit trail bolong). Jangan diam. TIDAK
+        // dilepas: kursinya masih bisa dibayar, melepasnya membuka over-sell.
+        // Yang dicatat hanya id order (bukan PII) supaya bisa direkonsiliasi
+        // manual sebelum sweep 24 jam.
+        console.error(
+          `[promo] redemption ${promo.redemptionId} NOT linked to order ${createdOrderId} — needs manual reconcile`
+        );
+      }
     }
 
     // H-5: the snapshot is written exactly once, AFTER the order exists, with a

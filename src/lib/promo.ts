@@ -38,7 +38,9 @@ export type RedeemStatus =
   | "expired"
   | "plan_not_eligible"
   | "already_used"
-  | "exhausted";
+  | "exhausted"
+  /** Order Scalev sudah tercetak untuk nomor ini tapi belum dibayar (V-1). */
+  | "pending_order";
 
 export interface RedeemResult {
   status: RedeemStatus;
@@ -194,25 +196,58 @@ export async function consumePromoForOrder(orderRef: string): Promise<void> {
   }
 }
 
-/** Tautkan reservasi ke order Scalev supaya pembayaran bisa meng-consume-nya. */
-export async function attachPromoOrder(redemptionId: string, orderRef: string): Promise<void> {
-  if (!redemptionId || !orderRef) return;
+/**
+ * Tautkan reservasi ke order Scalev supaya pembayaran bisa meng-consume-nya.
+ *
+ * C-6: dulu kegagalan di-swallow dan `return=minimal` membuat "0 baris
+ * ter-update" tidak terlihat sama sekali — webhook lalu tidak bisa consume
+ * (audit trail bolong) dan slot nyangkut sampai sweep. Sekarang hasilnya
+ * dilaporkan: true HANYA kalau benar-benar ada baris yang ter-update.
+ * Tidak melempar — pemanggil yang memutuskan apa artinya kegagalan itu.
+ */
+export async function attachPromoOrder(redemptionId: string, orderRef: string): Promise<boolean> {
+  if (!redemptionId || !orderRef) return false;
+  let url: string;
+  let key: string;
   try {
-    const { url, key } = getSupabaseConfig();
-    if (!url || !key) return;
-    await fetch(
-      `${url}/rest/v1/promo_redemptions?id=eq.${encodeURIComponent(
-        redemptionId
-      )}&tenant_id=eq.${encodeURIComponent(TENANT_ID)}`,
-      {
-        method: "PATCH",
-        headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
-        body: JSON.stringify({ order_ref: orderRef }),
-      }
-    );
+    ({ url, key } = getSupabaseConfig());
   } catch (err) {
-    console.warn("[PromoStore] attachPromoOrder failed:", redactError(err));
+    console.warn("[PromoStore] attachPromoOrder: promo store unavailable:", redactError(err));
+    return false;
   }
+  if (!url || !key) return false;
+
+  const target = `${url}/rest/v1/promo_redemptions?id=eq.${encodeURIComponent(
+    redemptionId
+  )}&tenant_id=eq.${encodeURIComponent(TENANT_ID)}`;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const res = await fetch(target, {
+        method: "PATCH",
+        headers: { ...serviceHeaders(key), Prefer: "return=representation" },
+        body: JSON.stringify({ order_ref: orderRef }),
+      });
+      if (res.ok) {
+        const rows = (await res.json().catch(() => [])) as unknown[];
+        if (Array.isArray(rows) && rows.length > 0) return true;
+        // 2xx tapi nol baris = reservasi tidak ada / sudah released. Retry tidak
+        // akan mengubahnya, jadi jangan buang waktu.
+        console.warn(
+          `[PromoStore] attachPromoOrder matched 0 rows (order=${orderRef}) — redemption tidak terikat`
+        );
+        return false;
+      }
+      console.warn(
+        `[PromoStore] attachPromoOrder failed: status=${res.status} order=${orderRef} attempt=${attempt}`
+      );
+    } catch (err) {
+      console.warn(
+        `[PromoStore] attachPromoOrder error: ${redactError(err)} order=${orderRef} attempt=${attempt}`
+      );
+    }
+  }
+  return false;
 }
 
 /** Daftar promo untuk dashboard (terpakai + sisa dihitung view, bukan counter). */

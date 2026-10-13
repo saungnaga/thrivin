@@ -11,8 +11,13 @@
  *   jalur sukses   -> kode valid memotong harga; Scalev ditagih harga server
  *   kuota habis    -> checkout DITOLAK + pesan jelas (bukan harga penuh diam-diam)
  *   kedaluwarsa    -> ditolak; non-aktif -> ditolak
- *   per-nomor      -> retry sebelum bayar dilepas (1 reservasi aktif); setelah
- *                     bayar nomor yang sama ditolak lagi
+ *   V-1            -> satu nomor = SATU order: 3 checkout berurutan (kuota 2)
+ *                     hanya mencetak 1 order; retry sebelum order tercetak
+ *                     memakai baris ledger yang sama (bukan release+insert)
+ *   V-2            -> kunci anon tidak bisa membaca v_promo_codes; service_role tetap
+ *   C-1            -> XFF palsu tidak mereset rate limit login (429 tetap 429)
+ *   C-2            -> ADMIN_SESSION_SECRET 'a'x32 ditolak; cookie palsu 401
+ *   C-3            -> token dari ADMIN_SESSION_EPOCH lain ditolak
  *   RACE           -> kuota=1, dua checkout paralel => tepat satu lolos
  *   dry-run        -> tombol "Terapkan" tidak menggerus kuota
  *   order gagal    -> reservasi dilepas, kuota tidak bocor
@@ -26,6 +31,7 @@ import path from "path";
 import { spawn, execFileSync } from "child_process";
 import {
   SERVICE_KEY,
+  ANON_KEY,
   POSTGREST_URL,
   startPostgrest,
   truncateAll,
@@ -104,12 +110,16 @@ async function startMockScalev(): Promise<Stack> {
   };
 }
 
-async function startApp(env: Record<string, string | undefined> = {}): Promise<Stack> {
+async function startApp(
+  env: Record<string, string | undefined> = {},
+  port: number = APP_PORT,
+  logFile: string = LOG_FILE
+): Promise<Stack> {
   try {
-    fs.truncateSync(LOG_FILE, 0);
+    fs.truncateSync(logFile, 0);
   } catch {}
-  const logFd = fs.openSync(LOG_FILE, "a");
-  const child = spawn("./node_modules/.bin/next", ["start", "-p", String(APP_PORT)], {
+  const logFd = fs.openSync(logFile, "a");
+  const child = spawn("./node_modules/.bin/next", ["start", "-p", String(port)], {
     cwd: REPO,
     env: {
       PATH: process.env.PATH,
@@ -128,7 +138,7 @@ async function startApp(env: Record<string, string | undefined> = {}): Promise<S
     },
     stdio: ["ignore", logFd, logFd],
   });
-  await waitFor(`${BASE_URL}/api/scalev/webhook`);
+  await waitFor(`http://127.0.0.1:${port}/api/scalev/webhook`);
   return {
     stop: () => {
       try {
@@ -198,6 +208,11 @@ function mockOrders(): any[] {
 
 function lastMockOrder() {
   return mockOrders().slice(-1)[0];
+}
+
+/** Berapa order yang BENAR-BENAR dicetak di Scalev untuk nomor itu. */
+function ordersForPhone(phone: string): number {
+  return mockOrders().filter((o) => o?.body?.customer_phone === phone).length;
 }
 
 /** Yang benar-benar ditagih Scalev: variant total - product_discount. */
@@ -326,6 +341,95 @@ async function main() {
     assertEq((await admin.call("/api/admin/session")).body.authenticated, true, "auth: sesi valid dikenali");
     assertEq((await admin.call("/api/admin/promos")).status, 200, "auth: admin bisa list promo");
 
+    // ══ C-1: X-Forwarded-For palsu tidak mereset rate limit ════════════════
+    // Entri paling KANAN adalah alamat yang dilihat proxy kita (IP klien asli);
+    // entri di kirinya ditulis klien dan tidak boleh dipercaya.
+    console.log("\n── C-1: spoof X-Forwarded-For vs rate limit login ──");
+    {
+      const loginWithXff = async (xff: string) => {
+        const res = await fetch(`${BASE_URL}/api/admin/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Forwarded-For": xff },
+          body: JSON.stringify({ username: ADMIN_USER, password: "salah" }),
+        });
+        return res.status;
+      };
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i += 1) {
+        const status = await loginWithXff(`1.2.3.${i}, 9.9.9.9`);
+        statuses.push(status);
+        if (status === 429) break;
+      }
+      assertOk(statuses.includes(429), "C-1: brute force dari IP yang sama kena 429", JSON.stringify(statuses));
+      // Serangan Sentinel: ganti entri PERTAMA (yang dulu jadi kunci limit).
+      const spoofed = await loginWithXff("6.6.6.6, 9.9.9.9");
+      assertEq(spoofed, 429, "C-1: memalsukan entri XFF pertama TIDAK mereset limit");
+    }
+
+    // ══ C-2: secret sesi lemah tidak boleh diterima ═════════════════════════
+    console.log("\n── C-2: ADMIN_SESSION_SECRET lemah ──");
+    {
+      const weakPort = APP_PORT + 1;
+      const weak = await startApp(
+        { ADMIN_SESSION_SECRET: "a".repeat(32) },
+        weakPort,
+        "/tmp/thrivin-promo-e2e-weak.log"
+      );
+      try {
+        const weakBase = `http://127.0.0.1:${weakPort}`;
+        const login = await fetch(`${weakBase}/api/admin/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: ADMIN_USER, password: ADMIN_PASS }),
+        });
+        assertEq(login.status, 503, "C-2: config dengan secret 'a'x32 dianggap TIDAK valid (login 503)");
+
+        // Reproduksi persis serangan Sentinel: cookie dipalsukan memakai secret
+        // lemah, TANPA tahu password. Dulu ini memberi HTTP 200.
+        const payload = Buffer.from(
+          JSON.stringify({
+            username: ADMIN_USER,
+            iat: Date.now(),
+            exp: Date.now() + 3_600_000,
+            epoch: "0",
+          })
+        ).toString("base64url");
+        const forgedSig = crypto
+          .createHmac("sha256", "a".repeat(32))
+          .update(payload)
+          .digest("base64url");
+        const forged = await fetch(`${weakBase}/api/admin/promos`, {
+          headers: { cookie: `thrivin_admin_session=${payload}.${forgedSig}` },
+        });
+        assertEq(forged.status, 401, "C-2: cookie hasil tebak secret lemah tetap 401");
+      } finally {
+        weak.stop();
+      }
+    }
+
+    // ══ C-3: ADMIN_SESSION_EPOCH = "logout semua" tanpa state ══════════════
+    console.log("\n── C-3: pencabutan sesi lewat epoch ──");
+    {
+      const mint = (epoch: string) => {
+        const payload = Buffer.from(
+          JSON.stringify({
+            username: ADMIN_USER,
+            iat: Date.now(),
+            exp: Date.now() + 3_600_000,
+            epoch,
+          })
+        ).toString("base64url");
+        const sig = crypto.createHmac("sha256", ADMIN_SECRET).update(payload).digest("base64url");
+        return `${payload}.${sig}`;
+      };
+      const callWith = (token: string) =>
+        fetch(`${BASE_URL}/api/admin/promos`, {
+          headers: { cookie: `thrivin_admin_session=${token}` },
+        }).then((r) => r.status);
+      assertEq(await callWith(mint("0")), 200, "C-3: kontrol positif — token epoch aktif diterima");
+      assertEq(await callWith(mint("1")), 401, "C-3: token epoch lama ditolak (sesi bisa dicabut)");
+    }
+
     // ══ Validasi server-side ═══════════════════════════════════════════════
     console.log("\n── Validasi input server-side ──");
     const asAdmin = (payload: unknown) =>
@@ -372,6 +476,55 @@ async function main() {
       psqlSuper("SELECT remaining FROM v_promo_codes WHERE code='PROMO20';", { csv: true }),
       "4",
       "sukses: sisa kuota 4"
+    );
+
+    // ══ V-2: view promo tidak bocor ke klien anon ══════════════════════════
+    // Kunci anon = kunci publishable yang selalu ada di bundle browser. View
+    // Postgres default berjalan sebagai PEMILIK (BYPASSRLS) dan Supabase memberi
+    // anon grant default untuk objek baru -> tanpa security_invoker/REVOKE,
+    // siapa pun bisa membaca seluruh kode promo + diskon + kuota.
+    console.log("\n── V-2: kunci anon vs v_promo_codes ──");
+    const anonHeaders = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+    const anonView = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_promo_codes?select=code,amount,max_redemptions,used_count,remaining`,
+      { headers: anonHeaders }
+    );
+    const anonViewBody = await anonView.text();
+    console.log(`   anon v_promo_codes -> HTTP ${anonView.status} ${anonViewBody.slice(0, 100)}`);
+    assertOk(
+      anonView.status === 401 ||
+        anonView.status === 403 ||
+        (anonView.status === 200 && !anonViewBody.includes("PROMO20")),
+      "V-2: anon TIDAK bisa membaca v_promo_codes",
+      `status=${anonView.status} body=${anonViewBody.slice(0, 120)}`
+    );
+    assertOk(
+      !anonViewBody.includes("PROMO20") && !anonViewBody.includes("HABIS1"),
+      "V-2: tidak ada satu pun kode promo di respons anon",
+      anonViewBody.slice(0, 120)
+    );
+
+    const anonTable = await fetch(`${POSTGREST_URL}/rest/v1/promo_codes?select=code,amount`, {
+      headers: anonHeaders,
+    });
+    const anonTableRows = anonTable.status === 200 ? await anonTable.json() : [];
+    assertOk(
+      anonTable.status !== 200 || (Array.isArray(anonTableRows) && anonTableRows.length === 0),
+      "V-2: tabel promo_codes tetap 0 baris untuk anon (RLS)",
+      `status=${anonTable.status}`
+    );
+
+    // Kontrol positif: perbaikannya bukan "view jadi tidak bisa dipakai siapa pun".
+    const svcHeaders = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
+    const svcView = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_promo_codes?select=code,used_count,remaining`,
+      { headers: svcHeaders }
+    );
+    const svcRows = svcView.status === 200 ? await svcView.json() : [];
+    assertOk(
+      svcView.status === 200 && Array.isArray(svcRows) && svcRows.some((r: any) => r.code === "PROMO20"),
+      "V-2: service_role tetap membaca view dengan lengkap",
+      `status=${svcView.status} rows=${Array.isArray(svcRows) ? svcRows.length : "n/a"}`
     );
 
     // ══ Dry run tidak menggerus kuota ══════════════════════════════════════
@@ -474,44 +627,81 @@ async function main() {
     });
     assertEq(badQuota.status, 400, "dashboard: kuota negatif ditolak server");
 
-    // ══ 1x per nomor ═══════════════════════════════════════════════════════
-    // Desain (lihat komentar redeem_promo): SEBELUM bayar, nomor yang sama boleh
-    // mengulang checkout — reservasi lama DILEPAS, tidak didobel — supaya pembeli
-    // yang menutup lalu membuka lagi halaman checkout tidak terkunci. Kunci
-    // 1x-per-nomor baru aktif saat PEMBAYARAN masuk (dibuktikan di blok webhook
-    // RACE1 di bawah: PROMO_ALREADY_USED).
-    console.log("\n── Promo: 1x per nomor ──");
-    await seedPromo({ code: "SEKALI", type: "percentage", amount: 50, quota: 10, plans: ["quarter"] });
+    // ══ V-1: satu nomor = satu order (kuota berurutan) ═════════════════════
+    // Sebelum remediasi: tiap checkout melepas reservasi lama (termasuk yang
+    // SUDAH punya order_ref) lalu INSERT baris baru, jadi satu nomor cuma
+    // menempati satu slot berapa pun order yang dicetak -> kode berkuota praktis
+    // tak terbatas, dan order yang dibayar tidak pernah tercatat 'consumed'.
+    console.log("\n── V-1: kuota=2, satu nomor, 3 checkout berurutan ──");
+    await seedPromo({ code: "SEKALI", type: "percentage", amount: 50, quota: 2, plans: ["quarter"] });
     const samePhone = nextPhone();
-    const onceOk = await checkout({
+    const ordersBefore = ordersForPhone(samePhone);
+    const sekaliBody = {
       planId: "quarter",
       customerPhone: samePhone,
       customerName: "Dummy Sekali",
       promoCode: "SEKALI",
       onboarding: sampleOnboarding,
-    });
-    assertEq(onceOk.status, 200, "per-nomor: pemakaian pertama lolos");
-    const retrySame = await checkout({
-      planId: "quarter",
-      customerPhone: samePhone,
-      customerName: "Dummy Sekali",
-      promoCode: "SEKALI",
-      onboarding: sampleOnboarding,
-    });
-    assertEq(retrySame.status, 200, "per-nomor: retry SEBELUM bayar diizinkan (pembeli tidak terkunci)");
+    };
+
+    const onceOk = await checkout(sekaliBody);
+    assertEq(onceOk.status, 200, "V-1: checkout #1 lolos");
+    const retrySame = await checkout(sekaliBody);
+    assertEq(retrySame.status, 400, "V-1: checkout #2 dari nomor yang sama DITOLAK");
+    assertEq(retrySame.body?.code, "PROMO_PENDING_ORDER", "V-1: error code PROMO_PENDING_ORDER");
+    const retryThird = await checkout(sekaliBody);
+    assertEq(retryThird.status, 400, "V-1: checkout #3 juga ditolak");
+    assertEq(retryThird.body?.code, "PROMO_PENDING_ORDER", "V-1: checkout #3 error code PROMO_PENDING_ORDER");
+
+    assertEq(
+      ordersForPhone(samePhone) - ordersBefore,
+      1,
+      "V-1: hanya SATU order tercetak di Scalev untuk nomor itu (3 checkout)"
+    );
     assertEq(
       countRows(
         "promo_redemptions r JOIN promo_codes p ON p.id = r.promo_id",
         "p.code='SEKALI' AND r.status <> 'released'"
       ),
       1,
-      "per-nomor: retry melepas reservasi lama -> tepat 1 reservasi aktif"
+      "V-1: tepat 1 baris ledger aktif"
     );
     assertEq(
       psqlSuper("SELECT used_count FROM v_promo_codes WHERE code='SEKALI';", { csv: true }),
       "1",
-      "per-nomor: retry tidak mendobel kuota"
+      "V-1: used_count konsisten (1), bukan dilepas lalu dihitung ulang"
     );
+
+    // Retry SEBELUM order tercetak tetap boleh (mis. pembeli refresh halaman
+    // sebelum Scalev menjawab): baris yang sama dipakai ulang, bukan dilepas.
+    console.log("\n── V-1: retry sebelum order tercetak memakai baris yang sama ──");
+    {
+      const code = "RETRYOK";
+      await seedPromo({ code, type: "percentage", amount: 30, quota: 5, plans: ["quarter"] });
+      const phone = nextPhone();
+      const promoId = psqlSuper(`SELECT id FROM promo_codes WHERE code='${code}';`, { csv: true });
+      const first = await checkout({ ...sekaliBody, customerPhone: phone, promoCode: code, customerName: "Dummy Retry" });
+      const rowId = psqlSuper(
+        `SELECT id FROM promo_redemptions WHERE promo_id='${promoId}' AND status='reserved';`,
+        { csv: true }
+      );
+      // Simulasi celah: order_ref dilepas supaya checkout berikutnya tidak
+      // berada di jalur 'pending_order' (order Scalev belum sempat dibuat).
+      psqlSuper(`UPDATE promo_redemptions SET order_ref = NULL WHERE id='${rowId}';`);
+      const again = await checkout({ ...sekaliBody, customerPhone: phone, promoCode: code, customerName: "Dummy Retry" });
+      assertEq(first.status, 200, "V-1 retry: checkout pertama lolos");
+      assertEq(again.status, 200, "V-1 retry: retry sebelum order tercetak tetap diizinkan");
+      assertEq(
+        psqlSuper(`SELECT id FROM promo_redemptions WHERE promo_id='${promoId}';`, { csv: true }),
+        rowId,
+        "V-1 retry: baris ledger yang SAMA dipakai ulang (bukan release+insert)"
+      );
+      assertEq(
+        psqlSuper(`SELECT used_count FROM v_promo_codes WHERE code='${code}';`, { csv: true }),
+        "1",
+        "V-1 retry: retry tidak menambah pemakaian"
+      );
+    }
 
     // ══ Reservasi dilepas kalau order Scalev gagal ═════════════════════════
     console.log("\n── Promo: order Scalev gagal -> kuota tidak bocor ──");

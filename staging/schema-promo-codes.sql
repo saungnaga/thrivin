@@ -1,11 +1,21 @@
 -- Schema: dashboard-managed promo codes (item 4 — promo benar-benar bisa habis)
 -- Divisi: Thrivin (Forge - Fullstack Engineer)
 -- Reviewer: Atlas (Tech Lead), Sentinel (Security & Compliance)
--- Tanggal: 2026-10-13
+-- Tanggal: 2026-10-13 (remediasi VETO 2026-10-14)
 -- Target: Supabase Staging -> Produksi
 --
 -- DRAFT: belum di-apply ke staging/produksi. Lihat
 -- projects/thrivin/features/promo-management-2026-10-13.md untuk cara rollback.
+--
+-- Changes vs v1 (see projects/thrivin/security/review-promo-2026-10-14.md):
+--   V-1  redeem_promo tidak lagi MELEPAS reservasi nomor yang sama. Reservasi
+--        yang sudah punya order_ref (order Scalev sudah tercetak) menahan
+--        checkout berikutnya (`pending_order`), dan reservasi yang belum punya
+--        order_ref dipakai ULANG di baris yang sama. Kuota dihitung dari
+--        pemakaian yang sudah tercetak (consumed + reserved aktif).
+--   V-2  v_promo_codes: security_invoker=on + REVOKE dari anon/authenticated.
+--   C-4  penjadwalan sweep gagal TERANG-TERANGAN kalau pg_cron tidak ada.
+--   C-5  REVOKE EXECUTE RPC promo dari PUBLIC/anon/authenticated.
 --
 -- Kenapa Supabase (bukan Scalev native): owner minta promo bisa dibuat/diatur
 -- dari dashboard Thrivin dan kuota harus kelihatan (terpakai/sisa). Scalev
@@ -73,6 +83,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_redemption_order
 -- ============================================================================
 -- 3. View untuk dashboard: terpakai + sisa dihitung, bukan kolom denormal
 --    (tidak ada drift antara counter dan ledger).
+--    "Terpakai" = pemakaian yang sudah TERCETAK: consumed + reservasi aktif.
+--    Bukan "baris yang kebetulan tidak released saat dibaca".
 -- ============================================================================
 CREATE OR REPLACE VIEW v_promo_codes AS
   SELECT
@@ -88,9 +100,20 @@ CREATE OR REPLACE VIEW v_promo_codes AS
   LEFT JOIN (
     SELECT promo_id, count(*)::int AS used_count
     FROM promo_redemptions
-    WHERE status <> 'released'
+    WHERE status IN ('reserved', 'consumed')
     GROUP BY promo_id
   ) r ON r.promo_id = p.id;
+
+-- V-2: view Postgres default berjalan dengan hak PEMILIK (role migrasi,
+-- BYPASSRLS) sehingga policy RLS di tabel tidak berlaku — dan policy-nya memang
+-- cuma dipasang di tabel. Tanpa dua perintah di bawah, klien ANON (kunci
+-- publishable yang selalu ada di bundle browser) bisa membaca seluruh kode
+-- promo rahasia + diskon + kuota + pemakaian lewat PostgREST.
+-- (security_invoker butuh PostgreSQL 15+; Supabase 15/16. Terbukti di
+-- review-promo-2026-10-14: tanpa fix anon=8 baris, dengan fix anon=0/401.)
+ALTER VIEW v_promo_codes SET (security_invoker = on);
+REVOKE ALL ON v_promo_codes FROM anon, authenticated;
+GRANT SELECT ON v_promo_codes TO service_role;      -- I-1: eksplisit, bukan andalan default
 
 -- ============================================================================
 -- 4. Klaim kuota atomik
@@ -99,7 +122,13 @@ CREATE OR REPLACE VIEW v_promo_codes AS
 -- setiap pemakaian untuk kode yang sama diserialisasi. Hitung pemakaian (dan
 -- cek 1x-per-nomor) terjadi DI DALAM lock itu — tidak ada celah antara baca dan
 -- tulis. Dua checkout paralel di kuota sisa 1 -> tepat satu dapat 'ok'.
--- Bukti: tests/test-promo-e2e.mts (race) + tests/test-promo-sql.mts.
+--
+-- V-1 (remediasi): retry dari nomor yang sama TIDAK lagi melepas reservasi lama
+-- lalu INSERT baris baru. Kalau reservasi lama sudah punya `order_ref` (order
+-- Scalev sudah tercetak), checkout kedua DITOLAK (`pending_order`) — kalau
+-- dilepas, satu nomor bisa "mengulang kursi" yang sama tanpa batas dan order
+-- yang sudah dibayar tidak pernah tercatat 'consumed' (audit trail bolong).
+-- Bukti: tests/test-promo-sql.mts + tests/test-promo-e2e.mts.
 -- ============================================================================
 DROP FUNCTION IF EXISTS redeem_promo(VARCHAR, TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT);
 
@@ -117,6 +146,8 @@ CREATE OR REPLACE FUNCTION redeem_promo(
 ) AS $$
 DECLARE
   v_promo promo_codes%ROWTYPE;
+  v_open promo_redemptions%ROWTYPE;
+  v_reuse BOOLEAN := false;
   v_used INTEGER;
   v_plan_keys TEXT[];
   v_discount NUMERIC := 0;
@@ -161,11 +192,31 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Kuota (dihitung di dalam lock; 'released' tidak dihitung).
-  SELECT count(*) INTO v_used FROM promo_redemptions r
-   WHERE r.promo_id = v_promo.id AND r.status <> 'released';
+  -- Reservasi aktif milik nomor ini (dibaca di dalam lock promo -> tidak ada race).
+  SELECT * INTO v_open FROM promo_redemptions r
+   WHERE r.promo_id = v_promo.id AND r.phone = p_phone AND r.status = 'reserved'
+   ORDER BY r.created_at DESC
+   LIMIT 1;
+  v_reuse := FOUND;
 
-  IF v_promo.max_redemptions IS NOT NULL AND v_used >= v_promo.max_redemptions THEN
+  -- Terisi order_ref = order sudah tercetak di Scalev tapi belum dibayar.
+  -- Jangan cetak order kedua: kembalikan reservasi yang sama apa adanya.
+  IF v_reuse AND v_open.order_ref IS NOT NULL THEN
+    RETURN QUERY SELECT 'pending_order'::text, v_promo.code::text,
+      v_open.discount_applied, v_open.final_price, v_open.id,
+      'Masih ada order promo yang menunggu pembayaran untuk nomor ini. Selesaikan pembayarannya atau tunggu order itu kedaluwarsa.'::text;
+    RETURN;
+  END IF;
+
+  -- Kuota = pemakaian yang sudah tercetak (consumed + reservasi aktif), bukan
+  -- "baris yang kebetulan tidak released saat ini".
+  SELECT count(*) INTO v_used FROM promo_redemptions r
+   WHERE r.promo_id = v_promo.id AND r.status IN ('reserved', 'consumed');
+
+  -- Nomor yang sudah memegang slot boleh memakai ulang slotnya sendiri
+  -- (v_reuse): retry sebelum order tercetak tidak menambah pemakaian.
+  IF v_promo.max_redemptions IS NOT NULL AND NOT v_reuse
+     AND v_used >= v_promo.max_redemptions THEN
     RETURN QUERY SELECT 'exhausted'::text, v_promo.code::text, 0::numeric, p_revenue,
       NULL::uuid, 'Kuota kode promo sudah habis.'::text;
     RETURN;
@@ -188,12 +239,18 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Retry dari nomor yang sama sebelum bayar: reservasi lama dilepas supaya
-  -- tidak mengunci pelanggan yang sekadar membuka ulang halaman checkout.
-  -- (Alias `r` dipakai supaya `status` tidak ambigu dengan OUT parameter.)
-  UPDATE promo_redemptions r
-     SET status = 'released', released_at = now()
-   WHERE r.promo_id = v_promo.id AND r.phone = p_phone AND r.status = 'reserved';
+  -- Retry sebelum order tercetak: pakai ULANG baris yang sama (jangan
+  -- release + insert — itu yang membuat satu nomor hanya pernah menempati satu
+  -- slot berapa pun order yang dicetak).
+  IF v_reuse THEN
+    RETURN QUERY
+    UPDATE promo_redemptions AS pr
+       SET discount_applied = v_discount, final_price = v_final, created_at = now()
+     WHERE pr.id = v_open.id
+    RETURNING 'ok'::text, v_promo.code::text, pr.discount_applied, pr.final_price,
+              pr.id, 'Kode promo terpasang.'::text;
+    RETURN;
+  END IF;
 
   RETURN QUERY
   INSERT INTO promo_redemptions
@@ -223,7 +280,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
--- Checkout gagal -> kuota dikembalikan.
+-- Checkout gagal SEBELUM order tertagih -> kuota dikembalikan.
+-- V-1: reservasi yang SUDAH punya order_ref tidak boleh dilepas di sini — itu
+-- membuka kembali kursi yang ordernya masih bisa dibayar. Reservasi seperti itu
+-- hanya dilepas oleh sweep TTL (24 jam), bukan oleh jalur cepat ini.
 CREATE OR REPLACE FUNCTION release_promo(
   p_redemption_id UUID,
   p_tenant_id VARCHAR DEFAULT 'thrivin'
@@ -233,7 +293,8 @@ DECLARE
 BEGIN
   UPDATE promo_redemptions
      SET status = 'released', released_at = now()
-   WHERE id = p_redemption_id AND tenant_id = p_tenant_id AND status = 'reserved';
+   WHERE id = p_redemption_id AND tenant_id = p_tenant_id
+     AND status = 'reserved' AND order_ref IS NULL;
   GET DIAGNOSTICS v_rows = ROW_COUNT;
   RETURN v_rows > 0;
 END;
@@ -258,6 +319,8 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 -- Schedule via pg_cron when the extension exists (sama seperti purge webhook).
+-- C-4: kalau penjadwalan tidak tersedia, JANGAN diam. Reservasi yang nyangkut
+-- membuat promo tampak "habis" padahal tidak ada yang membeli.
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
@@ -268,6 +331,8 @@ BEGIN
         'SELECT release_stale_promo_reservations(24);'
       );
     END IF;
+  ELSE
+    RAISE WARNING 'pg_cron tidak tersedia: sweep reservasi promo basi TIDAK terjadwal. Jalankan staging/release-stale-promo-cron.sh dari cron ops (atau panggil SELECT release_stale_promo_reservations(24); manual).';
   END IF;
 END $$;
 
@@ -288,6 +353,15 @@ ON CONFLICT (tenant_id, code) DO NOTHING;
 -- Supabase memberi service_role akses otomatis; baris eksplisit di bawah ini
 -- membuat harness PostgREST lokal (dan DB self-hosted) berperilaku sama.
 -- ============================================================================
+
+-- C-5: fungsi baru dapat EXECUTE default untuk PUBLIC di Postgres, dan Supabase
+-- menambah grant default untuk anon/authenticated. Semua RPC promo hanya
+-- dipanggil dari server (service_role) — cabut yang lain.
+REVOKE ALL ON FUNCTION redeem_promo(TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION consume_promo_for_order(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION release_promo(UUID, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION release_stale_promo_reservations(INTEGER, VARCHAR) FROM PUBLIC, anon, authenticated;
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON promo_codes, promo_redemptions TO service_role;
 GRANT EXECUTE ON FUNCTION redeem_promo(TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION consume_promo_for_order(TEXT, VARCHAR) TO service_role;

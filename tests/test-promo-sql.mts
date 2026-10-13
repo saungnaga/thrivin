@@ -19,6 +19,20 @@ const REPO = path.resolve(HERE, "..");
 const DB = process.env.HARNESS_PROMO_DB || "thrivin_promo_test";
 const PROMO_SCHEMA = path.join(REPO, "staging", "schema-promo-codes.sql");
 
+/**
+ * Supabase's default privileges for new objects in schema `public`, replicated
+ * so the draft is judged against the environment it will actually run in
+ * (review-promo-2026-10-14, V-2: "tidak saya grant" != "tidak bisa diakses").
+ */
+const SUPABASE_DEFAULT_PRIVS = `
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+`;
+
+const REDEEM_SIGNATURE = "redeem_promo(text,varchar,text,numeric,boolean,text,varchar)";
+
 const results: Array<[string, string]> = [];
 function check(name: string, fn: () => void) {
   try {
@@ -88,6 +102,13 @@ function createDatabase() {
     `DROP DATABASE IF EXISTS ${DB} WITH (FORCE);`,
   ]);
   execFileSync("sudo", ["-u", "postgres", "psql", "-q", "-c", `CREATE DATABASE ${DB} OWNER postgres;`]);
+  // Supabase grants anon/authenticated ALL on NEW objects in schema public.
+  // Replicated here BEFORE the promo schema runs, so the V-2 "view does not leak
+  // to anon" checks are real: without the draft's REVOKE they FAIL.
+  execFileSync(
+    "sudo",
+    ["-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-q", "-d", DB, "-c", SUPABASE_DEFAULT_PRIVS]
+  );
   // postgres cannot traverse /home/ubuntu -> stream the file over stdin.
   execFileSync(
     "sudo",
@@ -237,6 +258,126 @@ async function main() {
       "1"
     );
     assert.equal(sql(`SELECT used_count FROM v_promo_codes WHERE code='${code}'`), "1");
+  });
+
+  // ── 4b. V-1 (remediasi): checkout BERURUTAN dari satu nomor ───────────────
+  // Sebelum fix: tiap checkout melepas reservasi lama (termasuk yang SUDAH punya
+  // order_ref) lalu INSERT baris baru -> satu nomor cuma pernah menempati satu
+  // slot -> order berdiskon tak terbatas, dan order yang dibayar tidak pernah
+  // jadi 'consumed'. Kuota 2 + 1 nomor = 6x 'ok' berurutan (bukti Sentinel).
+  console.log("\n── V-1: kuota=2, satu nomor, 3 checkout BERURUTAN ──");
+  {
+    const code = seedPromo({ quota: 2 });
+    const phone = "628119000001";
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    const redeem = (dry = false) =>
+      sql(`SELECT status FROM redeem_promo('${code}','${phone}','quarter',231000,${dry},NULL,'thrivin')`);
+    // Checkout yang lolos langsung mencetak order di Scalev -> order_ref terpasang
+    // (persis yang dilakukan route setelah Scalev membalas).
+    const attach = (n: number) =>
+      sql(
+        `UPDATE promo_redemptions SET order_ref='ORD_${n}' WHERE phone='${phone}' AND promo_id=${promoId} AND status='reserved'`
+      );
+
+    const c1 = redeem();
+    attach(1);
+    const c2dry = redeem(true); // tombol "Terapkan" pada checkout kedua
+    const c2 = redeem();
+    const c3 = redeem();
+    console.log(`   checkout #1=${c1}  #2(dry)=${c2dry}  #2=${c2}  #3=${c3}`);
+    check("V-1: hanya checkout PERTAMA yang mencetak order (kuota=2, 1 nomor)", () => {
+      assert.equal(c1, "ok");
+      assert.equal(c2dry, "pending_order");
+      assert.equal(c2, "pending_order");
+      assert.equal(c3, "pending_order");
+    });
+    check("V-1: satu nomor = satu baris ledger, satu order_ref, used_count tidak dilepas", () => {
+      assert.equal(sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId}`), "1");
+      assert.equal(sql(`SELECT count(order_ref) FROM promo_redemptions WHERE promo_id=${promoId}`), "1");
+      assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "1/1");
+    });
+    check("V-1: release_promo TIDAK melepas reservasi yang sudah punya order_ref", () => {
+      // Dicek SELAGI masih 'reserved' (bukan sesudah consumed) supaya yang diuji
+      // benar-benar guard order_ref, bukan guard status.
+      const rid = sql(`SELECT id FROM promo_redemptions WHERE promo_id=${promoId}`);
+      assert.equal(sql(`SELECT release_promo('${rid}')`), "f");
+      assert.equal(sql(`SELECT status FROM promo_redemptions WHERE promo_id=${promoId}`), "reserved");
+      assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "1/1");
+    });
+    check("V-1: order yang dibayar tercatat 'consumed' (audit trail utuh)", () => {
+      assert.equal(sql("SELECT consume_promo_for_order('ORD_1')"), "1");
+      assert.equal(sql(`SELECT status FROM promo_redemptions WHERE promo_id=${promoId}`), "consumed");
+    });
+    check("V-1: nomor yang sudah dibayar ditolak (already_used), bukan dapat order baru", () => {
+      assert.equal(redeem(), "already_used");
+      assert.equal(redeem(true), "already_used");
+    });
+  }
+
+  console.log("\n── V-1: kuota=2, dua nomor, masing-masing 2 checkout berurutan ──");
+  {
+    const code = seedPromo({ quota: 2 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    const redeem = (phone: string) =>
+      sql(`SELECT status FROM redeem_promo('${code}','${phone}','quarter',231000,false,NULL,'thrivin')`);
+    const attach = (phone: string, ref: string) =>
+      sql(
+        `UPDATE promo_redemptions SET order_ref='${ref}' WHERE phone='${phone}' AND promo_id=${promoId} AND status='reserved'`
+      );
+
+    const a1 = redeem("628119000011");
+    attach("628119000011", "ORD_A");
+    const a2 = redeem("628119000011");
+    const b1 = redeem("628119000012");
+    attach("628119000012", "ORD_B");
+    const b2 = redeem("628119000012");
+    const c1 = redeem("628119000013");
+    console.log(`   A#1=${a1} A#2=${a2}  B#1=${b1} B#2=${b2}  C#1=${c1}`);
+    check("V-1: tepat 2 order lolos, nomor ketiga exhausted", () => {
+      assert.equal([a1, a2].join("/"), "ok/pending_order");
+      assert.equal([b1, b2].join("/"), "ok/pending_order");
+      assert.equal(c1, "exhausted");
+    });
+    check("V-1: kuota tercetak penuh (2/0) dan 2 order_ref berbeda di ledger", () => {
+      assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "2/0");
+      assert.equal(sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId}`), "2");
+      assert.equal(sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId} AND order_ref IS NOT NULL`), "2");
+    });
+  }
+
+  // ── 4c. V-2 / C-5: objek turunan & RPC tidak boleh terbuka untuk anon ─────
+  console.log("\n── V-2: view & RPC promo vs klien anon ──");
+  check("V-2: v_promo_codes jalan sebagai invoker (bukan pemilik view)", () => {
+    assert.equal(
+      sql("SELECT reloptions::text FROM pg_class WHERE relname='v_promo_codes'"),
+      "{security_invoker=on}"
+    );
+  });
+  check("V-2: anon & authenticated TIDAK punya SELECT pada v_promo_codes", () => {
+    // Default privilege Supabase sudah dipasang di createDatabase(), jadi hasil
+    // ini hanya bisa 'f' karena REVOKE di draft — bukan karena kebetulan.
+    assert.equal(sql("SELECT has_table_privilege('anon','public.v_promo_codes','SELECT')"), "f");
+    assert.equal(sql("SELECT has_table_privilege('authenticated','public.v_promo_codes','SELECT')"), "f");
+  });
+  check("V-2: service_role tetap bisa membaca v_promo_codes", () => {
+    assert.equal(sql("SELECT has_table_privilege('service_role','public.v_promo_codes','SELECT')"), "t");
+  });
+  check("C-5: anon & PUBLIC tidak punya EXECUTE pada RPC promo", () => {
+    for (const fn of [
+      REDEEM_SIGNATURE,
+      "consume_promo_for_order(text,varchar)",
+      "release_promo(uuid,varchar)",
+      "release_stale_promo_reservations(integer,varchar)",
+    ]) {
+      assert.equal(
+        sql(`SELECT has_function_privilege('anon','public.${fn}','EXECUTE')`),
+        "f",
+        `${fn} masih EXECUTE untuk anon`
+      );
+    }
+  });
+  check("C-5: service_role tetap bisa memanggil RPC promo", () => {
+    assert.equal(sql(`SELECT has_function_privilege('service_role','public.${REDEEM_SIGNATURE}','EXECUTE')`), "t");
   });
 
   // ── 5. RACE ──────────────────────────────────────────────────────────────

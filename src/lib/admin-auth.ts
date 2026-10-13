@@ -18,6 +18,20 @@ import { cookies } from "next/headers";
 export const ADMIN_COOKIE = "thrivin_admin_session";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 jam
 const MIN_SECRET_LENGTH = 32;
+/** Nilai utuh yang jelas lemah (bukan substring: frasa panjang tetap boleh). */
+const WEAK_SECRETS = new Set([
+  "changeme",
+  "change-me",
+  "secret",
+  "password",
+  "admin",
+  "thrivin",
+  "thrivin-secret",
+  "test",
+  "example",
+  "supersecret",
+]);
+const MIN_DISTINCT_CHARS = 10;
 
 export interface AdminConfig {
   username: string;
@@ -25,13 +39,40 @@ export interface AdminConfig {
   secret: string;
 }
 
-/** null = belum dikonfigurasi => semua endpoint harus menolak. */
+/**
+ * C-2: panjang saja bukan ukuran. `'a'.repeat(32)` panjangnya 32 tapi bisa
+ * ditebak, dan karena cookie-nya HMAC dari secret itu, secret lemah = cookie
+ * bisa dipalsukan TANPA tahu password (direproduksi Sentinel: GET 200).
+ * Tolak yang jelas lemah; sisanya secara praktis berarti acak.
+ */
+export function isWeakSecret(secret: string): boolean {
+  if (secret.length < MIN_SECRET_LENGTH) return true;
+  if (WEAK_SECRETS.has(secret.toLowerCase())) return true;
+  if (new Set(secret).size < MIN_DISTINCT_CHARS) return true; // 'a'x32, 'ab'x16
+  if (/^\d+$/.test(secret)) return true; // tanggal/nomor urut
+  if (/(.)\1{7,}/.test(secret)) return true; // 8+ karakter sama beruntun
+  return false;
+}
+
+let weakSecretLogged = false;
+
+/** null = belum/tidak dikonfigurasi => semua endpoint harus menolak. */
 export function getAdminConfig(): AdminConfig | null {
   const username = process.env.ADMIN_USERNAME || "";
   const password = process.env.ADMIN_PASSWORD || "";
   const secret = process.env.ADMIN_SESSION_SECRET || "";
   if (!username || !password) return null;
-  if (secret.length < MIN_SECRET_LENGTH) return null;
+  if (isWeakSecret(secret)) {
+    // Sekali per proses: ini kesalahan konfigurasi, bukan kesalahan per request.
+    if (!weakSecretLogged) {
+      weakSecretLogged = true;
+      console.error(
+        "[AdminAuth] ADMIN_SESSION_SECRET ditolak: lemah. Butuh >= 32 karakter acak " +
+          "(mis. `openssl rand -base64 32`). Dashboard ditolak sampai diperbaiki."
+      );
+    }
+    return null;
+  }
   return { username, password, secret };
 }
 
@@ -55,9 +96,24 @@ export function createSessionToken(username: string, now: number = Date.now()): 
   const config = getAdminConfig();
   if (!config) return null;
   const payload = Buffer.from(
-    JSON.stringify({ username, exp: now + SESSION_TTL_MS })
+    JSON.stringify({
+      username,
+      iat: now,
+      exp: now + SESSION_TTL_MS,
+      epoch: sessionEpoch(),
+    })
   ).toString("base64url");
   return `${payload}.${hmac(payload, config.secret)}`;
+}
+
+/**
+ * C-3: token-nya stateless, jadi logout TIDAK bisa mencabut satu token tanpa
+ * state. Yang tersedia murah: naikkan ADMIN_SESSION_EPOCH (mis. ke timestamp)
+ * => semua sesi lama gagal verifikasi karena epoch di dalam payload tidak lagi
+ * cocok. Keputusan & trade-off tertulis di laporan VETO remediation.
+ */
+function sessionEpoch(): string {
+  return process.env.ADMIN_SESSION_EPOCH || "0";
 }
 
 /** Returns the session username, or null for anything not provably valid. */
@@ -74,6 +130,7 @@ export function verifySessionToken(
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
     if (typeof parsed?.username !== "string" || typeof parsed?.exp !== "number") return null;
     if (parsed.exp <= now) return null;
+    if (parsed.epoch !== sessionEpoch()) return null;
     return parsed.username;
   } catch {
     return null;
