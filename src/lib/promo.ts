@@ -267,49 +267,11 @@ export function validatePromoInput(raw: unknown): ValidationResult {
     errors.push("Tipe diskon harus percentage, fixed, atau flat_price.");
   }
 
-  const amount = Number(body.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    errors.push("Nilai diskon harus angka lebih besar dari 0.");
-  } else if (discountType === "percentage" && amount > 100) {
-    errors.push("Diskon persentase maksimal 100.");
-  } else if ((discountType === "fixed" || discountType === "flat_price") && amount > 100_000_000) {
-    errors.push("Nilai diskon rupiah terlalu besar.");
-  }
+  const amount = checkAmount(discountType, body.amount, errors);
 
-  let planKeys: string[] = [];
-  if (body.plan_keys !== undefined && body.plan_keys !== null && body.plan_keys !== "") {
-    if (!Array.isArray(body.plan_keys)) {
-      errors.push("plan_keys harus array.");
-    } else {
-      planKeys = body.plan_keys.map((p) => String(p));
-      const unknown = planKeys.filter((p) => !PROMO_PLANS.includes(p as never));
-      if (unknown.length > 0) errors.push(`Paket tidak dikenal: ${unknown.join(", ")}.`);
-    }
-  }
-
-  let maxRedemptions: number | null = null;
-  if (
-    body.max_redemptions !== undefined &&
-    body.max_redemptions !== null &&
-    body.max_redemptions !== ""
-  ) {
-    const quota = Number(body.max_redemptions);
-    if (!Number.isInteger(quota) || quota < 0) {
-      errors.push("Kuota harus bilangan bulat >= 0 (kosongkan untuk tanpa kuota).");
-    } else {
-      maxRedemptions = quota;
-    }
-  }
-
-  let expiresAt: string | null = null;
-  if (body.expires_at !== undefined && body.expires_at !== null && body.expires_at !== "") {
-    const parsed = Date.parse(String(body.expires_at));
-    if (!Number.isFinite(parsed)) {
-      errors.push("Tanggal kedaluwarsa tidak valid.");
-    } else {
-      expiresAt = new Date(parsed).toISOString();
-    }
-  }
+  const planKeys = checkPlanKeys(body.plan_keys, errors);
+  const maxRedemptions = checkQuota(body.max_redemptions, errors);
+  const expiresAt = checkExpiry(body.expires_at, errors);
 
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -317,13 +279,106 @@ export function validatePromoInput(raw: unknown): ValidationResult {
     value: {
       code: code as string,
       discount_type: discountType as DiscountType,
-      amount,
+      amount: amount as number,
       plan_keys: planKeys,
       max_redemptions: maxRedemptions,
       expires_at: expiresAt,
       is_active: body.is_active === undefined ? true : Boolean(body.is_active),
     },
   };
+}
+
+/**
+ * PATCH: hanya field yang dikirim yang divalidasi. `code` tidak boleh diubah
+ * (audit riwayat lebih ribet daripada manfaatnya) — ditolak, bukan diabaikan.
+ */
+export function validatePromoPatch(
+  raw: unknown
+): { ok: true; value: Omit<PromoWriteInput, "code"> } | { ok: false; errors: string[] } {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, errors: ["Body harus berupa objek JSON."] };
+  }
+  const body = raw as Record<string, unknown>;
+  const errors: string[] = [];
+  if (body.code !== undefined) {
+    errors.push("Kode promo tidak bisa diubah. Buat kode baru kalau perlu.");
+  }
+
+  const value: Partial<Omit<PromoWriteInput, "code">> = {};
+  if (body.discount_type !== undefined) {
+    const type = String(body.discount_type);
+    if (!["percentage", "fixed", "flat_price"].includes(type)) {
+      errors.push("Tipe diskon harus percentage, fixed, atau flat_price.");
+    } else {
+      value.discount_type = type as DiscountType;
+    }
+  }
+  if (body.amount !== undefined) {
+    const type = String(body.discount_type ?? "percentage");
+    const amount = checkAmount(type, body.amount, errors);
+    if (amount !== null) value.amount = amount;
+  }
+  if (body.plan_keys !== undefined) value.plan_keys = checkPlanKeys(body.plan_keys, errors);
+  if (body.max_redemptions !== undefined) {
+    value.max_redemptions = checkQuota(body.max_redemptions, errors);
+  }
+  if (body.expires_at !== undefined) value.expires_at = checkExpiry(body.expires_at, errors);
+  if (body.is_active !== undefined) value.is_active = Boolean(body.is_active);
+
+  if (errors.length > 0) return { ok: false, errors };
+  if (Object.keys(value).length === 0) {
+    return { ok: false, errors: ["Tidak ada field yang bisa diubah."] };
+  }
+  return { ok: true, value: value as Omit<PromoWriteInput, "code"> };
+}
+
+function checkAmount(type: string, raw: unknown, errors: string[]): number | null {
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    errors.push("Nilai diskon harus angka lebih besar dari 0.");
+    return null;
+  }
+  if (type === "percentage" && amount > 100) {
+    errors.push("Diskon persentase maksimal 100.");
+    return null;
+  }
+  if ((type === "fixed" || type === "flat_price") && amount > 100_000_000) {
+    errors.push("Nilai diskon rupiah terlalu besar.");
+    return null;
+  }
+  return amount;
+}
+
+function checkPlanKeys(raw: unknown, errors: string[]): string[] {
+  if (raw === undefined || raw === null || raw === "") return [];
+  if (!Array.isArray(raw)) {
+    errors.push("plan_keys harus array.");
+    return [];
+  }
+  const planKeys = raw.map((p) => String(p));
+  const unknown = planKeys.filter((p) => !PROMO_PLANS.includes(p as never));
+  if (unknown.length > 0) errors.push(`Paket tidak dikenal: ${unknown.join(", ")}.`);
+  return planKeys;
+}
+
+function checkQuota(raw: unknown, errors: string[]): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const quota = Number(raw);
+  if (!Number.isInteger(quota) || quota < 0) {
+    errors.push("Kuota harus bilangan bulat >= 0 (kosongkan untuk tanpa kuota).");
+    return null;
+  }
+  return quota;
+}
+
+function checkExpiry(raw: unknown, errors: string[]): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const parsed = Date.parse(String(raw));
+  if (!Number.isFinite(parsed)) {
+    errors.push("Tanggal kedaluwarsa tidak valid.");
+    return null;
+  }
+  return new Date(parsed).toISOString();
 }
 
 export async function createPromo(

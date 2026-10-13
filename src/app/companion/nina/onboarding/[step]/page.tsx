@@ -90,8 +90,10 @@ const DEFAULT_DATA: OnboardingData = {
   communicationStyle: "Santai & Akrab",
   whatsappNumber: "",
   selectedPlan: "quarter",
-  promoCode: "TEMANBARU",
-  promoApplied: true,
+  // Promo datang dari server (tabel promo_codes), bukan konstanta di klien.
+  // Kosong = tidak ada promo otomatis; kode aktif hanya setelah divalidasi server.
+  promoCode: "",
+  promoApplied: false,
 };
 
 export default function OnboardingStepPage({
@@ -112,6 +114,14 @@ export default function OnboardingStepPage({
 
   // 1-Hour Countdown Timer State for Applied Promo
   const [countdownSeconds, setCountdownSeconds] = useState(3600);
+
+  // Kutipan promo dari SERVER: discount + harga akhir. Klien tidak pernah
+  // menghitung diskon sendiri — kalau kosong, harga katalog yang dipakai.
+  const [promoCheck, setPromoCheck] = useState<{
+    code: string;
+    discount: number;
+    finalPrice: number;
+  } | null>(null);
 
   const formatCountdown = (totalSec: number) => {
     const h = Math.floor(totalSec / 3600);
@@ -144,17 +154,19 @@ export default function OnboardingStepPage({
     };
   }, [stepNum]);
 
-  // Load saved state from localStorage (always auto-apply TEMANBARU on load)
+  // Load saved state from localStorage (kode promo divalidasi ulang ke server)
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
+        // Kode yang tersimpan dipertahankan, tapi TIDAK dianggap terpasang:
+        // kuota bisa sudah habis, kode bisa dimatikan, atau sudah kedaluwarsa.
+        // Validasi ulang ke server saat halaman harga dibuka.
         setData({
           ...DEFAULT_DATA,
           ...parsed,
-          promoCode: "TEMANBARU",
-          promoApplied: true,
+          promoApplied: false,
         });
       }
     } catch (e) {
@@ -301,39 +313,34 @@ export default function OnboardingStepPage({
 
   const currentPlan = PLANS[data.selectedPlan] || PLANS.quarter;
   const activePromoCode = data.promoCode.trim().toUpperCase();
-  const isSecretPromo = data.promoApplied && activePromoCode === "TEMANBAIKHATI";
-  const isPublicPromo = data.promoApplied && activePromoCode === "TEMANBARU";
-  const isPromoEligible = data.selectedPlan !== "month";
-  const discountRate = isPublicPromo && isPromoEligible ? 0.2 : 0;
-  const discountAmount =
-    isSecretPromo && data.selectedPlan === "quarter"
-      ? Math.max(0, currentPlan.totalPrice - 10000)
-      : Math.round(currentPlan.totalPrice * discountRate);
-  const finalPrice = currentPlan.totalPrice - discountAmount;
+  // Angka diskon TIDAK dihitung di klien: server (promo_codes + RPC atomik) yang
+  // memutuskan kuota/kedaluwarsa/non-aktif, dan hanya angka server yang ditampilkan.
+  const promoQuote =
+    data.promoApplied && promoCheck?.code === activePromoCode ? promoCheck : null;
+  const discountAmount = promoQuote ? promoQuote.discount : 0;
+  const finalPrice = promoQuote ? promoQuote.finalPrice : currentPlan.totalPrice;
 
   // Struck-through helper for each card
   const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
     const plan = PLANS[planKey];
-    const isPlanPromoEligible = planKey !== "month";
-    if (isSecretPromo && planKey === "quarter") {
+    // Kutipan promo hanya berlaku untuk paket yang divalidasi server. Paket lain
+    // tampil harga katalog, tanpa angka diskon karangan di klien.
+    if (promoQuote && planKey === data.selectedPlan) {
+      const months = plan.monthlyPrice > 0 ? plan.totalPrice / plan.monthlyPrice : 1;
       return {
         originalTotal: plan.totalPrice,
-        discountedTotal: 10000,
+        discountedTotal: promoQuote.finalPrice,
         originalMonthly: plan.monthlyPrice,
-        discountedMonthly: Math.round(10000 / 3),
-        hasDiscount: true,
+        discountedMonthly: Math.max(0, Math.round(promoQuote.finalPrice / months)),
+        hasDiscount: promoQuote.discount > 0,
       };
     }
-    const promoRate = isPublicPromo && isPlanPromoEligible ? 0.2 : 0;
-    const disc = Math.round(plan.totalPrice * promoRate);
-    const finalTotal = plan.totalPrice - disc;
-    const finalMonthly = Math.round(plan.monthlyPrice * (1 - promoRate));
     return {
       originalTotal: plan.totalPrice,
-      discountedTotal: finalTotal,
+      discountedTotal: plan.totalPrice,
       originalMonthly: plan.monthlyPrice,
-      discountedMonthly: finalMonthly,
-      hasDiscount: promoRate > 0,
+      discountedMonthly: plan.monthlyPrice,
+      hasDiscount: false,
     };
   };
 
@@ -343,6 +350,54 @@ export default function OnboardingStepPage({
     if (clean.length < 10) return "Nomor terlalu pendek (minimal 10 digit).";
     if (clean.length > 13) return "Nomor melebihi batas (maksimal 13 digit).";
     return "";
+  };
+
+  // Validasi kode promo ke server (dry run: tidak memakai kuota). Hanya kode
+  // yang benar-benar valid yang dianggap "terpasang" — sisa kuota, kedaluwarsa,
+  // dan status aktif semuanya ditegakkan server.
+  const applyPromo = async () => {
+    const typedCode = data.promoCode.trim().toUpperCase();
+    setCheckoutError("");
+    if (!typedCode) {
+      updateData({ promoApplied: false, promoCode: "" });
+      setPromoCheck(null);
+      return;
+    }
+    try {
+      const res = await fetch("/api/scalev/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkPromoOnly: true,
+          promoCode: typedCode,
+          planId: data.selectedPlan,
+          customerPhone: data.whatsappNumber,
+        }),
+      });
+      const check = await res.json();
+      if (!res.ok || !check?.valid) {
+        updateData({ promoApplied: false });
+        setPromoCheck(null);
+        setCheckoutError(check?.error || "Kode promo tidak bisa dipakai.");
+        return;
+      }
+      const code = String(check.code || typedCode);
+      setPromoCheck({
+        code,
+        discount: Number(check.discount || 0),
+        finalPrice: Number(check.finalPrice ?? 0),
+      });
+      updateData({ promoApplied: true, promoCode: code });
+      const newExpiry = Date.now() + 3600 * 1000;
+      try {
+        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
+      } catch (e) {}
+      setCountdownSeconds(3600);
+    } catch (e) {
+      updateData({ promoApplied: false });
+      setPromoCheck(null);
+      setCheckoutError("Gagal memeriksa kode promo. Coba lagi.");
+    }
   };
 
   // Handle WhatsApp submission with calculation/syncing animation
@@ -413,8 +468,11 @@ export default function OnboardingStepPage({
       const resData = await response.json();
 
       if (!response.ok || !resData.paymentUrl) {
-        if (resData.codeAlreadyUsed) {
-          updateData({ promoCode: "TEMANBARU", promoApplied: true });
+        // Promo ditolak server (habis / kedaluwarsa / sudah pernah dipakai):
+        // kutipannya dibuang, jangan tampilkan diskon yang tidak berlaku.
+        if (resData.code) {
+          updateData({ promoApplied: false, promoCode: "" });
+          setPromoCheck(null);
         }
         throw new Error(
           resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
@@ -1596,7 +1654,7 @@ export default function OnboardingStepPage({
                 </div>
               </div>
 
-              {/* Promo Applied Banner with ambiguous Countdown directly beside TEMANBARU */}
+              {/* Promo applied banner + countdown */}
               {data.promoApplied && Boolean(data.promoCode) && (
                 <div className="p-3.5 sm:p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-300 shadow-xs flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 flex-wrap">
@@ -1610,7 +1668,7 @@ export default function OnboardingStepPage({
                       <span>{data.promoCode}</span>
                     </div>
 
-                    {/* Countdown 1 Jam tepat di samping TEMANBARU (ambigu & tanpa kata promo berakhir) */}
+                    {/* Countdown 1 jam untuk promo yang sedang terpasang */}
                     <div className="inline-flex items-center gap-1.5 bg-white/95 border border-emerald-300 px-2.5 py-1 rounded-lg text-emerald-900 shadow-2xs">
                       <Clock className="w-3.5 h-3.5 text-emerald-700 animate-pulse shrink-0" />
                       <span className="font-mono font-bold text-xs">
@@ -1618,9 +1676,11 @@ export default function OnboardingStepPage({
                       </span>
                     </div>
 
-                    <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-md">
-                      DISKON 20%
-                    </span>
+                    {promoQuote && promoQuote.discount > 0 && (
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-md">
+                        HEMAT Rp {promoQuote.discount.toLocaleString("id-ID")}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -1762,7 +1822,7 @@ export default function OnboardingStepPage({
                 )}
               </div>
 
-              {/* Promo Code Input (Default TEMANBARU 20% Off) */}
+              {/* Promo code input — divalidasi server, bukan dihitung klien */}
               <div className="p-4 rounded-2xl bg-surface-muted border border-surface-border space-y-2">
                 <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
                   Kode Promo
@@ -1774,71 +1834,24 @@ export default function OnboardingStepPage({
                       type="text"
                       value={data.promoCode}
                       onChange={(e) => updateData({ promoCode: e.target.value.toUpperCase() })}
-                      placeholder="TEMANBARU"
+                      placeholder="KODE PROMO"
                       className="w-full pl-9 pr-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-surface-border bg-white text-brand-950 outline-none"
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={async () => {
-                      const typedCode = data.promoCode.trim().toUpperCase();
-                      setCheckoutError("");
-                      if (typedCode === "TEMANBARU") {
-                        const newExpiry = Date.now() + 3600 * 1000;
-                        try {
-                          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
-                        } catch (e) {}
-                        setCountdownSeconds(3600);
-                        updateData({ promoApplied: true, promoCode: "TEMANBARU" });
-                      } else if (typedCode === "TEMANBAIKHATI") {
-                        try {
-                          const checkRes = await fetch("/api/scalev/create-order", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              checkPromoOnly: true,
-                              promoCode: "TEMANBAIKHATI",
-                              customerPhone: data.whatsappNumber,
-                            }),
-                          });
-                          const checkData = await checkRes.json();
-                          if (!checkRes.ok && checkData.codeAlreadyUsed) {
-                            updateData({ promoApplied: false });
-                            setCheckoutError(checkData.error);
-                            return;
-                          }
-                        } catch (e) {}
-                        const newExpiry = Date.now() + 3600 * 1000;
-                        try {
-                          localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
-                        } catch (e) {}
-                        setCountdownSeconds(3600);
-                        updateData({
-                          promoApplied: true,
-                          promoCode: "TEMANBAIKHATI",
-                          selectedPlan: "quarter",
-                        });
-                      } else {
-                        updateData({ promoApplied: false });
-                      }
-                    }}
+                    onClick={applyPromo}
                     className="px-4 py-2 rounded-xl bg-brand-900 text-white text-xs font-bold hover:bg-brand-800 cursor-pointer"
                   >
                     Terapkan
                   </button>
                 </div>
 
-                {data.promoApplied && (isPublicPromo || isSecretPromo) && (
+                {promoQuote && (
                   <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      {isSecretPromo
-                        ? data.selectedPlan === "quarter"
-                          ? `Kode promo ${activePromoCode} berhasil terpasang (Paket 3 Bulan jadi Rp 10.000 · 1x per nomor).`
-                          : `Kode ${activePromoCode} khusus untuk Paket Program 3 Bulan (Rp 10.000).`
-                        : data.selectedPlan === "month"
-                        ? `Kode ${activePromoCode} tersimpan untuk paket program 3, 6, & 12 bulan.`
-                        : `Kode promo ${activePromoCode} berhasil terpasang (Diskon 20%).`}
+                      {`Kode promo ${promoQuote.code} terpasang — potongan Rp ${promoQuote.discount.toLocaleString("id-ID")} (1x per nomor).`}
                     </span>
                   </div>
                 )}
@@ -1852,11 +1865,7 @@ export default function OnboardingStepPage({
                 </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>
-                      {isSecretPromo
-                        ? `Potongan Kode Khusus (${activePromoCode})`
-                        : `Diskon Promo ${Math.round(discountRate * 100)}% (${activePromoCode})`}
-                    </span>
+                    <span>{`Potongan Kode Promo (${activePromoCode})`}</span>
                     <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
                   </div>
                 )}

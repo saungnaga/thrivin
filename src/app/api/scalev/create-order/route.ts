@@ -7,6 +7,14 @@ import {
   resolvePlanPrice,
   type PlanKey,
 } from "@/lib/plans";
+import {
+  attachPromoOrder,
+  consumePromoForOrder,
+  isPromoStoreConfigured,
+  normalizePromoCode,
+  redeemPromo,
+  releasePromo,
+} from "@/lib/promo";
 import { validateOnboardingProfile } from "@/lib/validate-onboarding";
 import { limitRequest } from "@/lib/rate-limit";
 import { saveOnboardingSnapshot, redactError } from "@/lib/onboarding-store";
@@ -117,7 +125,8 @@ export async function POST(req: Request) {
     });
     if (!limited.ok) return tooMany(limited);
 
-    const normalizedPromo = String(promoCode || "").trim().toUpperCase();
+    // Satu normaliser, dipakai bareng oleh dashboard + checkout (lib/promo.ts).
+    const normalizedPromo = normalizePromoCode(promoCode);
 
     if (!isPlanKey(planId)) {
       return NextResponse.json(
@@ -138,9 +147,52 @@ export async function POST(req: Request) {
     }
     const onboardingProfile = validated.profile;
 
-    // Enforce 1x paid usage per phone number for the TEMANBAIKHATI secret promo.
-    const provisionalPrice = resolvePlanPrice(plan, normalizedPromo).price;
-    if (normalizedPromo === "TEMANBAIKHATI" || provisionalPrice <= 10000) {
+    // Harga katalog server (B-2). Client `amount` diabaikan sepenuhnya.
+    const variant = await lookupVariant(storeId, apiKey, plan);
+    // Kuota mengikuti paket yang benar-benar dibeli (M-6).
+    const planKey = planKeyFromVariantPrice(variant.price) ?? plan;
+    const catalogPrice = resolvePlanPrice(plan).price;
+
+    // ── Promo: satu-satunya sumber kebenaran ada di tabel promo_codes ────────
+    // dryRun=true lebih dulu (validasi + harga, TANPA memakai kuota) supaya
+    // request yang ditolak tidak pernah menggerus kuota. Klaim sungguhan
+    // terjadi tepat sebelum order dibuat dan dilepas lagi kalau Scalev menolak.
+    let promo: Awaited<ReturnType<typeof redeemPromo>> | null = null;
+    if (normalizedPromo) {
+      if (!isPromoStoreConfigured()) {
+        // Fail closed: promo tidak bisa diverifikasi -> ditolak, bukan
+        // "diam-diam harga penuh" dan bukan "diam-diam dapat diskon".
+        return NextResponse.json(
+          {
+            error: "Kode promo sedang tidak bisa diverifikasi. Coba lagi sebentar lagi.",
+            code: "PROMO_STORE_UNAVAILABLE",
+          },
+          { status: 503 }
+        );
+      }
+      promo = await redeemPromo({
+        code: normalizedPromo,
+        phone: cleanPhone,
+        planKey,
+        revenue: catalogPrice,
+        dryRun: true,
+      });
+      if (promo.status !== "ok") {
+        return NextResponse.json(
+          {
+            error: promo.message || "Kode promo tidak bisa dipakai.",
+            code: `PROMO_${promo.status.toUpperCase()}`,
+            codeAlreadyUsed: promo.status === "already_used",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Backstop legacy: sebelum tabel promo ada, promo "harga jadi <= Rp 10.000"
+    // juga dijual lewat Scalev, jadi riwayat order per nomor tetap dicek. Ini
+    // TIDAK menggantikan ledger promo — dua-duanya harus lolos.
+    if (promo && promo.finalPrice <= 10000) {
       try {
         const historyRes = await fetch(
           `${SCALEV_API_BASE}/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
@@ -163,8 +215,8 @@ export async function POST(req: Request) {
           if (rollBackPromo) {
             return NextResponse.json(
               {
-                error:
-                  "Kode promo TEMANBAIKHATI hanya berlaku 1 kali per nomor WhatsApp dan sudah pernah digunakan oleh nomor ini.",
+                error: `Kode promo ${promo.code} hanya berlaku 1 kali per nomor WhatsApp dan sudah pernah digunakan oleh nomor ini.`,
+                code: "PROMO_ALREADY_USED",
                 codeAlreadyUsed: true,
               },
               { status: 400 }
@@ -172,20 +224,44 @@ export async function POST(req: Request) {
           }
         }
       } catch (checkErr) {
-        console.warn("Failed checking TEMANBAIKHATI history:", redactError(checkErr));
+        console.warn("Failed checking promo order history:", redactError(checkErr));
       }
     }
 
     if (checkPromoOnly) {
-      return NextResponse.json({ valid: true });
+      return NextResponse.json({
+        valid: true,
+        code: promo?.code ?? null,
+        discount: promo?.discount ?? 0,
+        finalPrice: promo?.finalPrice ?? catalogPrice,
+      });
     }
 
-    // B-2: price comes from the server catalog + the live variant price, never
-    // from the client. The request's `amount` field is ignored entirely.
-    const variant = await lookupVariant(storeId, apiKey, plan);
-    const { price: targetAmount, promoApplied } = resolvePlanPrice(plan, normalizedPromo);
-    // Quota follows the plan actually bought (M-6).
-    const planKey = planKeyFromVariantPrice(variant.price) ?? plan;
+    // Klaim kuota: atomik di dalam RPC (baris promo dikunci FOR UPDATE). Kalau
+    // kalah race — kuota baru saja habis, atau nomor lain menyerobot slot
+    // terakhir — checkout DITOLAK dengan pesan jelas.
+    if (promo) {
+      promo = await redeemPromo({
+        code: normalizedPromo,
+        phone: cleanPhone,
+        planKey,
+        revenue: catalogPrice,
+        dryRun: false,
+      });
+      if (promo.status !== "ok") {
+        return NextResponse.json(
+          {
+            error: promo.message || "Kode promo tidak bisa dipakai.",
+            code: `PROMO_${promo.status.toUpperCase()}`,
+            codeAlreadyUsed: promo.status === "already_used",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    const targetAmount = promo ? promo.finalPrice : catalogPrice;
+    const promoApplied = promo?.code ?? null;
 
     const unitPrice = variant.price;
     const quantity = targetAmount > unitPrice ? Math.ceil(targetAmount / unitPrice) : 1;
@@ -226,7 +302,16 @@ export async function POST(req: Request) {
     const orderData = await orderRes.json();
 
     if (!orderRes.ok) {
-      console.error("Scalev order creation failed:", redactError(orderData));
+      // Klien kita tidak bisa memperbaiki error Scalev -> jangan teruskan status
+      // upstream mentah (422 dari Scalev bukan berarti request browser salah).
+      // 502 = gateway downstream gagal; pesan aslinya tetap ikut.
+      console.error(
+        "Scalev order creation failed:",
+        orderRes.status,
+        redactError(orderData)
+      );
+      // Kuota sudah diklaim tapi ordernya gagal -> slotnya dikembalikan.
+      if (promo?.redemptionId) await releasePromo(promo.redemptionId);
       return NextResponse.json(
         {
           error:
@@ -234,7 +319,7 @@ export async function POST(req: Request) {
             orderData?.error ||
             "Gagal membuat link pembayaran di Scalev",
         },
-        { status: orderRes.status }
+        { status: 502 }
       );
     }
 
@@ -254,6 +339,12 @@ export async function POST(req: Request) {
     }
 
     const createdOrderId = orderData.order_id || orderData.id || null;
+
+    // Ikat reservasi promo ke order supaya webhook pembayaran bisa
+    // meng-consume-nya (dan menegakkan 1x per nomor).
+    if (promo?.redemptionId && createdOrderId) {
+      await attachPromoOrder(promo.redemptionId, String(createdOrderId));
+    }
 
     // H-5: the snapshot is written exactly once, AFTER the order exists, with a
     // non-null order_id (upsert on (tenant_id, order_id)). The old pre-order
