@@ -60,20 +60,16 @@ check("M-5: two different invalid inputs both rejected (no shared fake identity)
 
 // ── B-2: price is server-side ────────────────────────────────────────────────
 check("B-2: list prices come from the server catalog", () => {
-  for (const key of ["month", "quarter", "half", "year"]) {
-    assert.equal(resolvePlanPrice(key, "").price, PLAN_CATALOG[key].basePrice);
+  for (const key of ["month", "quarter", "half", "year"] as const) {
+    assert.equal(resolvePlanPrice(key).price, PLAN_CATALOG[key].basePrice);
   }
 });
-check("B-2: TEMANBARU = 20% off, month not eligible", () => {
-  assert.equal(resolvePlanPrice("quarter", "TEMANBARU").price, Math.round(231000 * 0.8));
-  assert.equal(resolvePlanPrice("month", "TEMANBARU").price, 99000);
-});
-check("B-2: TEMANBAIKHATI flat 10k only on the 3-month plan", () => {
-  assert.equal(resolvePlanPrice("quarter", "TEMANBAIKHATI").price, 10000);
-  assert.equal(resolvePlanPrice("year", "TEMANBAIKHATI").price, PLAN_CATALOG.year.basePrice);
-});
-check("B-2: unknown promo code never discounts", () => {
-  assert.equal(resolvePlanPrice("quarter", "FREE99").price, 231000);
+check("B-2: resolvePlanPrice tidak lagi mengenal promo hardcoded (promo dari DB)", () => {
+  // TEMANBARU/TEMANBAIKHATI dulu jadi konstanta di sini; sekarang ada di tabel
+  // promo_codes (seed migrasi) dan diskon dihitung RPC redeem_promo.
+  assert.equal(resolvePlanPrice("quarter").price, 231000);
+  assert.equal(resolvePlanPrice("year").price, 465000);
+  assert.equal(resolvePlanPrice("quarter").promoApplied, null);
 });
 check("B-2: plan ids outside the catalog are rejected", () => {
   assert.equal(isPlanKey("quarter"), true);
