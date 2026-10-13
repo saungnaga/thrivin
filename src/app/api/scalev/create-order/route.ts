@@ -10,6 +10,7 @@ import {
 import {
   attachPromoOrder,
   consumePromoForOrder,
+  flagPromoReconcile,
   isPromoStoreConfigured,
   normalizePromoCode,
   redeemPromo,
@@ -345,14 +346,23 @@ export async function POST(req: Request) {
     if (promo?.redemptionId && createdOrderId) {
       const linked = await attachPromoOrder(promo.redemptionId, String(createdOrderId));
       if (!linked) {
-        // C-6: order sudah tercetak di Scalev tapi reservasinya tidak terikat ->
-        // webhook tidak bisa consume (audit trail bolong). Jangan diam. TIDAK
-        // dilepas: kursinya masih bisa dibayar, melepasnya membuka over-sell.
-        // Yang dicatat hanya id order (bukan PII) supaya bisa direkonsiliasi
-        // manual sebelum sweep 24 jam.
+        // C-6 (ronde 2): order sudah tercetak di Scalev tapi reservasinya tidak
+        // terikat. Reservasi TIDAK dilepas — melepasnya membuka over-sell
+        // (order yang masih bisa dibayar kehilangan kursinya, lalu checkout
+        // berikutnya mencetak order kedua). Kursi ditahan oleh status
+        // 'reserved', dan barisnya ditandai `needs_reconcile` supaya sweep TTL
+        // (24 jam) tidak melepas kursi yang ordernya masih hidup. Ops
+        // menyelesaikannya lewat cancel_promo_redemption().
+        // Yang dicatat hanya id order (bukan PII).
         console.error(
           `[promo] redemption ${promo.redemptionId} NOT linked to order ${createdOrderId} — needs manual reconcile`
         );
+        const flagged = await flagPromoReconcile(promo.redemptionId);
+        if (!flagged) {
+          console.error(
+            `[promo] redemption ${promo.redemptionId} could not be flagged for reconcile — seat may be swept at TTL; reconcile order ${createdOrderId} manually`
+          );
+        }
       }
     }
 

@@ -136,6 +136,15 @@ CREATE OR REPLACE VIEW v_webhook_retention_backlog AS
     (SELECT count(*) FROM onboarding_snapshots WHERE expires_at < now() AND status <> 'active') AS expired_snapshot_rows,
     (SELECT max(ran_at) FROM purge_audit_log) AS last_purge_at;
 
+-- V-2 (pola sama, temuan Sentinel ronde 2): view Postgres default berjalan
+-- sebagai PEMILIK (role migrasi, BYPASSRLS), jadi policy RLS di tabel-tabel di
+-- bawahnya tidak berlaku dan klien ANON (kunci publishable yang selalu ada di
+-- bundle browser) bisa membaca backlog retensi + waktu purge terakhir lewat
+-- PostgREST. Sama seperti v_promo_codes: security_invoker + cabut grant klien.
+ALTER VIEW v_webhook_retention_backlog SET (security_invoker = on);
+REVOKE ALL ON v_webhook_retention_backlog FROM anon, authenticated;
+GRANT SELECT ON v_webhook_retention_backlog TO service_role;
+
 -- ============================================================================
 -- 4. Row Level Security
 -- The real control is key distribution: the service-role key lives only on the
@@ -143,12 +152,19 @@ CREATE OR REPLACE VIEW v_webhook_retention_backlog AS
 -- ============================================================================
 ALTER TABLE webhook_events_inbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE onboarding_snapshots ENABLE ROW LEVEL SECURITY;
+-- purge_audit_log adalah satu-satunya tabel di file ini yang belum dikunci.
+-- Supabase memberi grant default (ALL) untuk objek baru di schema public, jadi
+-- tanpa RLS kunci publishable (anon) bisa membaca riwayat purge langsung dari
+-- PostgREST. Efeknya juga terlihat lewat v_webhook_retention_backlog:
+-- security_invoker membuat dua kolom count jadi 0 untuk anon, tapi
+-- last_purge_at tetap terisi kalau tabel ini tidak dikunci.
+ALTER TABLE purge_audit_log ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
   t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['webhook_events_inbox', 'onboarding_snapshots'] LOOP
+  FOREACH t IN ARRAY ARRAY['webhook_events_inbox', 'onboarding_snapshots', 'purge_audit_log'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_policies
       WHERE tablename = t AND policyname = 'deny_client_access_' || t

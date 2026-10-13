@@ -17,6 +17,26 @@
 --   C-4  penjadwalan sweep gagal TERANG-TERANGAN kalau pg_cron tidak ada.
 --   C-5  REVOKE EXECUTE RPC promo dari PUBLIC/anon/authenticated.
 --
+-- Changes vs v2 (see projects/thrivin/security/review-promo-r2-2026-10-14.md,
+-- VETO ronde 2):
+--   V-1b reservasi aktif milik satu nomor adalah KLAIM, bukan "baris yang boleh
+--        dipakai ulang". Jalur v_reuse (ronde 1) mengembalikan 'ok' TANPA
+--        menambah pemakaian, jadi N checkout PARALEL dari satu nomor sama-sama
+--        lolos gerbang kuota dan masing-masing mencetak order di Scalev —
+--        window antara redeem_promo (baris 'reserved' tanpa order_ref) dan
+--        attachPromoOrder (PATCH order_ref). Terukur Sentinel ronde 2: kuota 2
+--        -> 2/2/4/5 order berbayar, ledger tetap 1 baris.
+--        Sekarang: baris 'reserved' apa pun (dengan maupun tanpa order_ref)
+--        MENOLAK checkout berikutnya dengan 'pending_order'. Jalur UPDATE
+--        (reuse) dihapus total, dan INSERT dilindungi ON CONFLICT DO NOTHING
+--        terhadap uq_promo_redemption_phone.
+--   C-4  sweep TTL tidak lagi melepas reservasi yang sudah punya order_ref:
+--        order yang sudah tercetak menahan kursinya sampai dibayar (consume)
+--        atau dibatalkan eksplisit (cancel_promo_redemption).
+--   C-6  attachPromoOrder gagal = reservasi TETAP dipegang (bukan dilepas) —
+--        lihat komentar di route create-order; tidak ada order kedua yang bisa
+--        dicetak selama klaim masih hidup.
+--
 -- Kenapa Supabase (bukan Scalev native): owner minta promo bisa dibuat/diatur
 -- dari dashboard Thrivin dan kuota harus kelihatan (terpakai/sisa). Scalev
 -- `usage_limit` tidak memberi visibilitas itu dan tidak punya single-use
@@ -65,14 +85,32 @@ CREATE TABLE IF NOT EXISTS promo_redemptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   consumed_at TIMESTAMPTZ,
   released_at TIMESTAMPTZ,
+  -- C-6: order sudah DICETAK di Scalev tapi order_ref gagal ditulis (attach
+  -- gagal). Kursinya tetap dipegang (tidak ada order kedua yang bisa dicetak),
+  -- dan baris ini DIKECUALIKAN dari sweep TTL — kalau tidak, order yang masih
+  -- bisa dibayar akan kehilangan kursinya 24 jam kemudian. Ops menyelesaikannya
+  -- lewat cancel_promo_redemption() setelah order dibatalkan manual.
+  needs_reconcile BOOLEAN NOT NULL DEFAULT false,
   CONSTRAINT promo_redemptions_status_check CHECK (status IN ('reserved', 'consumed', 'released'))
 );
+
+-- Idempotent untuk DB yang sudah punya tabelnya.
+ALTER TABLE promo_redemptions ADD COLUMN IF NOT EXISTS needs_reconcile BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_promo_redemptions_promo ON promo_redemptions (promo_id, status);
 CREATE INDEX IF NOT EXISTS idx_promo_redemptions_phone ON promo_redemptions (tenant_id, phone);
 CREATE INDEX IF NOT EXISTS idx_promo_redemptions_order ON promo_redemptions (order_ref);
 
 -- 1x per nomor: satu baris aktif (reserved/consumed) per (promo, nomor).
+-- Ini guard terkuat yang kita punya dan SATU-SATUNYA yang dibutuhkan: index ini
+-- melarang lebih dari satu baris non-'released' untuk (promo_id, phone)
+-- berapa pun statusnya. Unique index parsial tambahan
+-- (promo_id, phone) WHERE status='reserved' AND order_ref IS NULL — usulan
+-- Sentinel ronde 2 — adalah SUBSET dari ini (lebih lemah), jadi tidak dipasang:
+-- menambah biaya tulis tanpa menutup satu pun jalur. Yang benar-benar membocorkan
+-- kuota di ronde 2 bukan INSERT yang lolos (INSERT kedua memang sudah ditolak
+-- index ini), melainkan jalur UPDATE 'pakai ulang baris' di redeem_promo —
+-- dan unique index mana pun tidak bisa menghentikan UPDATE. Jalur itu dihapus.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_redemption_phone
   ON promo_redemptions (promo_id, phone) WHERE status <> 'released';
 
@@ -123,12 +161,21 @@ GRANT SELECT ON v_promo_codes TO service_role;      -- I-1: eksplisit, bukan and
 -- cek 1x-per-nomor) terjadi DI DALAM lock itu — tidak ada celah antara baca dan
 -- tulis. Dua checkout paralel di kuota sisa 1 -> tepat satu dapat 'ok'.
 --
--- V-1 (remediasi): retry dari nomor yang sama TIDAK lagi melepas reservasi lama
--- lalu INSERT baris baru. Kalau reservasi lama sudah punya `order_ref` (order
--- Scalev sudah tercetak), checkout kedua DITOLAK (`pending_order`) — kalau
--- dilepas, satu nomor bisa "mengulang kursi" yang sama tanpa batas dan order
--- yang sudah dibayar tidak pernah tercatat 'consumed' (audit trail bolong).
--- Bukti: tests/test-promo-sql.mts + tests/test-promo-e2e.mts.
+-- V-1 ronde 1 (remediasi): retry dari nomor yang sama TIDAK lagi melepas
+-- reservasi lama lalu INSERT baris baru. Kalau reservasi lama sudah punya
+-- `order_ref` (order Scalev sudah tercetak), checkout kedua DITOLAK
+-- (`pending_order`).
+--
+-- V-1 ronde 2 (remediasi): jalur "pakai ulang baris" itu sendiri masih bocor.
+-- `v_reuse` mengembalikan 'ok' TANPA lewat gerbang kuota, jadi N checkout
+-- PARALEL dari satu nomor (semuanya tiba sebelum attachPromoOrder sempat
+-- menulis order_ref) sama-sama dapat 'ok' dan sama-sama mencetak order Scalev.
+-- Sekarang reservasi aktif = KLAIM: begitu ada baris 'reserved' untuk
+-- (promo, nomor), checkout berikutnya ditolak sampai baris itu dibayar
+-- (consume_promo_for_order), dibatalkan eksplisit (cancel_promo_redemption),
+-- atau gagal sebelum order tercetak (release_promo).
+-- Bukti: tests/test-promo-sql.mts, tests/test-promo-parallel-race.mts,
+-- tests/test-promo-e2e.mts.
 -- ============================================================================
 DROP FUNCTION IF EXISTS redeem_promo(VARCHAR, TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT);
 
@@ -147,11 +194,11 @@ CREATE OR REPLACE FUNCTION redeem_promo(
 DECLARE
   v_promo promo_codes%ROWTYPE;
   v_open promo_redemptions%ROWTYPE;
-  v_reuse BOOLEAN := false;
   v_used INTEGER;
   v_plan_keys TEXT[];
   v_discount NUMERIC := 0;
   v_final NUMERIC := p_revenue;
+  v_new_id UUID;
 BEGIN
   SELECT * INTO v_promo FROM promo_codes
    WHERE tenant_id = p_tenant_id AND code = p_code
@@ -192,19 +239,25 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Reservasi aktif milik nomor ini (dibaca di dalam lock promo -> tidak ada race).
+  -- Reservasi aktif milik nomor ini (dibaca di dalam lock promo -> tidak ada
+  -- race antar-checkout untuk kode yang sama). Reservasi aktif = klaim yang
+  -- masih hidup; sementara klaim ini ada, TIDAK BOLEH ada order kedua.
   SELECT * INTO v_open FROM promo_redemptions r
    WHERE r.promo_id = v_promo.id AND r.phone = p_phone AND r.status = 'reserved'
    ORDER BY r.created_at DESC
    LIMIT 1;
-  v_reuse := FOUND;
 
-  -- Terisi order_ref = order sudah tercetak di Scalev tapi belum dibayar.
-  -- Jangan cetak order kedua: kembalikan reservasi yang sama apa adanya.
-  IF v_reuse AND v_open.order_ref IS NOT NULL THEN
+  IF FOUND THEN
+    -- order_ref terisi = order sudah tercetak di Scalev, menunggu pembayaran.
+    -- order_ref kosong = checkout lain sedang berjalan (atau attach-nya gagal).
+    -- Dua-duanya ditolak: melepas / memakai ulang baris di sini persis yang
+    -- membuat N checkout paralel mencetak N order.
     RETURN QUERY SELECT 'pending_order'::text, v_promo.code::text,
       v_open.discount_applied, v_open.final_price, v_open.id,
-      'Masih ada order promo yang menunggu pembayaran untuk nomor ini. Selesaikan pembayarannya atau tunggu order itu kedaluwarsa.'::text;
+      CASE WHEN v_open.order_ref IS NOT NULL
+        THEN 'Masih ada order promo yang menunggu pembayaran untuk nomor ini. Selesaikan pembayarannya dulu.'
+        ELSE 'Checkout promo untuk nomor ini sedang diproses. Tunggu sebentar, lalu cek status pesanan.'
+      END::text;
     RETURN;
   END IF;
 
@@ -213,10 +266,7 @@ BEGIN
   SELECT count(*) INTO v_used FROM promo_redemptions r
    WHERE r.promo_id = v_promo.id AND r.status IN ('reserved', 'consumed');
 
-  -- Nomor yang sudah memegang slot boleh memakai ulang slotnya sendiri
-  -- (v_reuse): retry sebelum order tercetak tidak menambah pemakaian.
-  IF v_promo.max_redemptions IS NOT NULL AND NOT v_reuse
-     AND v_used >= v_promo.max_redemptions THEN
+  IF v_promo.max_redemptions IS NOT NULL AND v_used >= v_promo.max_redemptions THEN
     RETURN QUERY SELECT 'exhausted'::text, v_promo.code::text, 0::numeric, p_revenue,
       NULL::uuid, 'Kuota kode promo sudah habis.'::text;
     RETURN;
@@ -234,32 +284,33 @@ BEGIN
   v_final := p_revenue - v_discount;
 
   IF p_dry_run THEN
-    RETURN QUERY SELECT 'ok'::text, v_promo.code::text, v_discount, v_final, NULL::uuid,
-      'Kode promo valid.'::text;
+    RETURN QUERY SELECT 'ok'::text, v_promo.code::text, v_discount::numeric(12,2),
+      v_final::numeric(12,2), NULL::uuid, 'Kode promo valid.'::text;
     RETURN;
   END IF;
 
-  -- Retry sebelum order tercetak: pakai ULANG baris yang sama (jangan
-  -- release + insert — itu yang membuat satu nomor hanya pernah menempati satu
-  -- slot berapa pun order yang dicetak).
-  IF v_reuse THEN
-    RETURN QUERY
-    UPDATE promo_redemptions AS pr
-       SET discount_applied = v_discount, final_price = v_final, created_at = now()
-     WHERE pr.id = v_open.id
-    RETURNING 'ok'::text, v_promo.code::text, pr.discount_applied, pr.final_price,
-              pr.id, 'Kode promo terpasang.'::text;
-    RETURN;
-  END IF;
-
-  RETURN QUERY
+  -- Satu klaim per (promo, nomor): selalu baris BARU, tidak pernah UPDATE baris
+  -- lama. ON CONFLICT DO NOTHING adalah jaring pengaman terakhir kalau ada jalur
+  -- kode lain (atau versi lama fungsi ini) mencoba menyisipkan klaim kedua —
+  -- konflik -> nol baris ter-INSERT -> dijawab 'pending_order', bukan 'ok'.
   INSERT INTO promo_redemptions
     (tenant_id, promo_id, phone, status, discount_applied, final_price)
   VALUES
     (p_tenant_id, v_promo.id, p_phone, 'reserved', v_discount, v_final)
-  RETURNING 'ok'::text, v_promo.code::text, promo_redemptions.discount_applied,
-            promo_redemptions.final_price, promo_redemptions.id,
-            'Kode promo terpasang.'::text;
+  ON CONFLICT DO NOTHING
+  RETURNING promo_redemptions.id INTO v_new_id;
+
+  IF v_new_id IS NULL THEN
+    RETURN QUERY SELECT 'pending_order'::text, v_promo.code::text, 0::numeric, p_revenue,
+      NULL::uuid,
+      'Checkout promo untuk nomor ini sedang diproses. Tunggu sebentar, lalu cek status pesanan.'::text;
+    RETURN;
+  END IF;
+
+  -- Cast ke numeric(12,2) supaya bentuk angka yang dikembalikan sama dengan
+  -- bentuk kolomnya (klien membaca "46200.00", bukan "46200").
+  RETURN QUERY SELECT 'ok'::text, v_promo.code::text, v_discount::numeric(12,2),
+    v_final::numeric(12,2), v_new_id, 'Kode promo terpasang.'::text;
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
@@ -301,6 +352,14 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 -- Checkout yang ditinggalkan pemiliknya tidak boleh memakan kuota selamanya.
+--
+-- C-4: HANYA reservasi yang BELUM terikat order (order_ref IS NULL) yang boleh
+-- dilepas. Reservasi yang sudah punya order_ref berarti order-nya sudah tercetak
+-- di Scalev dan masih bisa dibayar; melepasnya mengembalikan kursi ke katalog
+-- sementara order lama tetap hidup -> satu nomor bisa membayar DUA order promo.
+-- Reservasi terikat hanya dilepas oleh:
+--   * consume_promo_for_order()  -> dibayar (status 'consumed')
+--   * cancel_promo_redemption()  -> order dibatalkan eksplisit oleh ops
 CREATE OR REPLACE FUNCTION release_stale_promo_reservations(
   p_ttl_hours INTEGER DEFAULT 24,
   p_tenant_id VARCHAR DEFAULT 'thrivin'
@@ -312,9 +371,49 @@ BEGIN
      SET status = 'released', released_at = now()
    WHERE tenant_id = p_tenant_id
      AND status = 'reserved'
+     AND order_ref IS NULL
+     AND needs_reconcile = false
      AND created_at < now() - make_interval(hours => p_ttl_hours);
   GET DIAGNOSTICS v_rows = ROW_COUNT;
   RETURN v_rows;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+-- C-6: order sudah tercetak di Scalev tapi reservasinya tidak bisa diikat
+-- (attachPromoOrder gagal). Baris tetap 'reserved' (kursi ditahan, tidak ada
+-- order kedua) dan ditandai supaya sweep TTL tidak melepas kursi yang ordernya
+-- masih bisa dibayar.
+CREATE OR REPLACE FUNCTION flag_promo_reconcile(
+  p_redemption_id UUID,
+  p_tenant_id VARCHAR DEFAULT 'thrivin'
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_rows INTEGER;
+BEGIN
+  UPDATE promo_redemptions
+     SET needs_reconcile = true
+   WHERE id = p_redemption_id AND tenant_id = p_tenant_id AND status = 'reserved';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RETURN v_rows > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+-- Pembatalan eksplisit (ops/CS): order promo yang sudah tercetak di Scalev
+-- dibatalkan manual, jadi kursinya harus kembali ke kuota. Satu-satunya jalur
+-- yang boleh melepas reservasi terikat — harus dipanggil dengan id baris yang
+-- benar (bukti bahwa order-nya memang sudah dibatalkan di sisi Scalev).
+CREATE OR REPLACE FUNCTION cancel_promo_redemption(
+  p_redemption_id UUID,
+  p_tenant_id VARCHAR DEFAULT 'thrivin'
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_rows INTEGER;
+BEGIN
+  UPDATE promo_redemptions
+     SET status = 'released', released_at = now()
+   WHERE id = p_redemption_id AND tenant_id = p_tenant_id AND status = 'reserved';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RETURN v_rows > 0;
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
@@ -361,12 +460,16 @@ REVOKE ALL ON FUNCTION redeem_promo(TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT,
 REVOKE ALL ON FUNCTION consume_promo_for_order(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_promo(UUID, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_stale_promo_reservations(INTEGER, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION cancel_promo_redemption(UUID, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION flag_promo_reconcile(UUID, VARCHAR) FROM PUBLIC, anon, authenticated;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON promo_codes, promo_redemptions TO service_role;
 GRANT EXECUTE ON FUNCTION redeem_promo(TEXT, VARCHAR, TEXT, NUMERIC, BOOLEAN, TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION consume_promo_for_order(TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION release_promo(UUID, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION release_stale_promo_reservations(INTEGER, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION cancel_promo_redemption(UUID, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION flag_promo_reconcile(UUID, VARCHAR) TO service_role;
 
 ALTER TABLE promo_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE promo_redemptions ENABLE ROW LEVEL SECURITY;

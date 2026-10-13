@@ -250,6 +250,42 @@ export async function attachPromoOrder(redemptionId: string, orderRef: string): 
   return false;
 }
 
+/**
+ * C-6: order sudah tercetak di Scalev tapi attach gagal. Tandai baris supaya
+ * sweep TTL tidak melepas kursi yang ordernya masih bisa dibayar. Best effort —
+ * kursinya sudah ditahan oleh status 'reserved' apa pun hasil pemanggilan ini;
+ * yang hilang kalau ini gagal hanyalah pengecualian dari sweep (dicatat di log).
+ */
+export async function flagPromoReconcile(redemptionId: string): Promise<boolean> {
+  if (!redemptionId) return false;
+  try {
+    const { url, key } = getSupabaseConfig();
+    if (!url || !key) return false;
+    const res = await fetch(`${url}/rest/v1/rpc/flag_promo_reconcile`, {
+      method: "POST",
+      headers: serviceHeaders(key),
+      body: JSON.stringify({ p_redemption_id: redemptionId, p_tenant_id: TENANT_ID }),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.error(
+        `[PromoStore] flag_promo_reconcile failed: ${res.status} redemption=${redemptionId}`
+      );
+      return false;
+    }
+    const flagged = Boolean(await res.json().catch(() => false));
+    if (!flagged) {
+      console.error(
+        `[PromoStore] flag_promo_reconcile matched 0 rows — redemption ${redemptionId} masih bisa ke-sweep`
+      );
+    }
+    return flagged;
+  } catch (err) {
+    console.error("[PromoStore] flag_promo_reconcile error:", redactError(err));
+    return false;
+  }
+}
+
 /** Daftar promo untuk dashboard (terpakai + sisa dihitung view, bukan counter). */
 export async function listPromos(): Promise<PromoCode[]> {
   const { url, key } = requirePromoStore();

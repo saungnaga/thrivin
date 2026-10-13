@@ -17,7 +17,16 @@ import { spawn, execFileSync } from "node:child_process";
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 const DB = process.env.HARNESS_PROMO_DB || "thrivin_promo_test";
-const PROMO_SCHEMA = path.join(REPO, "staging", "schema-promo-codes.sql");
+/**
+ * Skema yang diuji. Bisa diarahkan ke file lain lewat `PROMO_SCHEMA_PATH` —
+ * dipakai untuk UJI KEBALIKAN: jalankan suite ini terhadap skema PRA-FIX
+ * (`git show e6dff09:staging/schema-promo-codes.sql`) dan suite ini HARUS gagal,
+ * khususnya blok "V-1 r2" (5 checkout paralel satu nomor). Kalau tidak gagal,
+ * test-nya tidak menangkap bug.
+ */
+const PROMO_SCHEMA = process.env.PROMO_SCHEMA_PATH
+  ? path.resolve(process.env.PROMO_SCHEMA_PATH)
+  : path.join(REPO, "staging", "schema-promo-codes.sql");
 
 /**
  * Supabase's default privileges for new objects in schema `public`, replicated
@@ -140,6 +149,7 @@ function seedPromo(opts: {
 }
 
 async function main() {
+  console.log(`db=${DB} schema=${PROMO_SCHEMA}`);
   createDatabase();
 
   // ── 0. Seed migration bikin kode lama tetap jalan ────────────────────────
@@ -237,7 +247,9 @@ async function main() {
   check("per-nomor: setelah consumed, nomor yang sama ditolak", () => {
     const code = seedPromo({ quota: 10 });
     sql(`SELECT redeem_promo('${code}','628111000017','quarter',231000,false,NULL,'thrivin')`);
-    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000017','quarter',231000,true,NULL,'thrivin')`), "ok");
+    // Dry-run (tombol "Terapkan") juga menolak selama klaim masih hidup: tidak
+    // ada harga kedua yang ditawarkan untuk klaim yang sama.
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000017','quarter',231000,true,NULL,'thrivin')`), "pending_order");
     sql(
       `UPDATE promo_redemptions SET status='consumed', consumed_at=now() WHERE phone='628111000017' AND promo_id=(SELECT id FROM promo_codes WHERE code='${code}')`
     );
@@ -249,10 +261,12 @@ async function main() {
     sql(`SELECT redeem_promo('${code}','628111000019','quarter',231000,false,NULL,'thrivin')`);
     assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000020','quarter',231000,false,NULL,'thrivin')`), "ok");
   });
-  check("per-nomor: retry sebelum bayar melepas reservasi lama, tidak dobel kuota", () => {
+  check("per-nomor: klaim kedua DITOLAK (pending_order), tidak dobel kuota", () => {
     const code = seedPromo({ quota: 10 });
-    sql(`SELECT redeem_promo('${code}','628111000021','quarter',231000,false,NULL,'thrivin')`);
-    sql(`SELECT redeem_promo('${code}','628111000021','quarter',231000,false,NULL,'thrivin')`);
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000021','quarter',231000,false,NULL,'thrivin')`), "ok");
+    // V-1 ronde 2: dulu klaim kedua memakai ULANG baris yang sama dan tetap
+    // 'ok' — itu pintu masuk serangan paralel. Sekarang klaim hidup = penolakan.
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000021','quarter',231000,false,NULL,'thrivin')`), "pending_order");
     assert.equal(
       sql(`SELECT count(*) FROM promo_redemptions r JOIN promo_codes p ON p.id=r.promo_id WHERE p.code='${code}' AND r.status<>'released'`),
       "1"
@@ -345,6 +359,59 @@ async function main() {
     });
   }
 
+  // ── 4b-2. V-1 ronde 2: checkout PARALEL satu nomor (regresi VETO ronde 2) ─
+  // Jalur yang TIDAK diuji suite ronde 1 dan dipakai Sentinel untuk VETO ronde 2:
+  // N checkout paralel dari nomor yang sama, semuanya tiba di window antara
+  // redeem_promo (baris 'reserved' tanpa order_ref) dan attachPromoOrder.
+  // Pra-fix: semuanya dapat 'ok' (pakai ulang baris yang sama) -> N order Scalev
+  // tercetak dari kuota 2 (terukur 2/2/4/5 order berbayar, ledger 1 baris).
+  console.log("\n── V-1 r2: kuota=2, satu nomor, 5 checkout PARALEL ──");
+  {
+    const code = seedPromo({ quota: 2 });
+    const phone = "628119100001";
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    const statuses = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        redeemParallel({ code, phone, plan: "quarter", revenue: 231000 })
+      )
+    );
+    const okCount = statuses.filter((s) => s === "ok").length;
+    const pending = statuses.filter((s) => s === "pending_order").length;
+    console.log(`   redeem_promo x5 paralel → ok=${okCount} pending=${pending} ${JSON.stringify(statuses)}`);
+    check("V-1 r2: 5 klaim PARALEL satu nomor -> tepat 1 'ok' (1 order saja)", () => {
+      assert.equal(okCount, 1, `statuses=${JSON.stringify(statuses)}`);
+    });
+    check("V-1 r2: 4 sisanya 'pending_order' (bukan 'exhausted' — bukan kuota yang menahan)", () => {
+      assert.equal(pending, 4, `statuses=${JSON.stringify(statuses)}`);
+    });
+    check("V-1 r2: ledger 1 baris, kuota 1/1 — tidak ada pemakaian hantu", () => {
+      assert.equal(sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId}`), "1");
+      assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "1/1");
+    });
+  }
+
+  console.log("\n── V-1 r2: kuota=2, DUA nomor, masing-masing 4 checkout PARALEL ──");
+  {
+    const code = seedPromo({ quota: 2 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    const perPhone = (phone: string) =>
+      Promise.all(
+        Array.from({ length: 4 }, () =>
+          redeemParallel({ code, phone, plan: "quarter", revenue: 231000 })
+        )
+      );
+    const [a, b] = await Promise.all([perPhone("628119100011"), perPhone("628119100012")]);
+    const aOk = a.filter((s) => s === "ok").length;
+    const bOk = b.filter((s) => s === "ok").length;
+    console.log(`   A: ok=${aOk}/4  B: ok=${bOk}/4  total ledger=${sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId}`)}`);
+    check("V-1 r2: tiap nomor tepat 1 klaim, kuota terpakai 2/2", () => {
+      assert.equal(aOk, 1, `A=${JSON.stringify(a)}`);
+      assert.equal(bOk, 1, `B=${JSON.stringify(b)}`);
+      assert.equal(sql(`SELECT count(DISTINCT phone) FROM promo_redemptions WHERE promo_id=${promoId}`), "2");
+      assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "2/0");
+    });
+  }
+
   // ── 4c. V-2 / C-5: objek turunan & RPC tidak boleh terbuka untuk anon ─────
   console.log("\n── V-2: view & RPC promo vs klien anon ──");
   check("V-2: v_promo_codes jalan sebagai invoker (bukan pemilik view)", () => {
@@ -368,6 +435,8 @@ async function main() {
       "consume_promo_for_order(text,varchar)",
       "release_promo(uuid,varchar)",
       "release_stale_promo_reservations(integer,varchar)",
+      "cancel_promo_redemption(uuid,varchar)",
+      "flag_promo_reconcile(uuid,varchar)",
     ]) {
       assert.equal(
         sql(`SELECT has_function_privilege('anon','public.${fn}','EXECUTE')`),
@@ -431,7 +500,8 @@ async function main() {
     );
     const okCount = statuses.filter((s) => s === "ok").length;
     console.log(`   redeem_promo x10 same phone → ok=${okCount}`);
-    check("RACE: nomor sama 10 paralel -> tidak ada reservasi dobel", () => {
+    check("RACE: nomor sama 10 paralel -> tepat 1 'ok', tidak ada reservasi dobel", () => {
+      assert.equal(okCount, 1, `okCount=${okCount} statuses=${JSON.stringify(statuses)}`);
       assert.equal(
         sql(`SELECT count(*) FROM promo_redemptions r JOIN promo_codes p ON p.id=r.promo_id WHERE p.code='${code}' AND r.status<>'released'`),
         "1",
@@ -451,6 +521,66 @@ async function main() {
     const released = sql("SELECT release_stale_promo_reservations(24)");
     assert.equal(released, "1");
     assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000051','quarter',231000,false,NULL,'thrivin')`), "ok");
+  });
+
+  // ── 6b. C-4: sweep TIDAK melepas reservasi yang ordernya masih hidup ─────
+  // Sentimen Sentinel ronde 2: dulu sweep melepas reservasi ber-order_ref juga,
+  // jadi order lama tetap bisa dibayar sementara kursinya sudah kembali ke
+  // katalog -> satu nomor bisa membayar DUA order promo.
+  console.log("\n── C-4: sweep vs reservasi yang sudah terikat order ──");
+  check("C-4: reservasi BER-order_ref yang basi TIDAK dilepas sweep", () => {
+    const code = seedPromo({ quota: 1 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    sql(`SELECT redeem_promo('${code}','628111000060','quarter',231000,false,NULL,'thrivin')`);
+    sql(`UPDATE promo_redemptions SET order_ref='ORD_BOUND_STALE' WHERE promo_id=${promoId}`);
+    sql(`UPDATE promo_redemptions SET created_at = now() - interval '25 hours' WHERE promo_id=${promoId}`);
+    assert.equal(sql("SELECT release_stale_promo_reservations(24)"), "0");
+    assert.equal(sql(`SELECT status FROM promo_redemptions WHERE promo_id=${promoId}`), "reserved");
+    // Kursi tetap ditahan: nomor lain masih 'exhausted', bukan dapat kursi hantu.
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000061','quarter',231000,false,NULL,'thrivin')`), "exhausted");
+    assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "1/0");
+  });
+  check("C-4: order dibatalkan EKSPLISIT -> kursi kembali ke kuota", () => {
+    const code = seedPromo({ quota: 1 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    sql(`SELECT redeem_promo('${code}','628111000062','quarter',231000,false,NULL,'thrivin')`);
+    sql(`UPDATE promo_redemptions SET order_ref='ORD_CANCELLED' WHERE promo_id=${promoId}`);
+    const rid = sql(`SELECT id FROM promo_redemptions WHERE promo_id=${promoId}`);
+    assert.equal(sql(`SELECT cancel_promo_redemption('${rid}')`), "t");
+    assert.equal(sql(`SELECT status FROM promo_redemptions WHERE promo_id=${promoId}`), "released");
+    assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "0/1");
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000063','quarter',231000,false,NULL,'thrivin')`), "ok");
+  });
+  check("C-4: kursi yang sudah dibayar tidak bisa dibatalkan (hanya 'reserved')", () => {
+    const code = seedPromo({ quota: 2 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    sql(`SELECT redeem_promo('${code}','628111000064','quarter',231000,false,NULL,'thrivin')`);
+    const rid = sql(`SELECT id FROM promo_redemptions WHERE promo_id=${promoId}`);
+    sql(`UPDATE promo_redemptions SET order_ref='ORD_PAID', status='consumed', consumed_at=now() WHERE id='${rid}'`);
+    assert.equal(sql(`SELECT cancel_promo_redemption('${rid}')`), "f");
+    assert.equal(sql(`SELECT status FROM promo_redemptions WHERE id='${rid}'`), "consumed");
+  });
+
+  // ── 6c. C-6: order tercetak tapi attach gagal (order_ref tetap NULL) ──────
+  console.log("\n── C-6: order tercetak, reservasi tidak terikat ──");
+  check("C-6: kursi DITAHAN (nomor lain tidak bisa menyelundup), sweep tidak melepas", () => {
+    const code = seedPromo({ quota: 1 });
+    const promoId = `(SELECT id FROM promo_codes WHERE code='${code}')`;
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000070','quarter',231000,false,NULL,'thrivin')`), "ok");
+    const rowId = sql(`SELECT id FROM promo_redemptions WHERE promo_id=${promoId}`);
+    // Simulasi attachPromoOrder gagal: order ada di Scalev, order_ref tidak tertulis.
+    assert.equal(sql(`SELECT flag_promo_reconcile('${rowId}')`), "t");
+    assert.equal(sql(`SELECT needs_reconcile FROM promo_redemptions WHERE id='${rowId}'`), "t");
+    sql(`UPDATE promo_redemptions SET created_at = now() - interval '25 hours' WHERE id='${rowId}'`);
+    assert.equal(sql("SELECT release_stale_promo_reservations(24)"), "0");
+    assert.equal(sql(`SELECT status FROM promo_redemptions WHERE id='${rowId}'`), "reserved");
+    assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "1/0");
+    // Checkout kedua dari nomor yang sama DITOLAK (pra-fix: order kedua tercetak).
+    assert.equal(sql(`SELECT status FROM redeem_promo('${code}','628111000070','quarter',231000,false,NULL,'thrivin')`), "pending_order");
+    assert.equal(sql(`SELECT count(*) FROM promo_redemptions WHERE promo_id=${promoId}`), "1");
+    // Ops menyelesaikannya: order dibatalkan manual -> kursi kembali.
+    assert.equal(sql(`SELECT cancel_promo_redemption('${rowId}')`), "t");
+    assert.equal(sql(`SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='${code}'`), "0/1");
   });
 
   // ── report ───────────────────────────────────────────────────────────────

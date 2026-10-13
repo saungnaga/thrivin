@@ -12,8 +12,14 @@
  *   kuota habis    -> checkout DITOLAK + pesan jelas (bukan harga penuh diam-diam)
  *   kedaluwarsa    -> ditolak; non-aktif -> ditolak
  *   V-1            -> satu nomor = SATU order: 3 checkout berurutan (kuota 2)
- *                     hanya mencetak 1 order; retry sebelum order tercetak
- *                     memakai baris ledger yang sama (bukan release+insert)
+ *                     hanya mencetak 1 order; ronde 2: 4 checkout PARALEL dari
+ *                     satu nomor (kuota 2) juga hanya mencetak 1 order
+ *   V-1 r2         -> klaim hidup = penolakan (PROMO_PENDING_ORDER); dua nomor
+ *                     masing-masing 4 paralel -> 1 order per nomor; yang ditolak
+ *                     tidak menerima orderId/paymentUrl; bayar pemenang -> 1 sub
+ *   C-4            -> sweep TTL tidak melepas reservasi ber-order_ref; pembatalan
+ *                     eksplisit (cancel_promo_redemption) mengembalikan kursi
+ *   V-2b           -> v_webhook_retention_backlog: anon ditolak, service_role bisa
  *   V-2            -> kunci anon tidak bisa membaca v_promo_codes; service_role tetap
  *   C-1            -> XFF palsu tidak mereset rate limit login (429 tetap 429)
  *   C-2            -> ADMIN_SESSION_SECRET 'a'x32 ditolak; cookie palsu 401
@@ -527,6 +533,80 @@ async function main() {
       `status=${svcView.status} rows=${Array.isArray(svcRows) ? svcRows.length : "n/a"}`
     );
 
+    // ══ V-2b: v_webhook_retention_backlog (pola sama, guard lama) ═══════════
+    // View Postgres default berjalan sebagai PEMILIK (BYPASSRLS), jadi policy RLS
+    // di webhook_events_inbox / onboarding_snapshots tidak berlaku dan klien anon
+    // bisa membaca backlog retensi. Bukan regresi promo, tapi ditemukan Sentinel
+    // di review yang sama — diangkat dan diperbaiki di file webhook.
+    // Baris basi disisipkan dulu supaya "0" di sisi anon benar-benar berarti
+    // "tidak bocor", bukan "kebetulan tabelnya kosong".
+    console.log("\n── V-2b: kunci anon vs v_webhook_retention_backlog ──");
+    psqlSuper(
+      "INSERT INTO webhook_events_inbox (event_id, event_type, expires_at) " +
+        "VALUES ('evt_backlog_probe', 'probe', now() - interval '1 hour') ON CONFLICT DO NOTHING;"
+    );
+    psqlSuper(
+      "INSERT INTO purge_audit_log (deleted_inbox, deleted_snapshots, triggered_by) " +
+        "VALUES (7, 8, 'backlog-probe');"
+    );
+    const anonBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_webhook_retention_backlog?select=expired_inbox_rows,expired_snapshot_rows,last_purge_at`,
+      { headers: anonHeaders }
+    );
+    const anonBacklogBody = await anonBacklog.text();
+    console.log(`   anon backlog -> HTTP ${anonBacklog.status} ${anonBacklogBody.slice(0, 80)}`);
+    // Body dibaca sekali (text) lalu di-parse: Response hanya bisa dikonsumsi
+    // sekali.
+    let anonBacklogRows: any[] = [];
+    try {
+      const parsed = JSON.parse(anonBacklogBody);
+      if (Array.isArray(parsed)) anonBacklogRows = parsed;
+    } catch {
+      /* bukan JSON (mis. pesan error PostgREST) -> tidak ada baris */
+    }
+    // Dua lapis pertahanan, jadi dua bentuk hasil yang benar:
+    //   * 401/403 -> REVOKE cabut SELECT untuk anon (perilaku Supabase), atau
+    //   * 200 tapi SEMUA kolom kosong -> security_invoker + RLS membuat anon
+    //     melihat view kosong (rantai gagal-terbuka ini yang diuji di sini:
+    //     kalau security_invoker hilang, last_purge_at ikut terbaca).
+    const anonBacklogLeaked =
+      anonBacklog.status === 200 &&
+      anonBacklogRows.some(
+        (r: any) =>
+          Number(r?.expired_inbox_rows) > 0 || Number(r?.expired_snapshot_rows) > 0 || r?.last_purge_at
+      );
+    assertOk(
+      anonBacklog.status === 401 || anonBacklog.status === 403 || !anonBacklogLeaked,
+      "V-2b: anon DITOLAK / melihat view kosong (tidak ada backlog & last_purge_at)",
+      `status=${anonBacklog.status} body=${anonBacklogBody.slice(0, 120)}`
+    );
+    const svcBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_webhook_retention_backlog?select=expired_inbox_rows,expired_snapshot_rows,last_purge_at`,
+      { headers: svcHeaders }
+    );
+    const svcBacklogRows = svcBacklog.status === 200 ? await svcBacklog.json() : [];
+    assertOk(
+      svcBacklog.status === 200 &&
+        Array.isArray(svcBacklogRows) &&
+        Number(svcBacklogRows[0]?.expired_inbox_rows) >= 1 &&
+        Boolean(svcBacklogRows[0]?.last_purge_at),
+      "V-2b: service_role tetap membaca backlog retensi (kontrol positif)",
+      `status=${svcBacklog.status} rows=${JSON.stringify(svcBacklogRows)}`
+    );
+    // Anon tidak boleh membaca tabelnya LANGSUNG juga (purge_audit_log dulu
+    // tanpa RLS: siapa pun yang punya kunci publishable bisa membaca riwayatnya).
+    const anonPurge = await fetch(`${POSTGREST_URL}/rest/v1/purge_audit_log?select=id,deleted_inbox`, {
+      headers: anonHeaders,
+    });
+    const anonPurgeRows = anonPurge.status === 200 ? await anonPurge.json() : [];
+    assertOk(
+      anonPurge.status !== 200 || (Array.isArray(anonPurgeRows) && anonPurgeRows.length === 0),
+      "V-2b: anon tidak bisa membaca purge_audit_log (RLS)",
+      `status=${anonPurge.status} rows=${JSON.stringify(anonPurgeRows).slice(0, 120)}`
+    );
+    psqlSuper("DELETE FROM webhook_events_inbox WHERE event_id='evt_backlog_probe';");
+    psqlSuper("DELETE FROM purge_audit_log WHERE triggered_by='backlog-probe';");
+
     // ══ Dry run tidak menggerus kuota ══════════════════════════════════════
     console.log("\n── Promo: dry run (tombol Terapkan) ──");
     const quote = await checkout({
@@ -672,35 +752,231 @@ async function main() {
       "V-1: used_count konsisten (1), bukan dilepas lalu dihitung ulang"
     );
 
-    // Retry SEBELUM order tercetak tetap boleh (mis. pembeli refresh halaman
-    // sebelum Scalev menjawab): baris yang sama dipakai ulang, bukan dilepas.
-    console.log("\n── V-1: retry sebelum order tercetak memakai baris yang sama ──");
+    // ══ V-1 ronde 2: checkout PARALEL satu nomor (regresi VETO ronde 2) ═════
+    // Akar VETO ronde 2: window antara redeem_promo (baris 'reserved' tanpa
+    // order_ref) dan attachPromoOrder (PATCH order_ref). Dulu semua request
+    // paralel "memakai ulang baris yang sama" dan sama-sama mencetak order:
+    // terukur 4 checkout paralel dari kuota 2 -> 4 order berbayar, ledger 1 baris.
+    console.log("\n── V-1 r2: kuota=2, satu nomor, 4 checkout PARALEL ──");
+    {
+      await seedPromo({ code: "PARALEL1", type: "flat_price", amount: 10000, quota: 2, plans: ["quarter"] });
+      const parPhone = nextPhone();
+      const before = ordersForPhone(parPhone);
+      const parBody = {
+        planId: "quarter",
+        customerPhone: parPhone,
+        customerName: "Dummy Paralel",
+        promoCode: "PARALEL1",
+        onboarding: sampleOnboarding,
+      };
+      const settled = await Promise.all([
+        checkout(parBody),
+        checkout(parBody),
+        checkout(parBody),
+        checkout(parBody),
+      ]);
+      const label = (r: Awaited<ReturnType<typeof checkout>>) =>
+        `${r.status}${r.body?.code ? ":" + r.body.code : ":ok"}`;
+      console.log(`   4 checkout paralel -> ${settled.map(label).join(" ")}`);
+      const winners = settled.filter((r) => r.status === 200);
+      const losers = settled.filter((r) => r.status !== 200);
+
+      assertEq(winners.length, 1, "PARALEL: tepat 1 checkout lolos");
+      assertEq(
+        ordersForPhone(parPhone) - before,
+        1,
+        "PARALEL: tepat 1 order Scalev tercetak (pra-fix: 4)"
+      );
+      assertEq(
+        countRows(
+          "promo_redemptions r JOIN promo_codes p ON p.id = r.promo_id",
+          "p.code='PARALEL1' AND r.status <> 'released'"
+        ),
+        1,
+        "PARALEL: tepat 1 baris ledger aktif"
+      );
+      assertEq(
+        psqlSuper("SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='PARALEL1';", { csv: true }),
+        "1/1",
+        "PARALEL: kuota terpakai 1 dari 2 (tidak dilampaui)"
+      );
+      assertEq(losers.length, 3, "PARALEL: 3 checkout ditolak");
+      assertOk(
+        losers.every((r) => r.body?.code === "PROMO_PENDING_ORDER"),
+        "PARALEL: yang ditolak dapat PROMO_PENDING_ORDER",
+        JSON.stringify(losers.map(label))
+      );
+      // Yang ditolak tidak menerima order id / link pembayaran: tidak ada order
+      // kedua yang bisa dibayar.
+      assertOk(
+        losers.every((r) => !r.body?.orderId && !r.body?.paymentUrl && !r.body?.uuid),
+        "PARALEL: yang ditolak TIDAK menerima orderId/paymentUrl",
+        JSON.stringify(losers.map((r) => r.body))
+      );
+
+      // Bayar satu-satunya order -> tepat satu langganan aktif untuk nomor itu.
+      const win = winners[0];
+      const winEvent = {
+        event: "payment.received",
+        unique_id: `evt_paralel_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        data: {
+          id: `01948092-9b80-7f91-aaaa-${win.body.orderId}`,
+          order_id: win.body.orderId,
+          payment_status: "paid",
+          gross_revenue: "10000.00",
+          customer_phone: parPhone,
+          customer_name: "Dummy Paralel",
+        },
+      };
+      const winWebhook = await postWebhook(winEvent);
+      assertEq(winWebhook.status, 200, "PARALEL: bayar order pemenang -> 200");
+      assertEq(
+        countRows("subscriptions s JOIN users u ON u.id = s.user_id", `u.phone='${parPhone}'`),
+        1,
+        "PARALEL: tepat 1 langganan aktif (pra-fix: 4 langganan berbayar)"
+      );
+      assertEq(
+        psqlSuper(
+          "SELECT status FROM promo_redemptions r JOIN promo_codes p ON p.id=r.promo_id WHERE p.code='PARALEL1';",
+          { csv: true }
+        ),
+        "consumed",
+        "PARALEL: reservasi pemenang jadi 'consumed'"
+      );
+      const afterPay = await checkout(parBody);
+      assertEq(afterPay.status, 400, "PARALEL: nomor yang sudah bayar tidak bisa checkout lagi");
+      assertEq(afterPay.body?.code, "PROMO_ALREADY_USED", "PARALEL: error code PROMO_ALREADY_USED");
+    }
+
+    console.log("\n── V-1 r2: kuota=2, DUA nomor, masing-masing 4 checkout PARALEL ──");
+    {
+      await seedPromo({ code: "PARALEL2", type: "percentage", amount: 30, quota: 2, plans: ["quarter"] });
+      const pa = nextPhone();
+      const pb = nextPhone();
+      const beforeA = ordersForPhone(pa);
+      const beforeB = ordersForPhone(pb);
+      const mk = (phone: string) => ({
+        planId: "quarter",
+        customerPhone: phone,
+        customerName: "Dummy Paralel2",
+        promoCode: "PARALEL2",
+        onboarding: sampleOnboarding,
+      });
+      const [ra, rb] = await Promise.all([
+        Promise.all(Array.from({ length: 4 }, () => checkout(mk(pa)))),
+        Promise.all(Array.from({ length: 4 }, () => checkout(mk(pb)))),
+      ]);
+      const okA = ra.filter((r) => r.status === 200).length;
+      const okB = rb.filter((r) => r.status === 200).length;
+      console.log(`   A: ${okA} lolos /4   B: ${okB} lolos /4`);
+      assertEq(okA, 1, "PARALEL 2 nomor: A tepat 1 lolos");
+      assertEq(okB, 1, "PARALEL 2 nomor: B tepat 1 lolos");
+      assertEq(ordersForPhone(pa) - beforeA, 1, "PARALEL 2 nomor: A cetak 1 order");
+      assertEq(ordersForPhone(pb) - beforeB, 1, "PARALEL 2 nomor: B cetak 1 order");
+      assertEq(
+        psqlSuper("SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='PARALEL2';", { csv: true }),
+        "2/0",
+        "PARALEL 2 nomor: kuota habis tepat 2 (tidak lebih)"
+      );
+      assertEq(
+        countRows(
+          "promo_redemptions r JOIN promo_codes p ON p.id = r.promo_id",
+          "p.code='PARALEL2' AND r.status <> 'released'"
+        ),
+        2,
+        "PARALEL 2 nomor: 2 baris ledger"
+      );
+    }
+
+    // ══ C-4: sweep TTL vs order yang sudah tercetak ════════════════════════
+    console.log("\n── C-4: sweep TTL tidak melepas order yang sudah tercetak ──");
+    {
+      await seedPromo({ code: "BOUNDSTALE", type: "flat_price", amount: 10000, quota: 1, plans: ["quarter"] });
+      const bsPhone = nextPhone();
+      const bs = await checkout({
+        planId: "quarter",
+        customerPhone: bsPhone,
+        customerName: "Dummy Bound Stale",
+        promoCode: "BOUNDSTALE",
+        onboarding: sampleOnboarding,
+      });
+      assertEq(bs.status, 200, "C-4: checkout pertama lolos, order tercetak");
+      const bsFilter = "(SELECT id FROM promo_codes WHERE code='BOUNDSTALE')";
+      assertEq(
+        psqlSuper(`SELECT order_ref IS NOT NULL FROM promo_redemptions WHERE promo_id=${bsFilter};`, { csv: true }),
+        "t",
+        "C-4: reservasi terikat ke order Scalev"
+      );
+      psqlSuper(
+        `UPDATE promo_redemptions SET created_at = now() - interval '25 hours' WHERE promo_id=${bsFilter};`
+      );
+      assertEq(
+        psqlSuper("SELECT release_stale_promo_reservations(24);", { csv: true }),
+        "0",
+        "C-4: sweep TIDAK melepas reservasi ber-order_ref (pra-fix: dilepas)"
+      );
+      assertEq(
+        psqlSuper(`SELECT status FROM promo_redemptions WHERE promo_id=${bsFilter};`, { csv: true }),
+        "reserved",
+        "C-4: kursi tetap ditahan"
+      );
+      assertEq(
+        psqlSuper("SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='BOUNDSTALE';", { csv: true }),
+        "1/0",
+        "C-4: kuota masih terpakai 1"
+      );
+      // Pembatalan eksplisit -> kursi kembali ke kuota.
+      const bsRid = psqlSuper(`SELECT id FROM promo_redemptions WHERE promo_id=${bsFilter};`, { csv: true });
+      assertEq(
+        psqlSuper(`SELECT cancel_promo_redemption('${bsRid}');`, { csv: true }),
+        "t",
+        "C-4: pembatalan eksplisit diterima"
+      );
+      assertEq(
+        psqlSuper("SELECT used_count||'/'||remaining FROM v_promo_codes WHERE code='BOUNDSTALE';", { csv: true }),
+        "0/1",
+        "C-4: kuota kembali setelah order dibatalkan eksplisit"
+      );
+    }
+
+    // Retry SEBELUM order tercetak (attach gagal / Scalev belum menjawab):
+    // ronde 2 menolaknya. Dulu baris yang sama dipakai ulang sehingga tiap
+    // retry mencetak order baru.
+    console.log("\n── V-1 r2: retry saat klaim masih hidup ditolak ──");
     {
       const code = "RETRYOK";
       await seedPromo({ code, type: "percentage", amount: 30, quota: 5, plans: ["quarter"] });
       const phone = nextPhone();
       const promoId = psqlSuper(`SELECT id FROM promo_codes WHERE code='${code}';`, { csv: true });
-      const first = await checkout({ ...sekaliBody, customerPhone: phone, promoCode: code, customerName: "Dummy Retry" });
+      const before = ordersForPhone(phone);
+      const first = await checkout({ planId: "quarter", customerPhone: phone, customerName: "Dummy Retry", promoCode: code, onboarding: sampleOnboarding });
       const rowId = psqlSuper(
         `SELECT id FROM promo_redemptions WHERE promo_id='${promoId}' AND status='reserved';`,
         { csv: true }
       );
-      // Simulasi celah: order_ref dilepas supaya checkout berikutnya tidak
-      // berada di jalur 'pending_order' (order Scalev belum sempat dibuat).
+      // Simulasi C-6: order sudah tercetak, order_ref gagal ditulis.
       psqlSuper(`UPDATE promo_redemptions SET order_ref = NULL WHERE id='${rowId}';`);
-      const again = await checkout({ ...sekaliBody, customerPhone: phone, promoCode: code, customerName: "Dummy Retry" });
-      assertEq(first.status, 200, "V-1 retry: checkout pertama lolos");
-      assertEq(again.status, 200, "V-1 retry: retry sebelum order tercetak tetap diizinkan");
-      assertEq(
-        psqlSuper(`SELECT id FROM promo_redemptions WHERE promo_id='${promoId}';`, { csv: true }),
-        rowId,
-        "V-1 retry: baris ledger yang SAMA dipakai ulang (bukan release+insert)"
-      );
+      const again = await checkout({ planId: "quarter", customerPhone: phone, customerName: "Dummy Retry", promoCode: code, onboarding: sampleOnboarding });
+      assertEq(first.status, 200, "V-1 r2 retry: checkout pertama lolos");
+      assertEq(again.status, 400, "V-1 r2 retry: retry saat reservasi masih hidup -> 400 (bukan order kedua)");
+      assertEq(again.body?.code, "PROMO_PENDING_ORDER", "V-1 r2 retry: error code PROMO_PENDING_ORDER");
+      assertOk(!again.body?.orderId, "V-1 r2 retry: tidak ada orderId untuk retry yang ditolak");
+      assertEq(ordersForPhone(phone) - before, 1, "V-1 r2 retry: tetap 1 order di Scalev");
       assertEq(
         psqlSuper(`SELECT used_count FROM v_promo_codes WHERE code='${code}';`, { csv: true }),
         "1",
-        "V-1 retry: retry tidak menambah pemakaian"
+        "V-1 r2 retry: kuota tidak digandakan"
       );
+      // Ops membatalkan order -> kursi kembali, checkout berikutnya boleh.
+      assertEq(
+        psqlSuper(`SELECT cancel_promo_redemption('${rowId}');`, { csv: true }),
+        "t",
+        "V-1 r2 retry: pembatalan ops diterima"
+      );
+      const after = await checkout({ planId: "quarter", customerPhone: phone, customerName: "Dummy Retry", promoCode: code, onboarding: sampleOnboarding });
+      assertEq(after.status, 200, "V-1 r2 retry: setelah pembatalan, nomor itu bisa checkout lagi");
+      assertEq(ordersForPhone(phone) - before, 2, "V-1 r2 retry: order kedua hanya setelah pembatalan eksplisit");
     }
 
     // ══ Reservasi dilepas kalau order Scalev gagal ═════════════════════════
