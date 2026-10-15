@@ -3,7 +3,7 @@
 **Kartu:** `t_1e5ab196` (assignee `forge`) · **Root:** `t_fdba2939` · **Parent gate:** S0 `t_788d7064`
 **Tanggal:** 2026-10-15 · **Branch:** `feat/feedback-kritiksaran-2026-10-15`
 **Base:** `9392cdd` (`release/rc-integration-2026-10-13`) — **bukan** `origin/main` (pra-remediasi VETO, S0 B-1)
-**Commit implementasi:** `15afd4d`
+**Commit implementasi:** `15afd4d` · **W5-RX:** `3434176` + `1cab927` (lihat bagian W5-RX di bawah)
 **Status:** ✅ kode + suite lokal hijau · ⛔ **BLOCKED-LIVE** — `review-required` ke Sentinel
 
 Kontrak acuan: `batch-2026-10-15/s0-security/integration-contract.md` §6 (feedback), §11 (nama & angka).
@@ -168,3 +168,155 @@ bash tests/test-feedback-negatives.sh           # MUTATION PROOF OK (harus exit 
 
 Butuh: Postgres lokal (role `postgres` via `sudo -u postgres`), PostgREST di
 `/tmp/postgrest`, node ≥ 22. Tidak butuh kredensial apa pun.
+
+---
+
+# W5-RX — remediasi temuan audit (F-1, F-3, F-4, F-5)
+
+**Kartu:** `t_51e47cf0` · **Audit:** `t_63b7eb66` (`security/review-w5-feedback-2026-10-15.md`)
+**Scope:** hanya empat temuan di bawah. F-2 (rate-limit header dari penyerang) ada di kartu
+sendiri untuk pemilik `rate-limit.ts`. C-1..C-6 tetap seperti semula (C-4/C-6 bukan scope ini).
+**Status:** ✅ hijau lokal + bukti GAGAL pra-fix · ⛔ belum push/deploy/apply.
+
+## RX-1 (F-1) — batas body ditegakkan SEBELUM body dibaca
+
+Dulu: `await req.text()` dulu, `Buffer.byteLength > 8192` belakangan. Sekarang
+`readBoundedBody()` (`src/lib/feedback.ts`):
+
+- `content-length` > 8 KiB → tolak **tanpa menyentuh body** (413 bisa dikirim saat klien
+  masih mengirim);
+- tanpa `content-length` (chunked) → body dibaca per-chunk lewat `getReader()` dan
+  **dihentikan** begitu lewat 8 KiB (`reader.cancel()`); tidak ada buffer tak terbatas.
+
+Lapis kedua di tepi: `docs/reverse-proxy-body-limit.md` (nginx `client_max_body_size 16k` /
+Caddy `max_size 16KB` untuk `location = /api/feedback`). **Dokumen saja — belum diterapkan**,
+pemilik penerapan Atlas; konfigurasi proxy bukan bagian repo ini.
+
+## RX-2 (F-3) — isi tulisan & token tidak bisa masuk log
+
+`upstreamError()` hanya menyimpan `status` + `code` hasil-putih (`^[A-Za-z0-9_]{1,16}$`).
+Body PostgREST **tidak pernah** dibaca jadi string lagi (`res.text()` hilang dari
+`src/lib/feedback.ts`, ada check statis yang menjaganya). Field `details` (yang memuat baris
+gagal, teks pengguna, dan `request_token`) dan `message` (Postgres kadang mengutip nilai yang
+salah) keduanya dibuang.
+
+## RX-3 (F-4) — panjang dihitung sebagai karakter, seperti `char_length`
+
+`messageLength()` = `[...s].length` (code point) dipakai di validasi **dan** di penghitung
+karakter UI (`FeedbackForm.tsx`). Sekelas itu: **unpaired surrogate** (mis. `\ud800`) bukan
+UTF-8 valid dan dulu lolos ke Postgres → 503 yang tidak bisa diperbaiki pengguna; sekarang
+dibuang di `sanitizeMessageText()`.
+
+Catatan jujur: atribut HTML `maxLength`/`minLength` tetap dihitung browser dalam unit UTF-16,
+jadi batas klien lebih ketat dari batas server untuk teks astral — arahnya aman (server tidak
+akan menerima apa yang tidak bisa dikirim UI), tapi angkanya tidak identik. Penghitung yang
+dilihat pengguna sudah konsisten.
+
+## RX-4 (F-5) — token sama + teks beda = 409, bukan 201 palsu
+
+Baca-ulang setelah duplikat sekarang mengambil `message_text` dan membandingkannya dengan
+teks yang dikirim. Beda → **409** + pesan "tulisan ini sudah tersimpan sebelumnya. Muat ulang
+halaman kalau mau mengirim versi baru." Baris lama tetap utuh, teks baru tidak disimpan diam-diam.
+Teks **sama** dengan token sama tetap 201 (retry idempoten tidak berubah).
+
+## RX-5 Bukti
+
+```
+npm run lint                 exit 0 (tsc --noEmit)          — /tmp/w5rx-lint.log
+npm run build                exit 0 (NODE_OPTIONS=--max-old-space-size=1024)
+SKIP_BUILD=1 bash tests/run-all.sh
+                             exit 0 · ALL SUITES PASSED      — /tmp/w5rx-runall.log
+    2/5 unit                 29/29 remediation + 84/84 feedback (sebelumnya 64)
+    3/5 guard                ALL GUARD UNIT CHECKS PASSED
+    4/5 webhook e2e          57/57
+    5/5 feedback e2e         90/90 (sebelumnya 67)
+bash tests/test-feedback-negatives.sh
+                             exit 0 · MUTATION PROOF OK       — /tmp/w5rx-negatives.log
+```
+
+Check baru di e2e (yang membuat temuan bisa dibuktikan):
+
+| Temuan | Check | Pra-fix | Sesudah |
+|---|---|---|---|
+| F-1 | `declared 100 KiB body -> 413 without any of it being read` | **FAIL** (tak ada jawaban dalam 5000 ms — server masih menunggu body) | PASS |
+| F-1 | `chunked body past the ceiling -> 413 before the stream ends` | **FAIL** (idem) | PASS |
+| F-1 | `small chunked body still accepted (streamed path intact)` | PASS | PASS |
+| F-3 | `submitted emoji never reaches the log` | **FAIL** | PASS |
+| F-3 | `request token never reaches the log on the failure path` | **FAIL** | PASS |
+| F-3 | ``PostgREST `details` (the failing row) is never logged`` | **FAIL** | PASS |
+| F-3 | `the failure is logged as status + code only` | **FAIL** | PASS |
+| F-4 | `5 emoji (JS length 10) -> 400, never a 503` | **FAIL** (503) | PASS |
+| F-4 | `10 emoji -> 201 (no DB CHECK rejection)` + `char_length = 10` | PASS | PASS |
+| F-4 | `text with an unpaired surrogate -> 201, not a 503` | **FAIL** (503) | PASS |
+| F-4 | `the unpaired surrogate was stripped` | **FAIL** | PASS |
+| F-5 | `same token + different text -> 409 (the edit was NOT stored)` | **FAIL** (201) | PASS |
+| F-5 | `409 body carries no success marker` | **FAIL** (body `{"ok":true}`) | PASS |
+| F-5 | `one racer wins with 201` / `the other four are 409, not a false 201` | **FAIL** (5×201) | PASS |
+
+### Bukti GAGAL pra-fix (bukan cuma "hijau sesudah")
+
+Cara: `git stash push` **hanya tiga berkas `src/`** (suite tetap versi baru) → build ulang →
+jalankan suite → `git stash pop` → verifikasi hash.
+
+```
+sha1(fixed)  2507098ddfa8d5f0f6c7b2979bc8b85f5ec07139  src/lib/feedback.ts
+             6459ca1e394c5dc4d6c53cd86c27b049c57ac1dc  src/app/api/feedback/route.ts
+             700230a667fe90e76b14d2e39620da3bcc272b4b  src/app/companion/nina/kritiksaran/FeedbackForm.tsx
+pra-fix      suite exit 1 · FAILED 13 of 90 (semua di tabel di atas)   — /tmp/w5rx-prefix-e2e-final.log
+sesudah pop  sha1sum -c → ketiga berkas OK, git status bersih (kecuali perubahan yang dimaksud)
+```
+
+Baris log mentah pra-fix (probe terpisah, build pra-fix, `/tmp/w5rx-prefix-server-log.txt`) —
+inilah kebocoran yang ditutup RX-2:
+
+```
+[Feedback] store failed: Error: [Feedback] insert failed: 400 {"code":"23514","details":"Failing row
+contains (2a8f5557-…, thrivin, null, Probe F-3 pre-fix 😀😀 dengan token rahasia di dalam tulisan…,
+probeleak0123456789abcdef01234567, new, …)","hint":null,"message":"new row for relation \"feedback\"
+violates check constraint \"tmp_w5rx_probe\""}
+```
+
+### Mutation proof (behavioral, `exit 0`)
+
+`tests/test-feedback-negatives.sh` sekarang punya enam mutan; tiap mutan merusak **satu** fix,
+suite dijalankan ulang (perilaku, bukan cuma label), lalu pohon direstore + build ulang oleh
+trap `EXIT`. Jalankan sebagian dengan `MUTANTS="m1 m3"`.
+
+| Mutan | Yang dikembalikan ke perilaku lama | Hasil suite |
+|---|---|---|
+| M1 (W5) | kegagalan insert dijawab `201 {"ok":true}` | suite **GAGAL** 4 check (false thank-you + 503 checks) |
+| M2 (W5) | `GET` menjawab 200 berisi baris | suite **GAGAL** 2 check (405 + `Allow: POST`) |
+| M3 (F-1) | body dibaca penuh sebelum batas 8 KiB | suite **GAGAL** 2 check (`declared 100 KiB` / `chunked body` tidak dijawab dalam 5 s) |
+| M4 (F-3) | body error PostgREST mentah masuk log | suite **GAGAL** 4 check (emoji, token, `details`, `code=`) |
+| M5 (F-4) | `messageText.length` + surrogate utuh | suite **GAGAL** 3 check (5 emoji 503, surrogate 503/tidak dibuang) |
+| M6 (F-5) | duplikat diterima tanpa membandingkan teks | suite **GAGAL** 4 check (409 → 201, 5×201 di balapan) |
+
+Integritas pohon pasca-run: `sha1sum -c` ketiga berkas `src/` **OK**, `git status` hanya
+menampilkan perubahan yang dimaksud. Log: `/tmp/w5rx-negatives.log`,
+`/tmp/thrivin-feedback-negative-{m1..m6}.log`.
+
+### Temuan proses selama W5-RX
+
+1. **Harness beberapa worktree berbagi port, DB, dan `/tmp/thrivin-harness-postgrest.conf`.**
+   Run pra-fix pertama saya memberi 503 di happy path — bukan bug produk, tapi proxy PostgREST
+   milik worktree lain (W3) yang memegang 54321 saat suite saya jalan. Pelajaran yang sama
+   dengan catatan proses audit §2: suite e2e harus hermetik; kalau tidak, hasilnya mengukur
+   proses tetangga. Verifikasi W5-RX dijalankan dengan `HARNESS_PG_DB=thrivin_w5rx_prefix`
+   + port 54331/54332/3995 supaya tidak tergantung siapa pun yang sedang jalan. Saran ke Atlas:
+   default port/DB harness sebaiknya diturunkan dari worktree, bukan konstanta global.
+2. Rancangan F-5 mengubah arti uji concurrency lama ("5 kiriman paralel, token sama, teks
+   **beda** → semua 201") menjadi salah: dengan F-5, teks berbeda pada token sama memang
+   konflik. Uji itu sekarang dikirim dengan teks **sama** (double-tap nyata), plus uji baru
+   "satu menang 201, empat 409" untuk kasus teks berbeda.
+
+## RX-6 Batas klaim
+
+- Semua bukti **lokal** (next build/start + PostgREST + Postgres lokal, data dummy). Nol
+  staging/produksi, nol apply SQL, nol deploy, nol push, nol kredensial produksi.
+- Batas di reverse proxy **belum diterapkan**; dokumen `docs/reverse-proxy-body-limit.md` adalah
+  serah-terima untuk Atlas, bukan konfigurasi hidup.
+- Yang dibuktikan untuk F-1 adalah **perilaku** (413 datang tanpa menunggu body selesai /
+  tanpa membaca sampai akhir) — bukan pengukuran alokasi memori.
+- Aksesibilitas & UI tetap diuji sebagai markup/alur HTTP (tidak ada browser headless).
+- Retensi: `purge_expired_feedback()` tetap **tidak dijadwalkan** dan `expires_at` 365 hari
+  tetap **placeholder** (kondisi C-1 dari audit) — tidak ada klaim retensi berangka di dokumen ini.

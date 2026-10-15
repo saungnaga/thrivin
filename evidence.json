@@ -3,7 +3,7 @@
   "slug": "w5-feedback",
   "assignee": "forge",
   "date": "2026-10-15",
-  "status": "implemented-local-green_blocked-live_review-required",
+  "status": "implemented-local-green_blocked-live_review-required (W5-RX delta remediated — see the w5rx block at the end)",
   "base": {
     "required_by_contract": "9392cdd (release/rc-integration-2026-10-13)",
     "branch": "feat/feedback-kritiksaran-2026-10-15",
@@ -179,5 +179,100 @@
     "mutation proof run WITHOUT `| tee`: piping to tee masks the script exit code (observed in this attempt)",
     "OOM discipline: builds require NODE_OPTIONS=--max-old-space-size=1024 on this 3.6 GB VPS; two earlier attempts of this card were SIGKILLed by the cgroup OOM killer"
   ],
+  "w5rx": {
+    "task": "t_51e47cf0",
+    "audit_task": "t_63b7eb66",
+    "date": "2026-10-15",
+    "status": "remediated-local-green_pre-fix-fail-proven_review-required",
+    "base_head_before": "0d21838",
+    "branch": "feat/feedback-kritiksaran-2026-10-15",
+    "commits": [
+      "3434176 fix(feedback): bound body before reading, redact upstream errors, count message chars, 409 on edited duplicate (W5-RX F-1/F-3/F-4/F-5)",
+      "1cab927 test(feedback): cover F-1/F-3/F-4/F-5 with checks that fail pre-fix + six-mutant proof"
+    ],
+    "scope": "F-1, F-3, F-4, F-5 only. F-2 (rate-limit headers) stays a separate card; C-1..C-6 unchanged (C-4/C-6 out of scope).",
+    "fixes": {
+      "F-1_body_ceiling": "src/lib/feedback.ts readBoundedBody(): declared Content-Length over 8 KiB refused before the body is touched; chunked bodies streamed via getReader() and cancelled at the ceiling. route.ts no longer calls req.text(). Edge layer documented (not applied) in docs/reverse-proxy-body-limit.md for Atlas: nginx client_max_body_size 16k / Caddy max_size 16KB on location = /api/feedback.",
+      "F-3_log_redaction": "src/lib/feedback.ts upstreamError(): only status + a whitelisted machine code (^[A-Za-z0-9_]{1,16}$) are kept; the PostgREST body is never read into a string again (res.text() removed from the module), so `details` (failing row: message_text + request_token) and `message` (Postgres quotes the bad value) cannot reach the log.",
+      "F-4_char_counting": "messageLength() = [...s].length used by validateFeedbackPayload (matches DB char_length) and by the UI counter in FeedbackForm.tsx. Same class fixed too: unpaired surrogates are stripped in sanitizeMessageText() — they are not valid UTF-8 and used to 503 at the DB.",
+      "F-5_edited_duplicate": "insertFeedbackOnce read-back now selects message_text and returns textMatches; route.ts answers 409 + DUPLICATE_TOKEN when a duplicate token carries different text (stored row untouched, new text NOT silently dropped). Same text + same token stays 201 (idempotent retry unchanged)."
+    },
+    "suites": {
+      "lint": { "command": "npm run lint", "exit_code": 0, "log": "/tmp/w5rx-lint.log" },
+      "build": {
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 NEXT_TELEMETRY_DISABLED=1 npm run build",
+        "exit_code": 0,
+        "log": "/tmp/w5rx-build.log"
+      },
+      "run_all": {
+        "command": "SKIP_BUILD=1 bash tests/run-all.sh",
+        "exit_code": 0,
+        "result": "ALL SUITES PASSED",
+        "log": "/tmp/w5rx-runall.log",
+        "counts": {
+          "remediation_units": "29/29",
+          "feedback_units_and_static": "84/84 (was 64)",
+          "guard_checks": "ALL GUARD UNIT CHECKS PASSED",
+          "webhook_e2e": "57/57",
+          "feedback_e2e": "90/90 (was 67)"
+        }
+      },
+      "mutation_proof": {
+        "command": "bash tests/test-feedback-negatives.sh",
+        "exit_code": 0,
+        "result": "MUTATION PROOF OK — the suite catches every W5/W5-RX guarantee it claims.",
+        "log": "/tmp/w5rx-negatives.log",
+        "mutants": {
+          "m1_false_thank_you": "4 FAIL",
+          "m2_list_exposure": "2 FAIL",
+          "m3_F1_buffer_then_check": "2 FAIL (no answer within 5 s on declared/chunked oversize)",
+          "m4_F3_raw_upstream_logged": "4 FAIL (emoji, token, details, code=)",
+          "m5_F4_utf16_and_surrogates": "3 FAIL",
+          "m6_F5_no_text_compare": "4 FAIL"
+        },
+        "subset_hint": "MUTANTS=\"m1 m3\" runs a subset",
+        "restore": "EXIT trap restores both src files and rebuilds; sha1sum -c of the three fixed sources OK after the run, git status shows only intended changes"
+      }
+    },
+    "pre_fix_proof": {
+      "method": "git stash push on the three src/ files only (new suite kept in place) -> rebuild -> run suite -> git stash pop -> sha1sum -c verifies the fix is back",
+      "log": "/tmp/w5rx-prefix-e2e-final.log",
+      "result": "suite exit 1 · FAILED 13 of 90 — every failure belongs to F-1/F-3/F-4/F-5 (or the two new race-conflict checks)",
+      "raw_leak_evidence": {
+        "probe": "/tmp/w5rx-prefix-log-probe.mts (throwaway) against the pre-fix build",
+        "log_file": "/tmp/w5rx-prefix-server-log.txt",
+        "line": "[Feedback] store failed: Error: [Feedback] insert failed: 400 {\"code\":\"23514\",\"details\":\"Failing row contains (2a8f5557-…, thrivin, null, Probe F-3 pre-fix 😀😀 dengan token rahasia di dalam tulisan…, probeleak0123456789abcdef01234567, new, …)\", …}",
+        "meaning": "pre-fix the user text, the request token and PostgREST's `details` all reached the log; post-fix only `status=400 code=23514`"
+      },
+      "fixed_hashes_before_and_after": {
+        "src/lib/feedback.ts": "2507098ddfa8d5f0f6c7b2979bc8b85f5ec07139",
+        "src/app/api/feedback/route.ts": "6459ca1e394c5dc4d6c53cd86c27b049c57ac1dc",
+        "src/app/companion/nina/kritiksaran/FeedbackForm.tsx": "700230a667fe90e76b14d2e39620da3bcc272b4b"
+      }
+    },
+    "new_checks": [
+      "F-1: no answer to a declared 100 KiB body within 5 s (pre-fix) -> 413 without reading it (post-fix)",
+      "F-1: chunked body past the ceiling -> 413 before the stream ends; small chunked body still 201",
+      "F-3: forced CHECK violation (temp constraint) -> 503 and the log carries neither the emoji nor the token nor `Failing row`, only status + code=23514",
+      "F-4: 5 emoji (JS length 10) -> 400 not 503; 10 emoji -> 201 and char_length = 10; unpaired surrogate stripped, not 503",
+      "F-5: same token + different text -> 409 with no success marker, one row, original text intact; same token + same text -> 201; 5 parallel sends with differing texts -> one 201 + four 409"
+    ],
+    "artifact_added": "docs/reverse-proxy-body-limit.md — nginx/Caddy body-limit handoff for POST /api/feedback (DRAFT, nothing applied)",
+    "existing_code_touched": [
+      { "file": "tests/test-feedback-e2e.mts", "change": "assertEq gained an optional detail argument; concurrency group now sends ONE message (a real double tap) and a new group races five DIFFERENT texts expecting 1x201 + 4x409; new F-1/F-3/F-4 sections (90 checks total)" },
+      { "file": "tests/test-feedback-negatives.sh", "change": "now mutates route.ts AND lib/feedback.ts; four new mutants (m3..m6) with exact expected-FAIL names; MUTANTS env selects a subset" },
+      { "file": "tests/test-feedback-units.mts", "change": "code-point/emoji/surrogate unit checks + static regression guards for all four fixes (84 checks total)" }
+    ],
+    "environment_finding": "Harness defaults are shared across worktrees: ports 54321/54322/3991, DB thrivin_remediation_test and the config path /tmp/thrivin-harness-postgrest.conf. A concurrent W3 suite made the first pre-fix run answer 503 on the happy path (foreign PostgREST proxy holding 54321) — a false measurement, not a product bug. W5-RX verification therefore ran hermetically with HARNESS_PG_DB=thrivin_w5rx_prefix + ports 54331/54332/3995. Suggestion for Atlas: derive harness defaults from the worktree instead of global constants.",
+    "not_done_intentionally": [
+      "no push, no deploy, no SQL apply (staging or production), no change to origin/main",
+      "reverse-proxy limit NOT applied — documentation handoff only (proxy config is not in this repo)",
+      "retention untouched: purge_expired_feedback() still unscheduled and expires_at 365d still a PLACEHOLDER (audit condition C-1); no numeric retention claim in the UI or in the report",
+      "F-2 (rate-limit header trust) not touched here — separate card for the rate-limit.ts owner",
+      "no browser/device accessibility testing (markup + HTTP flow only)",
+      "no customer data, no production credentials, no .env, no outbound calls"
+    ],
+    "next_step": "kanban_create(delta-review for Sentinel) then kanban_block(kind=needs_input, reason='review-required: delta W5 F-1/F-3/F-4/F-5')"
+  },
   "next_step": "kanban_block(kind=needs_input, reason='review-required: feedback persistence and input boundary needs Sentinel audit')"
 }
