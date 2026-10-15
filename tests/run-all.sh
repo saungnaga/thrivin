@@ -35,6 +35,13 @@ node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
 
 echo
 echo "=============================================================="
+echo "2c/6 copy check, tree-wide (W1: retired price claims + promo gates)"
+echo "     walks every shipped file, so new components are covered too"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-web-copy-treewide.mts"
+
+echo
+echo "=============================================================="
 echo "3/6  guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"

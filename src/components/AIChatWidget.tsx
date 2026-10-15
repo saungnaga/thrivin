@@ -67,7 +67,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     query.includes("berapa")
   ) {
     return {
-      text: `Investasi Thrivin sekali bayar, tanpa tagihan otomatis: ${planPriceLine()}. Khusus pengguna baru, kode promo '${TEMANBARU_PROMO.code}' diskon ${TEMANBARU_PROMO.discountPercent}% di paket ${TEMANBARU_PROMO.minMonths} bulan ke atas. Semua paket ada garansi uang kembali 3 hari.`,
+      text: `Investasi Thrivin sekali bayar, tanpa tagihan otomatis: ${planPriceLine()}. Kode promo '${TEMANBARU_PROMO.code}' diskon ${TEMANBARU_PROMO.discountPercent}% di paket ${TEMANBARU_PROMO.minMonths} bulan ke atas, 1x per nomor WhatsApp. Semua paket ada garansi uang kembali 3 hari.`,
       cta: {
         label: "Mulai Onboarding & Pilih Paket",
         href: "/companion/nina/onboarding/1",
