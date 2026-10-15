@@ -155,6 +155,7 @@
   },
   "audit_remediation_w3_rx": {
     "card": "t_ee4d66c7",
+    "commits": ["eef4c6c (fix + uji)", "be69f95 (bukti)"],
     "scope": "HANYA temuan audit (F-1, F-2, F-4) + refresh klaim resend_limit; F-3 & F-5 tetap item pasca-apply",
     "F-1": {
       "finding": "batas OTP per jam (resend_limit) mati di jalur app: kuota dihitung dari baris `consumed_at IS NULL` sementara jalur tulis memakai UPSERT → baris hidup selalu 1 → kuota maksimum 1/jam. Batas nyata = cooldown 60 s (sampai 60 OTP/jam/nomor)",

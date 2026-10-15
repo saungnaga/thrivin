@@ -143,6 +143,7 @@ keyboard/mobile · (12) log bebas kode OTP & nomor mentah · (6b) **format nomor
 
 ## 9. Tindak lanjut audit W3 (RX) — `t_ee4d66c7`
 
+Commit: `eef4c6c` (fix + uji) dan `be69f95` (bukti) di `feat/wa-first-2026-10-15`.
 Audit Sentinel `t_a498a912`: **AMAN DENGAN CATATAN**, 0 veto, belum boleh apply. Temuan yang
 dikerjakan di sini: **F-1, F-2, F-4** + refresh klaim `resend_limit`. (F-3 & F-5 tetap item
 pasca-apply.) Tidak ada fitur baru, tidak ada apply SQL, tidak ada push/deploy.
