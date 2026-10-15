@@ -14,24 +14,14 @@
  */
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { isWeakSecret, safeEqual, MIN_SECRET_LENGTH } from "./session-secret.ts";
+
+// Guard secret dipakai bersama sesi pelanggan (WA-first) — lihat
+// `session-secret.ts`. Re-export supaya pemanggil lama tidak berubah.
+export { isWeakSecret, safeEqual };
 
 export const ADMIN_COOKIE = "thrivin_admin_session";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 jam
-const MIN_SECRET_LENGTH = 32;
-/** Nilai utuh yang jelas lemah (bukan substring: frasa panjang tetap boleh). */
-const WEAK_SECRETS = new Set([
-  "changeme",
-  "change-me",
-  "secret",
-  "password",
-  "admin",
-  "thrivin",
-  "thrivin-secret",
-  "test",
-  "example",
-  "supersecret",
-]);
-const MIN_DISTINCT_CHARS = 10;
 
 export interface AdminConfig {
   username: string;
@@ -39,20 +29,6 @@ export interface AdminConfig {
   secret: string;
 }
 
-/**
- * C-2: panjang saja bukan ukuran. `'a'.repeat(32)` panjangnya 32 tapi bisa
- * ditebak, dan karena cookie-nya HMAC dari secret itu, secret lemah = cookie
- * bisa dipalsukan TANPA tahu password (direproduksi Sentinel: GET 200).
- * Tolak yang jelas lemah; sisanya secara praktis berarti acak.
- */
-export function isWeakSecret(secret: string): boolean {
-  if (secret.length < MIN_SECRET_LENGTH) return true;
-  if (WEAK_SECRETS.has(secret.toLowerCase())) return true;
-  if (new Set(secret).size < MIN_DISTINCT_CHARS) return true; // 'a'x32, 'ab'x16
-  if (/^\d+$/.test(secret)) return true; // tanggal/nomor urut
-  if (/(.)\1{7,}/.test(secret)) return true; // 8+ karakter sama beruntun
-  return false;
-}
 
 let weakSecretLogged = false;
 
@@ -82,14 +58,6 @@ export function isAdminConfigured(): boolean {
 
 function hmac(value: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(value).digest("base64url");
-}
-
-/** Perbandingan waktu-tetap supaya panjang/prefix tidak bocor lewat timing. */
-export function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 export function createSessionToken(username: string, now: number = Date.now()): string | null {
