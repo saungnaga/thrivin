@@ -1,0 +1,183 @@
+{
+  "task": "t_1e5ab196",
+  "slug": "w5-feedback",
+  "assignee": "forge",
+  "date": "2026-10-15",
+  "status": "implemented-local-green_blocked-live_review-required",
+  "base": {
+    "required_by_contract": "9392cdd (release/rc-integration-2026-10-13)",
+    "branch": "feat/feedback-kritiksaran-2026-10-15",
+    "worktree": "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w5-feedback",
+    "ancestry_proof": "git merge-base --is-ancestor 1d54a36 9392cdd -> true (RC = origin/main + d0528f7 remediation). Branch taken from 9392cdd, not from origin/main.",
+    "commits": [
+      "15afd4d feat(feedback): kritik/saran page + POST /api/feedback + safe durable storage (A8)",
+      "2920d36 docs(feedback): laporan W5 kritik & saran (A8) + bukti verifikasi lokal"
+    ],
+    "head_at_evidence": "2920d36",
+    "shared_worktree_untouched": "/home/ubuntu/workspaces/thrivin/repo (no checkout/reset; git worktree list unchanged)"
+  },
+  "suites": {
+    "lint": {
+      "command": "npm run lint",
+      "exit_code": 0,
+      "note": "tsc --noEmit"
+    },
+    "build": {
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 NEXT_TELEMETRY_DISABLED=1 npm run build",
+      "exit_code": 0,
+      "log": "/tmp/w5-build.log",
+      "note": "heap cap required: previous two runs of this card were OOM-killed (dmesg cgroup OOM 14:11:27 on node workers), so the build is run with an explicit 1 GiB heap instead of node defaults"
+    },
+    "run_all": {
+      "command": "SKIP_BUILD=1 bash tests/run-all.sh",
+      "exit_code": 0,
+      "result": "ALL SUITES PASSED",
+      "log": "/tmp/w5-runall.log",
+      "counts": {
+        "remediation_units": "29/29",
+        "feedback_units_and_static": "64/64",
+        "guard_checks": "pass",
+        "webhook_e2e": "57/57",
+        "feedback_e2e": "67/67"
+      },
+      "stack": "next build -> next start (local) -> HTTP -> PostgREST 16.4 (127.0.0.1:54322) -> local Postgres 16.15; dummy rows only"
+    },
+    "mutation_proof": {
+      "command": "bash tests/test-feedback-negatives.sh",
+      "exit_code": 0,
+      "result": "MUTATION PROOF OK — the suite catches a false thank-you and a feedback listing.",
+      "log": "/tmp/w5-negatives.log",
+      "mutants": {
+        "m1_false_thank_you": "insert failure answered 201 {ok:true} -> suite exit 1, 3 FAIL (unreachable DB -> 503, 503 body carries no success marker, missing Supabase config -> 503)",
+        "m2_list_exposure": "GET answers 200 with rows -> suite exit 1, 2 FAIL (GET /api/feedback -> 405, 405 advertises POST only)"
+      },
+      "restore": "pristine route restored + rebuilt by EXIT trap; sha1(route.ts) after run == sha1(git show HEAD:src/app/api/feedback/route.ts) == e196af5aade16a78031fb248bf93630faf2799b2"
+    },
+    "rls_mutation_inside_e2e": "ALTER TABLE feedback DISABLE ROW LEVEL SECURITY -> anon sees the row; policy restored -> anon blind again (proves the 'anon blind' check passes because of the policy, not because a grant is missing)"
+  },
+  "artifacts": {
+    "sql_draft": "staging/schema-feedback-kritiksaran.sql",
+    "server": [
+      "src/lib/feedback.ts",
+      "src/app/api/feedback/route.ts"
+    ],
+    "ui": [
+      "src/app/companion/nina/kritiksaran/page.tsx",
+      "src/app/companion/nina/kritiksaran/FeedbackForm.tsx"
+    ],
+    "tests": [
+      "tests/test-feedback-units.mts",
+      "tests/test-feedback-e2e.mts",
+      "tests/test-feedback-negatives.sh",
+      "tests/harness/migrations/004-feedback-kritiksaran.sql",
+      "tests/harness/migrations/005-harness-feedback-anon-grant.sql",
+      "tests/harness/seed.sh",
+      "tests/run-all.sh"
+    ],
+    "docs": [
+      "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w5-feedback/report.md",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/feedback-kritiksaran-2026-10-15.md"
+    ],
+    "vault_index_row": "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/index.md line 19 links [[feedback-kritiksaran-2026-10-15]]"
+  },
+  "existing_code_touched": [
+    {
+      "file": "tests/harness/seed.sh",
+      "change": "copies staging/schema-feedback-kritiksaran.sql -> tests/harness/migrations/004-feedback-kritiksaran.sql (auto-copy, no manual edits)"
+    },
+    {
+      "file": "tests/run-all.sh",
+      "change": "feedback units added to step 2 (3/5), new step 5/5 feedback e2e; build step unchanged"
+    },
+    {
+      "file": "tests/test-feedback-negatives.sh",
+      "change": "expected-FAIL label for mutant m1 synced: '503 body makes no success claim' -> '503 body carries no success marker' (stale label made the gate exit 1 although the suite did catch the mutant; found on re-run in this attempt)"
+    }
+  ],
+  "db_objects_drafted": {
+    "table": "feedback (message_text TEXT, raw message stored byte-for-byte, no HTML sink; request_token for idempotency; review_state default 'new'; expires_at PLACEHOLDER 365d; phone normalised 08.. -> 62..)",
+    "constraints": "unique (tenant_id, request_token); insert-only path; zero read path in app code",
+    "functions": ["purge_expired_feedback()"],
+    "grants": "REVOKE ALL from PUBLIC/anon/authenticated; GRANT SELECT, INSERT to service_role; RLS deny + FORCE ROW LEVEL SECURITY",
+    "applied_where": "local harness Postgres only (dummy, disposable) — ZERO apply to staging/production"
+  },
+  "evidence_for_card_requirements": {
+    "bounded_text": [
+      "10-2000 chars enforced server-side; client maxlength/minlength only mirror",
+      "raw body > 8 KiB -> 413; non-JSON content-type -> 415; malformed JSON -> 400",
+      "no rows written for any rejected request"
+    ],
+    "optional_verified_identity": [
+      "base 9392cdd has no server-side verified session module (W3 feat/wa-first not yet in RC) -> contact field is optional and UNVERIFIED",
+      "upgrade path without schema change: route fills phone from server session and ignores client-supplied contact"
+    ],
+    "server_validation": [
+      "validateFeedbackPayload(): length, token shape, contact shape; UI is a mirror only",
+      "negatives: too short, too long, whitespace-only, missing token, malformed token, nonsense phone -> 400"
+    ],
+    "rate_limit_anti_abuse": [
+      "per IP 15 requests then 429 with Retry-After",
+      "per contact 4 requests then 429",
+      "in-process only (honest limit, not a multi-instance guard) — recorded in report SS7 item 5"
+    ],
+    "xss_safe_rendering": [
+      "<script>alert('xss')</script> stored as TEXT byte-for-byte, absent from the HTTP response body",
+      "201 returns {ok:true} with no echo of the payload; success screen is static text; {message} appears only as value=",
+      "no dangerouslySetInnerHTML in the shipped page"
+    ],
+    "no_key_in_client": [
+      "every JS chunk referenced by the page fetched and grepped: no service-role key present",
+      "route is the only writer; browser never talks to the DB"
+    ],
+    "no_feedback_list_exposure": [
+      "GET/PUT/PATCH/DELETE /api/feedback -> 405 with Allow: POST",
+      "no read path in app code; anon reads 0 rows even with default Supabase grants (see harness grant migration 005)"
+    ],
+    "no_raw_phone_or_token_logs": [
+      "test phone numbers and request tokens absent from server logs",
+      "success logs only '[Feedback] stored id=... duplicate=...'"
+    ],
+    "idempotent_retry_safe_insert": [
+      "same request_token twice -> 201 twice but exactly 1 row",
+      "different text with the same token does not overwrite the stored row",
+      "5 parallel POSTs -> 1 row, all 201"
+    ],
+    "generic_error_and_commit_before_success": [
+      "unreachable DB -> 503, body carries no success marker, zero rows",
+      "missing Supabase config -> 503 fail-closed, no disk fallback that could fake success",
+      "201 only after insert + read-back confirmation"
+    ],
+    "link_target_prepared_for_b2": [
+      "no change to Nina production; page is additive under /companion/nina/kritiksaran and outbound is disabled"
+    ],
+    "ui_keyboard_mobile": [
+      "SSR markup: label bound to #message, aria-describedby, role=alert, aria-live, inputMode, autoComplete, maxlength=2000/minlength=10, type=submit (Enter submits), visible focus ring, robots noindex",
+      "limit: verified as markup + HTTP flow, not simulated taps (no headless browser in the harness)"
+    ]
+  },
+  "not_done_intentionally": [
+    "staging/schema-feedback-kritiksaran.sql NOT applied to staging/production (needs Sentinel delta-review)",
+    "no deploy, no push, no change to origin/main, no change to Nina production",
+    "no outbound WhatsApp/Cloud/Scalev; no external network calls",
+    "no read of production .env/logs/customer DB/production credentials; only local dummy rows",
+    "verified identity not enabled (no server session module in base 9392cdd)",
+    "retention/legal copy intentionally not promised in the UI (expires_at is a PLACEHOLDER pending owner+legal with W2)",
+    "no operator inbox built (who may read submissions is an owner decision, report SS7 item 3)",
+    "write path from page to real staging NOT verified (table does not exist there yet)"
+  ],
+  "safety": {
+    "customer_data": "no-touch; dummy contacts only (62812xxxxxxx style), local disposable Postgres",
+    "credentials": "no production secret read; no .env touched; secrets never printed",
+    "production": "zero deploy, zero SQL apply, zero push to main",
+    "outbound": "zero outbound messages / external calls",
+    "logs": "all verification logs land in /tmp/w5-*.log and /tmp/thrivin-feedback-negative-*.log (no customer data)"
+  },
+  "claim_limits": [
+    "all green evidence is LOCAL: next build/start + local PostgREST + local Postgres; not staging/production Supabase",
+    "rate limiting is per-process, not a multi-instance guard (Atlas infra decision, report SS7 item 5)",
+    "accessibility checked at markup level, not on a real device/browser",
+    "mutation proof run WITHOUT `| tee`: piping to tee masks the script exit code (observed in this attempt)",
+    "OOM discipline: builds require NODE_OPTIONS=--max-old-space-size=1024 on this 3.6 GB VPS; two earlier attempts of this card were SIGKILLed by the cgroup OOM killer"
+  ],
+  "next_step": "kanban_block(kind=needs_input, reason='review-required: feedback persistence and input boundary needs Sentinel audit')"
+}

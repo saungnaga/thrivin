@@ -84,7 +84,7 @@ dan rebuild lagi**:
 
 | Mutan | Yang dirusak | Hasil suite |
 |---|---|---|
-| M1 | kegagalan insert dijawab `201 {"ok":true}` (sukses palsu) | suite **GAGAL** di `unreachable DB -> 503`, `503 body makes no success claim`, `missing Supabase config -> 503 (no disk fallback)` |
+| M1 | kegagalan insert dijawab `201 {"ok":true}` (sukses palsu) | suite **GAGAL** di `unreachable DB -> 503`, `503 body carries no success marker`, `missing Supabase config -> 503 (no disk fallback)` |
 | M2 | `GET` menjawab 200 berisi baris | suite **GAGAL** di `GET /api/feedback -> 405`, `405 advertises POST only` |
 
 Tambahan di dalam e2e (mutasi RLS): `ALTER TABLE feedback DISABLE ROW LEVEL
@@ -110,6 +110,15 @@ karena policy-nya benar-benar bekerja — pelajaran dari kebocoran view promo.
    HTML harus case-insensitive; perilaku browser tidak berubah.
 4. `expires_at` default 365 hari **bukan janji**; ditandai `PLACEHOLDER` di SQL dan
    laporan, menunggu keputusan legal/owner bersama W2.
+5. **Bukti negatif bisa "hijau" karena label, bukan karena jaminan.** Saat dijalankan
+   ulang, `test-feedback-negatives.sh` keluar **1** walaupun suite sudah benar-benar
+   merah: script menuntut check bernama `503 body makes no success claim`, sedangkan
+   nama check itu di e2e sudah jadi `503 body carries no success marker`. Mutan tetap
+   tertangkap (M1 → 3 FAIL, M2 → 2 FAIL, exit 1), tapi gerbang script-nya sendiri
+   menolak lulus → label disinkronkan. Pelajaran: daftar check yang diharapkan
+   (`expected FAIL`) ikut mati kalau nama check berubah; mutation proof harus
+   memverifikasi **perilaku** (suite non-zero), bukan cuma string label. Jalankan
+   script tanpa `| tee` — exit code pipeline akan menutupi kegagalan script.
 
 ## 7. Blocked-live & keputusan yang dibutuhkan
 
