@@ -43,8 +43,11 @@ CREATE INDEX IF NOT EXISTS idx_wa_otp_challenges_phone
 CREATE INDEX IF NOT EXISTS idx_wa_otp_challenges_expiry
   ON wa_otp_challenges (expires_at);
 
--- Satu challenge HIDUP per nomor per tenant. Permintaan baru MENGGANTI yang lama
--- (upsert), bukan menumpuk: dua kode valid sekaligus tidak pernah ada.
+-- Satu challenge HIDUP per nomor per tenant. Permintaan baru MENUTUP yang lama
+-- (consumed_at) lalu mencatat baris BARU — bukan menumpuk, dan bukan pula
+-- memakai ulang baris lama: hitungan kuota per jam harus melihat setiap
+-- penerbitan (lihat F-1: UPSERT membuat baris hidup selalu berjumlah 1 sehingga
+-- batas per jam tidak pernah tercapai).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_otp_live_challenge
   ON wa_otp_challenges (tenant_id, phone)
   WHERE consumed_at IS NULL;
@@ -54,6 +57,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_otp_live_challenge
 -- ============================================================================
 -- ponytail: fungsi, bukan "baca lalu tulis" dari TS — tanpa ini dua permintaan
 -- paralel bisa sama-sama lolos batas. Tambah kolom channel kalau nanti ada >1 transport.
+-- ponytail: baris challenge lama tidak dibersihkan dari sini; tambah purge
+-- terjadwal (created_at < now() - 30 days) saat apply ke staging/produksi.
 CREATE OR REPLACE FUNCTION create_wa_otp_challenge(
   p_phone TEXT,
   p_code_hash TEXT,
@@ -75,6 +80,10 @@ BEGIN
     RETURN json_build_object('status', 'invalid_phone');
   END IF;
 
+  -- Serialisasi per nomor (kunci dilepas otomatis di akhir transaksi) supaya dua
+  -- permintaan paralel tidak sama-sama lolos batas kuota per jam.
+  PERFORM pg_advisory_xact_lock(hashtext(p_tenant_id || ':' || p_phone));
+
   SELECT * INTO v_live
   FROM wa_otp_challenges
   WHERE tenant_id = p_tenant_id AND phone = p_phone AND consumed_at IS NULL
@@ -89,30 +98,29 @@ BEGIN
     );
   END IF;
 
+  -- Batas per jam dihitung dari SETIAP baris yang tercatat dalam satu jam
+  -- terakhir (status apa pun), bukan dari "baris hidup": jalur tulis di bawah
+  -- menutup baris lama, jadi hitungan baris hidup selalu 1 → kuota maksimum
+  -- yang bisa ditegakkan cuma 1/jam (F-1 audit W3).
   SELECT count(*) INTO v_recent
   FROM wa_otp_challenges
   WHERE tenant_id = p_tenant_id AND phone = p_phone
-    AND consumed_at IS NULL
     AND created_at > now() - interval '1 hour';
 
-  -- Challenge hidup yang lama dihitung juga: `consumed_at` baru diisi saat
-  -- diganti/dipakai, jadi hitungan "per jam" tidak bisa direset dengan cepat.
   IF v_recent >= p_max_per_hour THEN
     RETURN json_build_object('status', 'resend_limit', 'retry_after_seconds', 3600);
   END IF;
+
+  -- Satu challenge hidup per nomor: yang lama ditutup, yang baru dicatat sebagai
+  -- baris tersendiri supaya tiap penerbitan ikut terhitung di kuota per jam.
+  UPDATE wa_otp_challenges SET consumed_at = now()
+  WHERE tenant_id = p_tenant_id AND phone = p_phone AND consumed_at IS NULL;
 
   INSERT INTO wa_otp_challenges (
     tenant_id, phone, code_hash, expires_at, request_ip_hash
   ) VALUES (
     p_tenant_id, p_phone, p_code_hash, now() + make_interval(secs => p_ttl_seconds), p_ip_hash
-  )
-  ON CONFLICT (tenant_id, phone) WHERE consumed_at IS NULL
-  DO UPDATE SET
-    code_hash = EXCLUDED.code_hash,
-    expires_at = EXCLUDED.expires_at,
-    attempts = 0,
-    request_ip_hash = EXCLUDED.request_ip_hash,
-    created_at = now();
+  );
 
   RETURN json_build_object('status', 'created');
 END;
@@ -188,7 +196,14 @@ AS $function$
   WITH u AS (
     SELECT id FROM users
     WHERE p_phone ~ '^62[0-9]{8,13}$'
-      AND phone = p_phone
+      -- `users.phone` is not guaranteed to be stored as `62…`: a read-only query
+      -- against staging (2026-10-15, F-4 audit W3) returned 5/5 rows stored as
+      -- `+62…`. Compare digits only, so `+62…`, `62…`, `0812…` and separators
+      -- (` `, `-`) all resolve to the same owner.
+      -- ponytail: this is a seq scan (regexp_replace cannot use users_phone_key);
+      -- switch to an expression index or normalise the data once `users` grows.
+      AND regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')
+          IN (p_phone, '0' || substring(p_phone from 3))
     LIMIT 1
   ), latest AS (
     SELECT s.status, s.expires_at, s.started_at, s.plan_id

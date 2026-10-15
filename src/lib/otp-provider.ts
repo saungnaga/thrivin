@@ -33,17 +33,41 @@ function mockProvider(sink: string | undefined): OtpProvider {
       );
       if (!sink) return;
       const fs = await import("fs");
+      // mode 0600: file sink memuat kode + nomor mentah, jangan bisa dibaca
+      // proses lain. Dipakai harness/CI, bukan produksi.
       fs.appendFileSync(
         sink,
-        JSON.stringify({ phone, code, at: new Date().toISOString() }) + "\n"
+        JSON.stringify({ phone, code, at: new Date().toISOString() }) + "\n",
+        { mode: 0o600 }
       );
     },
   };
 }
 
-/** null = tidak ada transport yang diotorisasi → pemanggil harus gagal-tertutup. */
+/**
+ * null = tidak ada transport yang diotorisasi → pemanggil harus gagal-tertutup.
+ *
+ * F-2 (audit W3): mock DITOLAK di `NODE_ENV=production`. Kalau lolos, endpoint
+ * menjawab 200 "kode sudah dikirim" padahal nol outbound (pengguna menunggu kode
+ * yang tidak pernah datang), dan dengan sink ter-set kode OTP + nomor mentah
+ * jatuh ke disk. Satu pintu darurat eksplisit ada untuk harness yang menjalankan
+ * build produksi: `WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1` — namanya sendiri adalah
+ * peringatan, dan nilainya TIDAK boleh ada di produksi.
+ */
 export function getOtpProvider(): OtpProvider | null {
   const kind = String(process.env.WA_OTP_PROVIDER || "").toLowerCase();
-  if (kind === "mock") return mockProvider(process.env.WA_OTP_MOCK_SINK);
-  return null;
+  if (kind !== "mock") return null;
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION !== "1"
+  ) {
+    console.error(
+      "[wa-otp] WA_OTP_PROVIDER=mock DITOLAK saat NODE_ENV=production (gagal-tertutup). " +
+        "Pakai provider nyata; WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1 hanya untuk harness lokal."
+    );
+    return null;
+  }
+
+  return mockProvider(process.env.WA_OTP_MOCK_SINK);
 }

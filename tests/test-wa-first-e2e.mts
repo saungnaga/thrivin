@@ -12,7 +12,11 @@
  *                              ada dan yang tidak ada; tanpa nama/status/tanggal
  *   OTP abuse               -> kode salah, batas percobaan, kedaluwarsa, kode
  *                              diganti permintaan baru, 3 percobaan paralel = 1 lolos
- *   resend/cooldown         -> ditegakkan di RPC (bukan di TS)
+ *   resend/cooldown         -> ditegakkan di RPC (bukan di TS); kuota per jam
+ *                              diuji lewat /api/wa/session/request dengan nilai
+ *                              DEFAULT app (F-1)
+ *   format nomor tersimpan  -> `users.phone` `+62…`/`0812…`/berspasi tetap
+ *                              terbaca (F-4)
  *   session swap            -> phone/amount/user_id dari client diabaikan; kode
  *                              nomor A tidak bisa dipakai untuk nomor B
  *   sesi terpisah           -> cookie admin TIDAK diterima di endpoint pelanggan;
@@ -23,7 +27,8 @@
  *                              tidak ada aktivasi/klaim (0 baris redemption)
  *   admin bypass            -> nomor allowlist admin tanpa langganan tetap 'none'
  *   gagal-tertutup          -> DB mati / provider OTP tidak dikonfigurasi -> 503
- *                              generik TANPA field state (bukan "nomor baru")
+ *                              generik TANPA field state (bukan "nomor baru");
+ *                              mock DITOLAK saat NODE_ENV=production (F-2)
  *   RPC sempit              -> anon/authenticated DITOLAK; jalur baca tidak menulis
  *   UI                      -> markup keyboard/mobile (label, inputmode, aria-live)
  */
@@ -49,9 +54,15 @@ const REPO = path.resolve(HERE, "..");
 const APP_PORT = Number(process.env.HARNESS_WA_APP_PORT || 3986);
 const BROKEN_APP_PORT = Number(process.env.HARNESS_WA_BROKEN_APP_PORT || 3987);
 const NOPROVIDER_APP_PORT = Number(process.env.HARNESS_WA_NOPROVIDER_PORT || 3985);
+/** Instance dengan KUOTA DEFAULT app (WA_OTP_MAX_PER_HOUR tidak di-set → 5). */
+const QUOTA_APP_PORT = Number(process.env.HARNESS_WA_QUOTA_PORT || 3988);
+/** Instance produksi + provider mock TANPA pintu darurat (harus gagal-tertutup). */
+const MOCKPROD_APP_PORT = Number(process.env.HARNESS_WA_MOCKPROD_PORT || 3989);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const BROKEN_URL = `http://127.0.0.1:${BROKEN_APP_PORT}`;
 const NOPROVIDER_URL = `http://127.0.0.1:${NOPROVIDER_APP_PORT}`;
+const QUOTA_URL = `http://127.0.0.1:${QUOTA_APP_PORT}`;
+const MOCKPROD_URL = `http://127.0.0.1:${MOCKPROD_APP_PORT}`;
 
 const WA_SESSION_SECRET = "wa-first-e2e-session-secret-0123456789-abc";
 const WA_OTP_SECRET = "wa-first-e2e-otp-secret-0123456789-abcdef-Z";
@@ -60,9 +71,14 @@ const ADMIN_PASS = "promo-admin-pass-1234";
 const ADMIN_SECRET = "promo-session-secret-at-least-32-chars-long";
 
 const SINK = "/tmp/thrivin-wa-first-otp-sink.jsonl";
+/** Sink terpisah: instance kuota default (F-1) dan instance mock-di-produksi. */
+const QUOTA_SINK = "/tmp/thrivin-wa-first-quota-sink.jsonl";
+const MOCKPROD_SINK = "/tmp/thrivin-wa-first-mockprod-sink.jsonl";
 const LOG_FILE = "/tmp/thrivin-wa-first-server.log";
 const BROKEN_LOG = "/tmp/thrivin-wa-first-broken.log";
 const NOPROVIDER_LOG = "/tmp/thrivin-wa-first-noprovider.log";
+const QUOTA_LOG = "/tmp/thrivin-wa-first-quota.log";
+const MOCKPROD_LOG = "/tmp/thrivin-wa-first-mockprod.log";
 /** Port yang tidak ada apa-apa: mensimulasikan Supabase/upstream mati. */
 const DEAD_SUPABASE = "http://127.0.0.1:59997";
 
@@ -131,28 +147,36 @@ async function startApp(
     fs.truncateSync(logFile, 0);
   } catch {}
   const logFd = fs.openSync(logFile, "a");
+  // `undefined` = benar-benar TIDAK di-set (bukan string "undefined"): dipakai
+  // untuk menguji nilai default app dan jalur gagal-tertutup.
+  const merged: Record<string, string | undefined> = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    NODE_ENV: "production",
+    SUPABASE_URL: POSTGREST_URL,
+    SUPABASE_SERVICE_KEY: SERVICE_KEY,
+    THRIVIN_TENANT_ID: "thrivin",
+    WA_SESSION_SECRET,
+    WA_SESSION_EPOCH: "0",
+    WA_OTP_SECRET,
+    WA_OTP_PROVIDER: "mock",
+    WA_OTP_MOCK_SINK: SINK,
+    // Build produksi + provider mock = pintu darurat eksplisit (F-2).
+    WA_OTP_MOCK_ALLOW_IN_PRODUCTION: "1",
+    WA_OTP_MIN_INTERVAL_SECONDS: "0",
+    WA_OTP_MAX_PER_HOUR: "3",
+    ADMIN_USERNAME: ADMIN_USER,
+    ADMIN_PASSWORD: ADMIN_PASS,
+    ADMIN_SESSION_SECRET: ADMIN_SECRET,
+    NINA_ADMIN_PHONES: P.adminOnly,
+    ...env,
+  };
+  for (const key of Object.keys(merged)) {
+    if (merged[key] === undefined) delete merged[key];
+  }
   const child = spawn("./node_modules/.bin/next", ["start", "-p", String(port)], {
     cwd: REPO,
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      NODE_ENV: "production",
-      SUPABASE_URL: POSTGREST_URL,
-      SUPABASE_SERVICE_KEY: SERVICE_KEY,
-      THRIVIN_TENANT_ID: "thrivin",
-      WA_SESSION_SECRET,
-      WA_SESSION_EPOCH: "0",
-      WA_OTP_SECRET,
-      WA_OTP_PROVIDER: "mock",
-      WA_OTP_MOCK_SINK: SINK,
-      WA_OTP_MIN_INTERVAL_SECONDS: "0",
-      WA_OTP_MAX_PER_HOUR: "3",
-      ADMIN_USERNAME: ADMIN_USER,
-      ADMIN_PASSWORD: ADMIN_PASS,
-      ADMIN_SESSION_SECRET: ADMIN_SECRET,
-      NINA_ADMIN_PHONES: P.adminOnly,
-      ...env,
-    },
+    env: merged as Record<string, string>,
     stdio: ["ignore", logFd, logFd],
   });
   await waitFor(`http://127.0.0.1:${port}/companion/nina/status`);
@@ -212,10 +236,10 @@ function craftToken(payload: Record<string, unknown>): string {
   return `${body}.${sig}`;
 }
 
-function sinkEntries(): Array<{ phone: string; code: string }> {
+function sinkEntries(file: string = SINK): Array<{ phone: string; code: string }> {
   try {
     return fs
-      .readFileSync(SINK, "utf-8")
+      .readFileSync(file, "utf-8")
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
@@ -273,9 +297,11 @@ const ALLOWED_STATUS_FIELDS = [
 
 async function main() {
   execFileSync("bash", [path.join(HERE, "harness", "seed.sh")], { stdio: "inherit" });
-  try {
-    fs.unlinkSync(SINK);
-  } catch {}
+  for (const file of [SINK, QUOTA_SINK, MOCKPROD_SINK]) {
+    try {
+      fs.unlinkSync(file);
+    } catch {}
+  }
 
   const postgrest = await startPostgrest();
   if (!postgrest) {
@@ -285,6 +311,8 @@ async function main() {
   let app: Stack | null = null;
   let broken: Stack | null = null;
   let noprovider: Stack | null = null;
+  let quota: Stack | null = null;
+  let mockprod: Stack | null = null;
 
   try {
     // ── data dummy ─────────────────────────────────────────────────────────
@@ -780,6 +808,46 @@ async function main() {
       "boundary: field yang keluar = daftar minimal (tanpa nama/token/user_id)"
     );
 
+    // ══ 6b. Format nomor tersimpan bisa beda dari `62…` (F-4) ═══════════════
+    // Query READ-ONLY staging 2026-10-15: `users.phone` tersimpan `+62…` (5/5
+    // baris). RPC lama membandingkan literal `phone = p_phone` → pelanggan lama
+    // terbaca `none` (layar bilang "Belum ada langganan" padahal aktif).
+    section("Format nomor di users: +62 / 62 / 0812 (F-4)");
+    const fmtPlus = "+6281200000130";
+    const idFmtPlus = insertUser(fmtPlus, "Dummy Plus62");
+    insertSubscription(idFmtPlus, "active", "now() + interval '9 days'");
+    const plusStatus = await statusForPhone("6281200000130");
+    assertEq(
+      plusStatus.body?.state,
+      "active",
+      "format: baris `+62…` tetap terbaca active lewat sesi `62…`"
+    );
+
+    const fmtZero = "081200000131";
+    const idFmtZero = insertUser(fmtZero, "Dummy NolDepan");
+    insertSubscription(idFmtZero, "active", "now() + interval '9 days'");
+    const zeroStatus = await statusForPhone("6281200000131");
+    assertEq(
+      zeroStatus.body?.state,
+      "active",
+      "format: baris `0812…` tetap terbaca active lewat sesi `62…`"
+    );
+
+    const fmtSpaced = "+62 812-0000-0132";
+    const idFmtSpaced = insertUser(fmtSpaced, "Dummy Spasi");
+    insertSubscription(idFmtSpaced, "active", "now() + interval '9 days'");
+    const spacedStatus = await statusForPhone("6281200000132");
+    assertEq(
+      spacedStatus.body?.state,
+      "active",
+      "format: baris berspasi/berdash tetap terbaca active (hanya digit yang dibandingkan)"
+    );
+    assertEq(
+      countRows("users", "phone = '+6281200000130'"),
+      1,
+      "format: baris uji tersimpan apa adanya (tidak ada tulisan ke tabel users)"
+    );
+
     // ══ 7. Promo: tidak ada aktivasi/klaim dari slice ini ══════════════════
     section("Promo: tamper & tanpa aktivasi");
     const tamper = await makeClient().call(
@@ -929,6 +997,116 @@ async function main() {
     noprovider.stop();
     noprovider = null;
 
+    // F-2: mock DITOLAK saat NODE_ENV=production (tanpa pintu darurat eksplisit).
+    mockprod = await startApp(
+      {
+        WA_OTP_MOCK_ALLOW_IN_PRODUCTION: undefined,
+        WA_OTP_MOCK_SINK: MOCKPROD_SINK,
+      },
+      MOCKPROD_APP_PORT,
+      MOCKPROD_LOG
+    );
+    const mockProdPhone = "6281200000140";
+    const mockProdRequest = await makeClient(MOCKPROD_URL).call("/api/wa/session/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: mockProdPhone }),
+    });
+    assertEq(
+      mockProdRequest.status,
+      503,
+      "fail-closed: WA_OTP_PROVIDER=mock saat NODE_ENV=production -> 503 (tidak menjanjikan kode)"
+    );
+    assertEq(
+      mockProdRequest.body,
+      brokenRequest.body,
+      "fail-closed: jawaban mock-di-produksi sama generiknya"
+    );
+    assertOk(
+      !fs.existsSync(MOCKPROD_SINK),
+      "fail-closed: file sink mock TIDAK dibuat — nol kode OTP/nomor mentah ke disk"
+    );
+    assertEq(
+      countRows("wa_otp_challenges", `phone = '${mockProdPhone}'`),
+      0,
+      "fail-closed: nol challenge diterbitkan untuk mock-di-produksi"
+    );
+    mockprod.stop();
+    mockprod = null;
+
+    // ══ 10b. Kuota per jam lewat JALUR HTTP dengan default app (F-1) ═══════
+    // Ditempatkan SETELAH batas waktu-sensitif (fixture "tepat 7 hari" punya
+    // margin 30 detik): blok ini memang menunggu 61 detik jendela batas laju.
+    // Audit W3 F-1: uji lama memanggil RPC LANGSUNG dengan p_max_per_hour=1, jadi
+    // jalur HTTP dengan default app (5) tidak teruji — padahal di sana kontrolnya
+    // mati (UPSERT membuat hitungan "baris hidup" selalu 1 → kuota maksimum 1/jam).
+    // Instance ini sengaja TIDAK mengeset WA_OTP_MAX_PER_HOUR: yang diuji = nilai
+    // default app, lewat endpoint yang dipakai pengguna.
+    section("Kuota per jam lewat jalur HTTP (default app = 5)");
+    quota = await startApp(
+      {
+        WA_OTP_MAX_PER_HOUR: undefined,
+        WA_OTP_MOCK_SINK: QUOTA_SINK,
+        WA_OTP_MIN_INTERVAL_SECONDS: "0",
+      },
+      QUOTA_APP_PORT,
+      QUOTA_LOG
+    );
+    const quotaPhone = "6281200000120";
+    const quotaClient = makeClient(QUOTA_URL);
+    const quotaRequest = (phone: string) =>
+      quotaClient.call("/api/wa/session/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+
+    let quotaStatus = 0;
+    for (let i = 0; i < 3; i += 1) quotaStatus = (await quotaRequest(quotaPhone)).status;
+    assertEq(quotaStatus, 200, "kuota-http: 3 permintaan pertama (batas laju route) -> 200");
+    assertEq(
+      sinkEntries(QUOTA_SINK).filter((e) => e.phone === quotaPhone).length,
+      3,
+      "kuota-http: 3 permintaan pertama = 3 kode terkirim"
+    );
+
+    // Batas laju route = 3 permintaan/menit/nomor, kuota = 5/jam: butuh jendela
+    // kedua untuk benar-benar menyentuh batas per jam.
+    await new Promise((resolve) => setTimeout(resolve, 61_000));
+    for (let i = 0; i < 3; i += 1) quotaStatus = (await quotaRequest(quotaPhone)).status;
+
+    const quotaCodes = sinkEntries(QUOTA_SINK).filter((e) => e.phone === quotaPhone);
+    assertEq(
+      quotaStatus,
+      200,
+      "kuota-http: permintaan melewati kuota tetap 200 generik (tidak membocorkan batas)"
+    );
+    assertEq(
+      quotaCodes.length,
+      5,
+      "kuota-http: HANYA 5 kode dalam satu jam (default app), bukan 6 — dan bukan 60"
+    );
+    assertEq(
+      new Set(quotaCodes.map((e) => e.code)).size,
+      5,
+      "kuota-http: setiap kode terkirim berbeda (tidak ada kode dipakai ulang)"
+    );
+    assertEq(
+      countRows(
+        "wa_otp_challenges",
+        `phone = '${quotaPhone}' AND created_at > now() - interval '1 hour'`
+      ),
+      5,
+      "kuota-http: 5 baris tercatat — hitungan dari baris tercatat, bukan baris hidup"
+    );
+    assertEq(
+      countRows("wa_otp_challenges", `phone = '${quotaPhone}' AND consumed_at IS NULL`),
+      1,
+      "kuota-http: tetap hanya SATU challenge hidup per nomor"
+    );
+    quota.stop();
+    quota = null;
+
     // ══ 11. UI: markup keyboard & mobile ══════════════════════════════════
     section("UI: markup keyboard & mobile");
     const page = await fetch(`${BASE_URL}/companion/nina/status`);
@@ -973,6 +1151,8 @@ async function main() {
     app?.stop();
     broken?.stop();
     noprovider?.stop();
+    quota?.stop();
+    mockprod?.stop();
     postgrest.stop();
   }
 

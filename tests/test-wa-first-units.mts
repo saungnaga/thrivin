@@ -29,6 +29,7 @@ const {
 const { createWaSessionToken, verifyWaSessionToken, WA_SESSION_COOKIE } = await import(
   "../src/lib/wa-session.ts"
 );
+const { getOtpProvider } = await import("../src/lib/otp-provider.ts");
 
 const results: Array<[string, string]> = [];
 function check(name: string, fn: () => void) {
@@ -126,6 +127,42 @@ check("opaqueHash: 32 hex, tidak mengandung nilai mentah", () => {
   const h = opaqueHash("103.20.1.7");
   assert.match(h, /^[0-9a-f]{32}$/);
   assert.ok(!h.includes("103"));
+});
+
+// ── F-2: mock DITOLAK di produksi (gagal-tertutup) ──────────────────────────
+check("provider OTP: mock ditolak saat NODE_ENV=production (F-2)", () => {
+  const saved = {
+    provider: process.env.WA_OTP_PROVIDER,
+    nodeEnv: process.env.NODE_ENV,
+    allow: process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION,
+  };
+  const savedError = console.error;
+  console.error = () => {}; // penolakan memang dicetak keras; jangan bisingkan suite
+  try {
+    process.env.WA_OTP_PROVIDER = "mock";
+    delete process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION;
+
+    process.env.NODE_ENV = "production";
+    assert.equal(getOtpProvider(), null, "mock lolos di produksi tanpa pintu darurat");
+
+    process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION = "1";
+    assert.equal(getOtpProvider()?.name, "mock", "pintu darurat eksplisit tidak bekerja");
+
+    delete process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION;
+    process.env.NODE_ENV = "development";
+    assert.equal(getOtpProvider()?.name, "mock", "mock ditolak di luar produksi");
+
+    process.env.WA_OTP_PROVIDER = "cloud";
+    assert.equal(getOtpProvider(), null, "provider tak dikenal tidak diterima");
+  } finally {
+    console.error = savedError;
+    if (saved.nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = saved.nodeEnv;
+    if (saved.provider === undefined) delete process.env.WA_OTP_PROVIDER;
+    else process.env.WA_OTP_PROVIDER = saved.provider;
+    if (saved.allow === undefined) delete process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION;
+    else process.env.WA_OTP_MOCK_ALLOW_IN_PRODUCTION = saved.allow;
+  }
 });
 
 // ── Sesi pelanggan: HMAC, terikat nomor, terpisah dari admin ────────────────
