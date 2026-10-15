@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { limitRequest } from "@/lib/rate-limit";
 import { redactError } from "@/lib/onboarding-store";
 import {
-  FEEDBACK_MAX_BODY_BYTES,
+  readBoundedBody,
   validateFeedbackPayload,
   insertFeedbackOnce,
   type FeedbackReject,
@@ -44,14 +44,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const rawBody = await req.text();
-    if (Buffer.byteLength(rawBody, "utf-8") > FEEDBACK_MAX_BODY_BYTES) {
+    // Bounded BEFORE the body is touched: a declared oversize is refused without
+    // reading a byte, and a chunked body is abandoned at the ceiling (F-1). The
+    // reverse proxy must cap this route too — see docs/reverse-proxy-body-limit.md.
+    const raw = await readBoundedBody(req);
+    if (!raw.ok) {
       return NextResponse.json({ ok: false, error: "Permintaan terlalu besar." }, { status: 413 });
     }
 
     let body: unknown;
     try {
-      body = JSON.parse(rawBody);
+      body = JSON.parse(raw.text);
     } catch {
       return NextResponse.json({ ok: false, error: "Body JSON tidak valid." }, { status: 400 });
     }
@@ -86,6 +89,21 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { ok: false, error: "Kritik/saran kamu belum tersimpan. Coba kirim ulang." },
         { status: 503 }
+      );
+    }
+
+    // Same token, different text: the earlier row stands and this text was NOT
+    // stored. Answer 409 so the screen cannot claim a save that did not happen (F-5).
+    if (result.duplicate && !result.textMatches) {
+      console.warn(`[Feedback] token reused with different text id=${result.id}`);
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Tulisan ini sudah tersimpan sebelumnya. Muat ulang halaman kalau mau mengirim versi baru.",
+          code: "DUPLICATE_TOKEN",
+        },
+        { status: 409 }
       );
     }
 

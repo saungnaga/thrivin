@@ -86,7 +86,9 @@ export function FeedbackForm() {
     );
   }
 
-  const remaining = MAX_CHARS - message.length;
+  // Code points, the way the server and Postgres `char_length` count them: `.length`
+  // would count an emoji as 2 and show the user a number the server does not use (F-4).
+  const remaining = MAX_CHARS - [...message].length;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
