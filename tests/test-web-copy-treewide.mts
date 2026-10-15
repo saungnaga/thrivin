@@ -35,8 +35,11 @@ function isCommentLine(line: string): boolean {
   return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("{/*");
 }
 
-/** B1: price claims retired by W1 — none may come back anywhere. */
-const BANNED_PRICE = ["39.000", "39rb", "39000", "Mulai dari Rp"];
+/** B1: price claims retired by W1 — none may come back anywhere.
+ *  Lists are lowercase and matched against the lowercased line (C-6.1): the
+ *  original case-sensitive check let `Mulai dari Rp` / `Khusus Pengguna Baru`
+ *  through, and Indonesian copy starts sentences with a capital. */
+const BANNED_PRICE = ["39.000", "39rb", "39000", "mulai dari rp"];
 
 /** B2: promo_gate claims the server does not enforce. `redeem_promo` checks
  *  is_active/expires_at/plan_keys + one redemption per phone number; there is no
@@ -61,8 +64,9 @@ function scanFile(abs: string) {
   const lines = fs.readFileSync(abs, "utf8").split("\n");
   lines.forEach((line, idx) => {
     if (isCommentLine(line)) return;
+    const lower = line.toLowerCase();
     for (const bad of [...BANNED_PRICE, ...BANNED_PROMO_GATE]) {
-      if (line.includes(bad)) {
+      if (lower.includes(bad)) {
         hits.push(`${path.relative(root, abs)}:${idx + 1}: "${bad}" — ${line.trim().slice(0, 120)}`);
       }
     }
