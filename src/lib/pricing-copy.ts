@@ -11,9 +11,28 @@
  * the order amount comes from `PLAN_CATALOG` / the promo store on the server.
  */
 
-import { PLAN_CATALOG, type PlanKey } from "./plans";
+// Explicit .ts extension: tests run this module directly under
+// `node --experimental-strip-types`, which does not resolve extensionless
+// specifiers. tsconfig has allowImportingTsExtensions for exactly this.
+import { PLAN_CATALOG, type PlanKey } from "./plans.ts";
 
 export const PLAN_ORDER: readonly PlanKey[] = ["month", "quarter", "half", "year"];
+
+/**
+ * Marketing claim for the only promo advertised in static copy.
+ *
+ * The authoritative promo lives in the `promo_codes` table (dashboard-managed);
+ * this constant exists so the "diskon 20%" sentence is typed ONCE and
+ * `tests/test-web-copy-units.mts` can prove it still matches the migration seed.
+ * TEMANBAIKHATI (flat Rp 10.000, quarter) is deliberately NOT advertised here —
+ * its wording is a candidate awaiting owner approval, and the checkout shows its
+ * real numbers from the server quote only.
+ */
+export const TEMANBARU_PROMO = {
+  code: "TEMANBARU",
+  discountPercent: 20,
+  minMonths: 3,
+} as const;
 
 /** 99000 -> "99.000" (id-ID thousands separator, no currency symbol). */
 export function formatIdr(amount: number): string {
@@ -73,3 +92,13 @@ export function promoDiscountPill(discount: number, originalTotal: number): stri
 export function promoAppliedNote(code: string, finalPrice: number): string {
   return `Kode promo ${code} terpasang — total jadi Rp ${formatIdr(finalPrice)}.`;
 }
+
+/**
+ * Refund policy wording. ONE copy for every page, and it must not promise more
+ * than the approved policy in `src/app/privacy/page.tsx` §3 ("dalam 3 hari
+ * pertama ... berhak mengajukan klaim garansi pengembalian dana 100%").
+ * Change here, not in JSX — a stronger claim on one page would be a legal gap.
+ */
+export const REFUND_GUARANTEE_TITLE = "Garansi Uang Kembali 3 Hari";
+export const REFUND_GUARANTEE_TEXT =
+  "Dalam 3 hari pertama setelah pembelian, kamu berhak klaim pengembalian dana 100% kalau merasa pendampingan Nina belum cocok.";

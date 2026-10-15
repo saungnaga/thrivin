@@ -27,6 +27,14 @@ node --experimental-strip-types "$HERE/test-remediation-units.mts"
 
 echo
 echo "=============================================================="
+echo "2b/6 copy checks (W1: pricing claims, promo label, guarantee)"
+echo "     source-level: COPY_ROOT=<tree> reruns against another revision"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-web-copy-units.mts"
+node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
+
+echo
+echo "=============================================================="
 echo "3/6  guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"

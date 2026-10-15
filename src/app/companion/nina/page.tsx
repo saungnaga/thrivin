@@ -20,7 +20,13 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { entryPrice, formatIdr } from "@/lib/pricing-copy";
+import {
+  REFUND_GUARANTEE_TEXT,
+  REFUND_GUARANTEE_TITLE,
+  TEMANBARU_PROMO,
+  entryPrice,
+  formatIdr,
+} from "@/lib/pricing-copy";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -430,7 +436,7 @@ export default function NinaPage() {
             <div className="pt-2 flex flex-wrap items-center justify-center lg:justify-start gap-4 text-xs font-semibold text-text-secondary">
               <div className="flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Garansi Uang Kembali 3 Hari</span>
+                <span>{REFUND_GUARANTEE_TITLE}</span>
               </div>
               <span>•</span>
               <div className="flex items-center gap-1.5">
@@ -678,21 +684,22 @@ export default function NinaPage() {
               </strong>{" "}
               untuk 1 bulan — sekali bayar, tanpa tagihan otomatis. Kode promo{" "}
               <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">
-                TEMANBARU
+                {TEMANBARU_PROMO.code}
               </span>{" "}
-              diskon 20% di paket 3 bulan ke atas.
+              diskon {TEMANBARU_PROMO.discountPercent}% di paket {TEMANBARU_PROMO.minMonths} bulan ke
+              atas.
             </p>
 
-            {/* Guarantee Box (Rule 3: Lora Regular) — sama dengan kebijakan /privacy §3 */}
+            {/* Guarantee Box (Rule 3: Lora Regular) — satu sumber teks di pricing-copy.ts,
+                tidak boleh lebih kuat dari kebijakan /privacy §3 */}
             <div
               role="note"
               className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-400/40 text-left inline-flex items-start gap-3 text-xs sm:text-sm text-white font-sans"
             >
               <ShieldCheck className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" aria-hidden="true" />
               <span>
-                <strong className="font-extrabold text-white">Garansi Uang Kembali 3 Hari.</strong>{" "}
-                100% dana kamu kembali kalau dalam 3 hari pertama setelah pembelian merasa
-                pendampingan Nina belum cocok.
+                <strong className="font-extrabold text-white">{REFUND_GUARANTEE_TITLE}.</strong>{" "}
+                {REFUND_GUARANTEE_TEXT}
               </span>
             </div>
 

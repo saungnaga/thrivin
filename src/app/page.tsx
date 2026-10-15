@@ -18,7 +18,13 @@ import {
   X,
   BookOpen
 } from "lucide-react";
-import { entryPrice, formatIdr } from "@/lib/pricing-copy";
+import {
+  REFUND_GUARANTEE_TEXT,
+  REFUND_GUARANTEE_TITLE,
+  TEMANBARU_PROMO,
+  entryPrice,
+  formatIdr,
+} from "@/lib/pricing-copy";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -560,10 +566,10 @@ export default function Home() {
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
               </div>
               <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
-                Garansi Uang Kembali
+                {REFUND_GUARANTEE_TITLE}
               </h3>
               <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
-                Garansi 3 hari uang kembali 100% jika kamu merasa pendampingan AI companion tidak cocok dengan ritmemu.
+                {REFUND_GUARANTEE_TEXT}
               </p>
             </div>
           </div>
@@ -650,21 +656,22 @@ export default function Home() {
               </strong>{" "}
               untuk 1 bulan, sekali bayar tanpa tagihan otomatis. Pakai kode promo{" "}
               <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">
-                TEMANBARU
+                {TEMANBARU_PROMO.code}
               </span>{" "}
-              untuk diskon 20% di paket 3 bulan ke atas.
+              untuk diskon {TEMANBARU_PROMO.discountPercent}% di paket{" "}
+              {TEMANBARU_PROMO.minMonths} bulan ke atas.
             </p>
 
-            {/* Guarantee Box (Rule 3: Lora Regular) — kebijakan sama persis dengan /privacy §3 */}
+            {/* Guarantee Box (Rule 3: Lora Regular) — satu sumber teks di pricing-copy.ts,
+                tidak boleh lebih kuat dari kebijakan /privacy §3 */}
             <div
               role="note"
               className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-400/40 text-left inline-flex items-start gap-3 text-xs sm:text-sm text-white font-sans"
             >
               <ShieldCheck className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" aria-hidden="true" />
               <span>
-                <strong className="font-extrabold text-white">Garansi Uang Kembali 3 Hari.</strong>{" "}
-                100% dana kamu kembali kalau dalam 3 hari pertama setelah pembelian merasa
-                pendampingan Nina belum cocok.
+                <strong className="font-extrabold text-white">{REFUND_GUARANTEE_TITLE}.</strong>{" "}
+                {REFUND_GUARANTEE_TEXT}
               </span>
             </div>
 

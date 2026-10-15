@@ -54,8 +54,8 @@ export function WebSiteJsonLd() {
 }
 
 export function NinaCompanionJsonLd() {
-  // Harga wajib sama dengan katalog server (PLAN_CATALOG). Angka lama
-  // (low 39.000 / high 219.000) tidak pernah ada di katalog.
+  // Harga wajib sama dengan katalog server (PLAN_CATALOG). Angka lama di rilis
+  // sebelumnya (low & high hardcoded) tidak pernah ada di katalog mana pun.
   const { low, high, count } = offerRange();
   const schema = {
     "@context": "https://schema.org",
