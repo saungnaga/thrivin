@@ -19,6 +19,14 @@
  *   logs         -> no phone number, no request token in the server log
  *   a11y/SEO     -> served HTML has label/describedby/maxlength/type=submit + noindex
  *   client bundle-> the service-role key is not in any served JS chunk
+ *
+ * W5-RX remediation (F-1, F-3, F-4, F-5 of the audit):
+ *   F-1 body       -> a declared oversize and a chunked body past the ceiling are both
+ *                     answered 413 WITHOUT the body being read to the end
+ *   F-3 log        -> a forced constraint violation logs status + code, never the row
+ *   F-4 characters -> emoji counted as characters (char_length), so 5 emoji = 400 and
+ *                     not a 503 from the DB CHECK
+ *   F-5 duplicate  -> same token + different text = 409, the edit is not swallowed
  */
 import crypto from "crypto";
 import fs from "fs";
@@ -44,9 +52,10 @@ const results: Array<[string, string]> = [];
 function record(ok: boolean, name: string, detail = "") {
   results.push([ok ? "PASS" : "FAIL", detail ? `${name} — ${detail}` : name]);
 }
-function assertEq(actual: unknown, expected: unknown, name: string) {
+function assertEq(actual: unknown, expected: unknown, name: string, detail = "") {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  record(ok, name, ok ? "" : `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  const why = `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`;
+  record(ok, name, ok ? "" : detail ? `${why} — ${detail}` : why);
 }
 function assertOk(cond: boolean, name: string, detail = "") {
   record(cond, name, cond ? "" : detail);
@@ -186,6 +195,48 @@ interface SubmitOptions {
   raw?: string;
 }
 
+/**
+ * Send a request whose body is deliberately never completed, and read the first
+ * status line — or report that none came within `timeoutMs`.
+ *
+ * This is how F-1 is observable over HTTP: measuring-while-reading answers 413 to a
+ * body that is still arriving (or to none at all), while the old read-everything-first
+ * code sits waiting for the rest of a body that never comes.
+ */
+function earlyAnswer(
+  port: number,
+  headers: string[],
+  bodyPiece: Buffer | null,
+  timeoutMs = 5000
+): Promise<{ status: number | null; note: string }> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    let buf = "";
+    let settled = false;
+    const done = (status: number | null, note: string) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({ status, note });
+    };
+    socket.setTimeout(timeoutMs);
+    socket.on("connect", () => {
+      socket.write(`${headers.join("\r\n")}\r\n\r\n`);
+      if (bodyPiece) socket.write(bodyPiece);
+    });
+    socket.on("data", (d) => {
+      buf += d.toString("utf-8");
+      const m = buf.match(/^HTTP\/1\.\d (\d{3})/);
+      if (m) done(Number(m[1]), buf.split("\r\n")[0]);
+    });
+    socket.on("timeout", () =>
+      done(null, `no answer within ${timeoutMs} ms — the server is still waiting for the body`)
+    );
+    socket.on("error", (err) => done(null, `socket error: ${err.message}`));
+    socket.on("close", () => done(null, "connection closed with no response"));
+  });
+}
+
 async function submit(
   body: unknown,
   { ip = "10.0.0.1", contentType = "application/json", raw }: SubmitOptions = {}
@@ -215,6 +266,8 @@ const PHONE_FLOOD = "08111222999";
 const PHONE_E164 = "628111222333";
 const XSS_MESSAGE = "Tolong diperbaiki ya <script>alert('xss')</script> — tombolnya nggak jalan.";
 const SECRET_TOKEN = "deadbeefdeadbeefdeadbeefdeadbeef";
+/** Only used by the F-3 check: must never appear in a log line. */
+const PROBE_TOKEN = "probeleak0123456789abcdef01234567";
 
 // ════════════════════════════════════════════════════════════════════════════
 async function main() {
@@ -288,22 +341,51 @@ async function main() {
     assertEq(second.status, 201, "retry -> 201 (row already committed, not an error)");
     assertEq(feedbackRows().length, 1, "retry did NOT duplicate the row");
 
-    // Changed text on the same token must NOT overwrite the stored message.
-    await submit({ message: "Teks berbeda dengan token yang sama seharusnya diabaikan.", request_token: SECRET_TOKEN }, { ip: IP.retry });
+    // Changed text on the same token must be reported, not answered with a thank-you (F-5).
+    const edited = await submit(
+      { message: "Teks berbeda dengan token yang sama harus dijawab 409, bukan sukses.", request_token: SECRET_TOKEN },
+      { ip: IP.retry }
+    );
+    assertEq(edited.status, 409, "same token + different text -> 409 (the edit was NOT stored)");
+    const editedBody = await edited.text();
+    assertOk(!/"ok"\s*:\s*true/.test(editedBody), "409 body carries no success marker", `body=${editedBody}`);
     assertEq(feedbackRows().length, 1, "token reuse cannot create a second row");
     assertEq(feedbackRows()[0].message_text, retryBody.message, "stored message survives a same-token resend");
+
+    // The SAME text on the same token is still a plain idempotent retry -> 201.
+    const sameAgain = await submit(retryBody, { ip: IP.retry });
+    assertEq(sameAgain.status, 201, "same token + same text is still a 201 retry");
 
     // ── concurrency ─────────────────────────────────────────────────────────
     console.log("\n── concurrency: 5 parallel posts, one token ──");
     truncateFeedback();
     const raceToken = token("race-submit");
+    const raceMessage = "Kiriman paralel dari double tap user dengan token yang sama.";
     const race = await Promise.all(
-      Array.from({ length: 5 }, (_, i) =>
-        submit({ message: `Kiriman paralel nomor ${i} dari double tap user.`, request_token: raceToken }, { ip: IP.concurrent })
+      Array.from({ length: 5 }, () =>
+        submit({ message: raceMessage, request_token: raceToken }, { ip: IP.concurrent })
       )
     );
     assertOk(race.every((r) => r.status === 201), "every parallel send answered 201", `statuses=${race.map((r) => r.status).join(",")}`);
     assertEq(feedbackRows().length, 1, "5 parallel sends -> exactly ONE row");
+    assertEq(feedbackRows()[0].message_text, raceMessage, "the racing row holds the message that was sent");
+
+    // Same race, but the texts differ: exactly one wins, the rest are conflicts — never
+    // a second row, and never a 201 that pretends the losing text was stored (F-5).
+    truncateFeedback();
+    const raceConflictToken = token("race-conflict");
+    const raceConflict = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        submit(
+          { message: `Kiriman paralel dengan teks berbeda nomor ${i}.`, request_token: raceConflictToken },
+          { ip: IP.concurrent }
+        )
+      )
+    );
+    const raceStatuses = raceConflict.map((r) => r.status);
+    assertEq(raceStatuses.filter((s) => s === 201).length, 1, "one racer wins with 201", `statuses=${raceStatuses.join(",")}`);
+    assertEq(raceStatuses.filter((s) => s === 409).length, 4, "the other four are 409, not a false 201", `statuses=${raceStatuses.join(",")}`);
+    assertEq(feedbackRows().length, 1, "differing parallel texts cannot create a second row");
 
     // ── validation negatives ────────────────────────────────────────────────
     console.log("\n── validation / abuse negatives ──");
@@ -331,6 +413,117 @@ async function main() {
     assertEq(oversized.status, 413, "oversized body -> 413");
     assertEq(feedbackRows().length, before, "no rejected payload created a row");
     assertEq(before, 0, "started from an empty table");
+
+    // ── F-1: the 8 KiB ceiling is enforced BEFORE the body is read ──────────
+    console.log("\n── F-1: declared and chunked oversize refused without reading the body ──");
+    const declaredOversize = await earlyAnswer(
+      APP_PORT,
+      [
+        "POST /api/feedback HTTP/1.1",
+        "Host: 127.0.0.1",
+        "Content-Type: application/json",
+        "Content-Length: 100000",
+        "x-forwarded-for: 10.0.5.1",
+      ],
+      null
+    );
+    assertOk(
+      declaredOversize.status === 413,
+      "declared 100 KiB body -> 413 without any of it being read",
+      declaredOversize.note
+    );
+
+    const chunkedOversize = await earlyAnswer(
+      APP_PORT,
+      [
+        "POST /api/feedback HTTP/1.1",
+        "Host: 127.0.0.1",
+        "Content-Type: application/json",
+        "Transfer-Encoding: chunked",
+        "x-forwarded-for: 10.0.5.2",
+      ],
+      Buffer.concat([Buffer.from("3000\r\n"), Buffer.alloc(0x3000, 0x61), Buffer.from("\r\n")])
+    );
+    assertOk(
+      chunkedOversize.status === 413,
+      "chunked body past the ceiling -> 413 before the stream ends",
+      chunkedOversize.note
+    );
+
+    // The streamed path must still accept a body that fits (no blanket 413 on chunked).
+    const smallChunkedJson = JSON.stringify({
+      message: "Kiriman chunked kecil yang tetap harus diterima.",
+      request_token: token("chunked-small"),
+    });
+    const smallChunked = await fetch(`${BASE_URL}/api/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "10.0.5.3" },
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(smallChunkedJson));
+          c.close();
+        },
+      }),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    assertEq(smallChunked.status, 201, "small chunked body still accepted (streamed path intact)");
+
+    // ── F-3: a constraint failure cannot print the row into the log ─────────
+    console.log("\n── F-3: PostgREST error details never reach the log ──");
+    truncateFeedback();
+    const leakMessage = `Kritik dengan emoji 😀😀 dan sesuatu yang rahasia ` +
+      `supaya PostgREST menaruh baris ini di details error-nya.`;
+    psqlSuper("ALTER TABLE feedback ADD CONSTRAINT tmp_w5rx_probe CHECK (message_text NOT LIKE '%😀%');");
+    const leakRes = await submit(
+      { message: leakMessage, request_token: PROBE_TOKEN },
+      { ip: "10.0.5.4" }
+    );
+    assertEq(leakRes.status, 503, "forced constraint violation -> 503 (never a fake success)");
+    psqlSuper("ALTER TABLE feedback DROP CONSTRAINT tmp_w5rx_probe;");
+    assertEq(feedbackRows().length, 0, "nothing was stored by the failing insert");
+
+    const leakLog = serverLog();
+    assertOk(!leakLog.includes("😀"), "submitted emoji never reaches the log");
+    assertOk(!leakLog.includes(PROBE_TOKEN), "request token never reaches the log on the failure path");
+    assertOk(!/Failing row/i.test(leakLog), "PostgREST `details` (the failing row) is never logged");
+    assertOk(/code=23514/.test(leakLog), "the failure is logged as status + code only");
+
+    // ── F-4: characters, not UTF-16 units ───────────────────────────────────
+    console.log("\n── F-4: length measured as characters (char_length), not UTF-16 units ──");
+    truncateFeedback();
+    const fiveEmoji = "😀".repeat(5); // 10 UTF-16 units, 5 characters
+    const fiveEmojiRes = await submit(
+      { message: fiveEmoji, request_token: token("w5rx-emoji5") },
+      { ip: "10.0.5.5" }
+    );
+    assertEq(fiveEmojiRes.status, 400, "5 emoji (JS length 10) -> 400, never a 503");
+    assertEq(feedbackRows().length, 0, "the too-short emoji message wrote nothing");
+
+    const tenEmoji = "😀".repeat(10); // 10 characters, JS length 20
+    const tenEmojiRes = await submit(
+      { message: tenEmoji, request_token: token("w5rx-emoji10") },
+      { ip: "10.0.5.6" }
+    );
+    assertEq(tenEmojiRes.status, 201, "10 emoji -> 201 (no DB CHECK rejection)");
+    assertEq(feedbackRows()[0]?.message_text, tenEmoji, "emoji message stored byte-for-byte");
+    assertEq(
+      psqlSuper("SELECT char_length(message_text) FROM feedback;", { csv: true }),
+      "10",
+      "the DB counts the emoji message as 10 characters"
+    );
+
+    // Unpaired surrogates are not valid UTF-8: they must be stripped, not sent to the DB.
+    const loneSurrogate = `abcdefghij${String.fromCharCode(0xd800)}`;
+    const surrogateRes = await submit(
+      { message: loneSurrogate, request_token: token("w5rx-surrogate") },
+      { ip: "10.0.5.7" }
+    );
+    assertEq(surrogateRes.status, 201, "text with an unpaired surrogate -> 201, not a 503");
+    assertEq(
+      feedbackRows().find((r) => r.request_token === token("w5rx-surrogate"))?.message_text,
+      "abcdefghij",
+      "the unpaired surrogate was stripped"
+    );
 
     // ── rate limiting ───────────────────────────────────────────────────────
     console.log("\n── abuse ceiling: per IP and per contact ──");
