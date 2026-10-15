@@ -7,6 +7,12 @@
 # Migrations applied in order:
 #   001-core-schema.sql          users/subscriptions/subscription_plans (harness core)
 #   002-webhook-onboarding.sql   webhook_events_inbox + onboarding_snapshots + purge (from staging/)
+#   003-harness-grants.sql       harness-only: mirrors Supabase default grants
+#   004-feedback-kritiksaran.sql feedback table + grant/RLS (DRAFT copy from staging/)
+#   005-harness-feedback-anon-grant.sql  harness-only: anon/authenticated get SELECT on
+#                                the NEW table, exactly like Supabase. Without it the
+#                                "anon cannot read feedback" test would pass for the
+#                                wrong reason (no GRANT, not the RLS deny policy).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,6 +36,7 @@ fi
 
 # Keep the harness copy in lock-step with the schema under review.
 cp "$REPO/staging/schema-webhook-onboarding.sql" "$HERE/migrations/002-webhook-onboarding.sql"
+cp "$REPO/staging/schema-feedback-kritiksaran.sql" "$HERE/migrations/004-feedback-kritiksaran.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"
