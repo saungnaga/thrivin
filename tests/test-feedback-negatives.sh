@@ -122,7 +122,7 @@ PY
 status=0
 run_mutant m1 "insert failure answered 201 (false thank-you)" \
   "unreachable DB -> 503" \
-  "503 body makes no success claim" \
+  "503 body carries no success marker" \
   "missing Supabase config -> 503 (no disk fallback)" \
   || status=1
 run_mutant m2 "GET answers 200 with the rows (list exposure)" \
