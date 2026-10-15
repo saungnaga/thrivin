@@ -54,14 +54,44 @@ export function checkRateLimit(
   return { ok: true, remaining: limit - bucket.count, retryAfterSeconds: 0 };
 }
 
+/**
+ * C-1: `X-Forwarded-For` ditulis oleh klien dan bisa dipalsukan — versi lama
+ * mengambil entri PERTAMA, jadi satu header palsu = limit baru.
+ *
+ * Setiap proxy di rantai kita menambahkan alamat peer yang dilihatnya di paling
+ * KANAN, jadi entri paling kanan (sebanyak TRUSTED_PROXY_HOPS) adalah satu-satunya
+ * yang bisa dipercaya; sisanya diabaikan.
+ *
+ * TRUSTED_PROXY_HOPS:
+ *   1 (default) — satu reverse proxy di depan app (nginx/Vercel). Pakai entri
+ *                 terakhir. Memalsukan entri pertama tidak mengubah bucket.
+ *   0           — app diekspos langsung: TIDAK ada header yang dipercaya. Fetch
+ *                 Request tidak membawa IP socket, jadi semua klien berbagi satu
+ *                 bucket. Pilih ini hanya kalau benar-benar tanpa proxy.
+ */
+function trustedProxyHops(): number {
+  const raw = Number(process.env.TRUSTED_PROXY_HOPS ?? "1");
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 1;
+}
+
 export function clientIp(req: Request): string {
+  const hops = trustedProxyHops();
+  if (hops === 0) return "direct";
+
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return (
-    req.headers.get("x-real-ip") ||
-    req.headers.get("cf-connecting-ip") ||
-    "unknown"
-  );
+  if (forwarded) {
+    const entries = forwarded
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const index = entries.length - hops;
+    if (index >= 0) return entries[index];
+    // Lebih sedikit hop dari yang kita percaya: header ini tidak mungkin ditulis
+    // proxy kita, jadi nilainya tidak boleh dipakai sebagai identitas.
+    return "untrusted-proxy-header";
+  }
+
+  return req.headers.get("x-real-ip") || "unknown";
 }
 
 /** Rate limit on IP and (optionally) on the submitter's phone number. */

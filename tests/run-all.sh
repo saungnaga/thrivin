@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/run-all.sh — full local verification suite for the Scalev remediation.
 #
-#   bash tests/run-all.sh            # harness + unit + guards + e2e (builds first)
+#   bash tests/run-all.sh            # harness + unit + guards + SQL + e2e (builds first)
 #   SKIP_BUILD=1 bash tests/run-all.sh
 #
 # Everything runs against a LOCAL Postgres + LOCAL PostgREST + LOCAL mock of the
@@ -13,7 +13,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 cd "$REPO"
 
 echo "=============================================================="
-echo "1/4  harness: local Postgres stand-in + mock Scalev"
+echo "1/6  harness: local Postgres stand-in + mock Scalev"
 echo "=============================================================="
 bash "$HERE/harness/seed.sh"
 
@@ -21,19 +21,26 @@ if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
 
 echo
 echo "=============================================================="
-echo "2/4  unit checks (pure helpers)"
+echo "2/6  unit checks (pure helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-remediation-units.mts"
 
 echo
 echo "=============================================================="
-echo "3/4  guard checks (existing redaction/replay helpers)"
+echo "3/6  guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"
 
 echo
 echo "=============================================================="
-echo "4/4  end-to-end: routes -> PostgREST -> Postgres + mock Scalev"
+echo "4/6  promo SQL: atomic redeem, kuota, kedaluwarsa, race"
+echo "    (own throwaway DB — redeems fired from parallel psql conns)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-promo-sql.mts"
+
+echo
+echo "=============================================================="
+echo "5/6  end-to-end: webhook routes -> PostgREST -> Postgres"
 echo "=============================================================="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo ">> next build"
@@ -41,3 +48,14 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo ">> build ok"
 fi
 node --experimental-strip-types "$HERE/test-webhook-e2e.mts"
+
+echo
+echo "=============================================================="
+echo "6/6  end-to-end: promo (dashboard auth/CRUD + checkout + webhook)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-promo-e2e.mts"
+
+echo
+echo "=============================================================="
+echo "ALL SUITES PASSED"
+echo "=============================================================="

@@ -18,6 +18,7 @@ import {
   claimWelcomeSend,
   sendWelcomeMessage,
 } from "@/lib/welcome-message";
+import { consumePromoForOrder } from "@/lib/promo";
 
 /**
  * Scalev signs with HMAC-SHA256 and transmits base64 (L-1). The previous
@@ -205,6 +206,9 @@ export async function POST(req: Request) {
         const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
         const plan = resolveSubscriptionPlan(snapshot?.plan_key);
         const activation = await activateUserSubscription(cleanPhone, customerName, snapshot);
+        // Pembayaran diterima -> reservasi promo jadi 'consumed' (mengunci 1x
+        // per nomor). Best effort: tidak pernah melempar ke jalur webhook.
+        await consumePromoForOrder(String(orderUniqueId));
         await finalizeWebhookEvent(String(eventId), {
           status: activation.success ? "completed" : "failed",
         });
