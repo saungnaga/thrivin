@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { entryPrice, formatIdr } from "@/lib/pricing-copy";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -668,15 +669,31 @@ export default function NinaPage() {
             <h2 className="font-sans text-3xl sm:text-4xl font-bold leading-tight">
               Siap Bangun Kebiasaan Sehat Bersama Nina?
             </h2>
-            {/* Rule 2 & 4: Sub-headline Inter Regular + Angka Inter Extrabold */}
+            {/* Rule 2 & 4: Sub-headline Inter Regular + Angka Inter Extrabold.
+                Harga dari PLAN_CATALOG lewat pricing-copy.ts (kontrak S0 §11). */}
             <p className="text-xs sm:text-sm text-brand-200 leading-relaxed font-sans font-normal">
-              Mulai dari <strong className="font-sans font-extrabold text-white">Rp 39.000/bulan</strong>. Masukkan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">TEMANBARU</span> untuk diskon 20% khusus pengguna baru!
+              Paket mulai{" "}
+              <strong className="font-sans font-extrabold text-white">
+                Rp {formatIdr(entryPrice())}
+              </strong>{" "}
+              untuk 1 bulan — sekali bayar, tanpa tagihan otomatis. Kode promo{" "}
+              <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">
+                TEMANBARU
+              </span>{" "}
+              diskon 20% di paket 3 bulan ke atas.
             </p>
 
-            {/* Guarantee Box (Rule 3: Lora Regular) */}
-            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90 font-serif font-normal">
-              <ShieldCheck className="w-4 h-4 text-accent shrink-0" />
-              <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
+            {/* Guarantee Box (Rule 3: Lora Regular) — sama dengan kebijakan /privacy §3 */}
+            <div
+              role="note"
+              className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-400/40 text-left inline-flex items-start gap-3 text-xs sm:text-sm text-white font-sans"
+            >
+              <ShieldCheck className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>
+                <strong className="font-extrabold text-white">Garansi Uang Kembali 3 Hari.</strong>{" "}
+                100% dana kamu kembali kalau dalam 3 hari pertama setelah pembelian merasa
+                pendampingan Nina belum cocok.
+              </span>
             </div>
 
             {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy (Rule 8: Inter Semibold) */}

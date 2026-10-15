@@ -15,6 +15,7 @@ import {
   User,
   ExternalLink
 } from "lucide-react";
+import { planPriceLine } from "@/lib/pricing-copy";
 
 interface ChatMessage {
   id: string;
@@ -66,7 +67,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     query.includes("berapa")
   ) {
     return {
-      text: "Investasi Thrivin mulai dari Rp 39.000/bulan (sistem sekali bayar, tanpa tagihan otomatis!). Ada Paket 3 Bulan (Rp 231rb), 6 Bulan (Rp 357rb), dan 1 Tahun (Rp 465rb). Khusus pengguna baru, kamu bisa pakai kode promo 'TEMANBARU' untuk diskon ekstra 20%!",
+      text: `Investasi Thrivin sekali bayar, tanpa tagihan otomatis: ${planPriceLine()}. Khusus pengguna baru, kode promo 'TEMANBARU' diskon 20% di paket 3 bulan ke atas. Semua paket ada garansi uang kembali 3 hari.`,
       cta: {
         label: "Mulai Onboarding & Pilih Paket",
         href: "/companion/nina/onboarding/1",
