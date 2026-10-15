@@ -234,6 +234,15 @@
         "restore": "EXIT trap restores both src files and rebuilds; sha1sum -c of the three fixed sources OK after the run, git status shows only intended changes"
       }
     },
+    "final_rerun_on_committed_tree": {
+      "head": "9c20e41",
+      "command": "npm run lint && SKIP_BUILD=1 bash tests/run-all.sh (HARNESS_PG_DB=thrivin_w5rx_final, ports 54331/54332/3995, build = the restore build from the mutation run)",
+      "lint_exit_code": 0,
+      "run_all_exit_code": 0,
+      "result": "ALL SUITES PASSED · 29/29 · 84/84 · guard OK · 57/57 · 90/90",
+      "logs": ["/tmp/w5rx-final-lint.log", "/tmp/w5rx-final-runall.log"],
+      "tree": "git status clean; sha1sum -c on the three fixed sources OK"
+    },
     "pre_fix_proof": {
       "method": "git stash push on the three src/ files only (new suite kept in place) -> rebuild -> run suite -> git stash pop -> sha1sum -c verifies the fix is back",
       "log": "/tmp/w5rx-prefix-e2e-final.log",
