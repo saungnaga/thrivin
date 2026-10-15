@@ -1,0 +1,171 @@
+{
+  "task": "t_86bf9739",
+  "slug": "w3-wa-first",
+  "assignee": "forge",
+  "date": "2026-10-15",
+  "status": "implemented-local-green_blocked-live_review-required",
+  "base": {
+    "required_by_contract": "9392cdd",
+    "branch": "feat/wa-first-2026-10-15",
+    "worktree": "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w3-wa-first",
+    "stacked_on": "promo-ws feat/promo-management @ f456d0f (clean descendant of 9392cdd; fetched as wa-first-promo-src)",
+    "shared_worktree_untouched": "/home/ubuntu/workspaces/thrivin/repo (no checkout/reset)"
+  },
+  "suites": {
+    "command": "bash tests/run-all.sh",
+    "exit_code": 0,
+    "result": "ALL SUITES PASSED",
+    "counts": {
+      "remediation_units": "27/27",
+      "wa_first_units": "15/15",
+      "guard_checks": "pass",
+      "promo_sql": "44/44",
+      "webhook_e2e": "57/57",
+      "promo_e2e": "113/113",
+      "wa_first_e2e": "118/118"
+    },
+    "stack": "Next.js production build -> HTTP -> PostgREST -> local Postgres; OTP provider = mock (file sink); no Scalev mock needed for this slice",
+    "artifacts": [
+      "/tmp/w3-runall.log",
+      "/tmp/w3-e2e-out.log",
+      "/tmp/thrivin-wa-first-otp-sink.jsonl (dummy codes only)"
+    ]
+  },
+  "artifacts": {
+    "sql_draft": "staging/schema-wa-identity.sql",
+    "server": [
+      "src/lib/wa-session.ts",
+      "src/lib/otp.ts",
+      "src/lib/otp-provider.ts",
+      "src/lib/subscription-lookup.ts",
+      "src/lib/renewal.ts",
+      "src/lib/session-secret.ts",
+      "src/app/api/wa/session/request/route.ts",
+      "src/app/api/wa/session/verify/route.ts",
+      "src/app/api/wa/session/route.ts",
+      "src/app/api/wa/subscription/route.ts"
+    ],
+    "ui": [
+      "src/app/companion/nina/status/page.tsx",
+      "src/app/companion/nina/status/layout.tsx"
+    ],
+    "tests": [
+      "tests/test-wa-first-units.mts",
+      "tests/test-wa-first-e2e.mts",
+      "tests/harness/seed.sh",
+      "tests/run-all.sh"
+    ],
+    "docs": [
+      "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w3-wa-first/report.md",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/wa-first-2026-10-15.md"
+    ]
+  },
+  "existing_code_touched": [
+    {
+      "file": "src/lib/admin-auth.ts",
+      "change": "isWeakSecret + safeEqual dipindah ke src/lib/session-secret.ts lalu di-import/di-re-export; behavior tidak berubah; alasan: admin-auth.ts mengimpor next/headers sehingga tidak bisa dimuat tes node murni"
+    },
+    {
+      "file": "tests/harness/seed.sh",
+      "change": "menyalin staging/schema-wa-identity.sql -> migrations/005-wa-identity.sql"
+    },
+    {
+      "file": "tests/run-all.sh",
+      "change": "unit WA-first masuk langkah 2; e2e WA-first jadi langkah 7/7"
+    }
+  ],
+  "db_objects_drafted": {
+    "table": "wa_otp_challenges (phone, code_hash HMAC, attempts, max_attempts, expires_at, consumed_at, request_ip_hash; unique partial: satu challenge hidup per (tenant, phone); RLS deny anon/authenticated; GRANT service_role)",
+    "functions": [
+      "create_wa_otp_challenge(p_phone, p_code_hash, p_ttl_seconds, p_min_interval_seconds, p_max_per_hour, p_ip_hash, p_tenant_id) -> {status: created|cooldown|resend_limit|invalid_phone}",
+      "verify_wa_otp_challenge(p_phone, p_code_hash, p_tenant_id) -> {status: ok|invalid|expired|no_challenge|too_many_attempts}",
+      "subscription_status_for_owner(p_phone) -> {state, expires_at, last_plan_key} (STABLE, tanpa tulisan)"
+    ],
+    "grants": "REVOKE ALL FROM PUBLIC, anon, authenticated; GRANT EXECUTE/table hanya ke service_role",
+    "applied_where": "hanya DB harness lokal (dummy, sekali pakai) — NOL apply ke staging/produksi"
+  },
+  "evidence_for_card_requirements": {
+    "bare_number_privacy": [
+      "privasi: bentuk body IDENTIK untuk nomor ada vs tidak ada",
+      "privasi: body hanya {ok,message}",
+      "privasi: kode OTP tidak pernah ikut di jawaban HTTP"
+    ],
+    "otp_abuse_session_swap": [
+      "otp: kode salah -> 401 tanpa sisa percobaan",
+      "otp: percobaan habis -> 429 (bukan percobaan tanpa batas)",
+      "otp: kode yang sama TIDAK bisa dipakai dua kali (single-use)",
+      "otp: kode LAMA mati setelah permintaan baru",
+      "otp: 3 verifikasi paralel = tepat 1 x 200 (single-use atomik)",
+      "race: hanya SATU challenge hidup untuk nomor itu",
+      "swap: kode milik nomor lain tidak bisa ditukar nomor",
+      "sesi: token dipalsukan / epoch lain / kedaluwarsa -> 401",
+      "sesi: cookie ADMIN tidak diterima di endpoint pelanggan"
+    ],
+    "generic_error": [
+      "privasi: nomor tidak valid -> 400 (bukan disubstitusi)",
+      "otp: bentuk kode ngawur -> 401 (bukan oracle bentuk)",
+      "fail-closed: DB mati -> 503 (bukan 200)",
+      "fail-closed: jawaban tanpa field state — tidak pernah terbaca sebagai \\\"nomor baru\\\""
+    ],
+    "active_nonactive_boundary": [
+      "boundary: aktif -> active + sisa masa aktif > 0",
+      "boundary: kedaluwarsa 8 hari -> expired + kandidat",
+      "boundary: TEPAT 7 hari = TIDAK eligible (batas spec)",
+      "boundary: 7 hari + 30 detik -> eligible",
+      "boundary: field yang keluar = daftar minimal (tanpa nama/token/user_id)",
+      "eligibility: tepat 7×24 jam -> TIDAK eligible (unit, juga ±1 ms)"
+    ],
+    "promo_tamper_race": [
+      "promo: NOL baris redemption — slice ini tidak mengklaim/mengaktifkan promo",
+      "promo: aktivasi reaktivasi ditahan (t_7bcb4487) — dinyatakan eksplisit",
+      "promo: harga tetap katalog server walau client mengirim amount/promo_code",
+      "promo: tanpa sesi tetap 401 walau query diberi promo/amount",
+      "boundary: baris promo non-aktif -> kandidat null (tidak mengarang angka)"
+    ],
+    "admin_bypass_vs_non_admin": [
+      "admin: nomor di NINA_ADMIN_PHONES tetap dievaluasi normal (tanpa bypass)",
+      "admin: eligibilitas dihitung dari expires_at, bukan dari allowlist",
+      "non-admin: nomor non-admin dievaluasi sama"
+    ],
+    "sql_least_privilege": [
+      "rpc: anon DITOLAK (401/403), bukan 200 berisi data",
+      "rpc: anon tidak bisa membaca tabel challenge",
+      "rpc: service_role tetap bisa membaca challenge",
+      "rpc: jalur BACA tidak mengubah status di DB (beda dari check_subscription)",
+      "rpc: jawaban hanya 3 field ({state,expires_at,last_plan_key})"
+    ],
+    "ui_keyboard_mobile": [
+      "ui: input nomor punya <label for> eksplisit",
+      "ui: inputmode=numeric + autocomplete=tel",
+      "ui: wilayah aria-live untuk status/error",
+      "ui: tombol form type=submit (Enter mengirim)",
+      "ui: target sentuh minimal 44px",
+      "ui: CTA checkout baru muncul setelah status dimuat (tidak ada sebelum verifikasi)"
+    ],
+    "log_hygiene": [
+      "log: tidak ada kode OTP yang tercetak di log server",
+      "log: tidak ada nomor mentah di log (hanya bentuk ***1234)"
+    ]
+  },
+  "not_done_intentionally": [
+    "provider OTP live (WA_OTP_PROVIDER selain 'mock' -> 503 gagal-tertutup); transport resmi ada di worktree channel-sender-ws, belum di RC",
+    "staging/schema-wa-identity.sql belum di-apply ke staging/produksi (butuh delta-review Sentinel)",
+    "baris promo TEMENANLAGI tidak dibuat; aktivasi reaktivasi dimatikan (t_7bcb4487 blocked)",
+    "verifikasi runtime Nina produksi (blocked-live; read-only menyusul di N1/N2/Q1)",
+    "tidak ada perubahan pada jalur uang (create-order/webhook/promo.ts) dan tidak ada aktivasi langganan (itu t_f5ec336c)"
+  ],
+  "safety": {
+    "customer_data": "no-touch (hanya nomor dummy 62812xxxxxxx di DB harness lokal)",
+    "credentials": "tidak ada secret produksi dibaca; env staging/prod tidak disentuh; header apikey tampil sebagai *** di output tool (redactor), nilai tidak pernah dicetak",
+    "production": "nol deploy, nol apply SQL, nol push ke main",
+    "outbound": "nol WhatsApp outbound (mock provider menulis ke file sink lokal)",
+    "shared_repo": "git status worktree bersama bersih; tidak ada checkout/reset"
+  },
+  "claim_limits": [
+    "UI diuji di level markup + alur API (harness tidak punya browser headless), bukan simulasi ketukan perangkat nyata",
+    "limitRequest in-process per instance (bukan pengaman multi-instance)",
+    "sesi stateless: logout membereskan cookie; cabut semua sesi = naikkan WA_SESSION_EPOCH",
+    "RPC diuji terhadap skema harness yang meniru staging/schema/{db-tables,db-functions}.sql; belum terhadap Supabase staging/produksi"
+  ],
+  "next_step": "kanban_block(kind=needs_input, reason='review-required: A5 identity/subscription/promo code requires Sentinel audit')"
+}
