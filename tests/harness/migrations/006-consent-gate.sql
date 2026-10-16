@@ -513,10 +513,20 @@ BEGIN
     END IF;
     -- 'failed' TANPA order: percobaan sebelumnya gagal sebelum order tercetak
     -- (release_checkout_claim) ⇒ aman dipakai ulang (hanya untuk nomor sama).
-    UPDATE checkout_claims
-      SET status = 'in_flight', plan_key = p_plan_key, updated_at = now()
-      WHERE id = v_existing.id
-      RETURNING id INTO v_claim_id;
+    -- W4RX4 F-2: baris ini juga bisa ditahan `uq_checkout_claims_live_phone`
+    -- kalau nomor itu sudah punya order HIDUP dari kunci LAIN (K1 dilepas,
+    -- K2 mencetak order). Tanpa EXCEPTION, unique_violation naik mentah ⇒
+    -- PostgREST 500 ⇒ route balas 503 GATE_UNAVAILABLE, bukan 409
+    -- ORDER_IN_FLIGHT — pelanggan mentok sampai order penahan lunas/retire.
+    -- Sama seperti langkah 7: tolak lewat jawaban, bukan lewat error.
+    BEGIN
+      UPDATE checkout_claims
+        SET status = 'in_flight', plan_key = p_plan_key, updated_at = now()
+        WHERE id = v_existing.id
+        RETURNING id INTO v_claim_id;
+    EXCEPTION WHEN unique_violation THEN
+      RETURN json_build_object('status', 'in_flight');
+    END;
     RETURN json_build_object('status', 'granted', 'claim_id', v_claim_id);
   END IF;
 
