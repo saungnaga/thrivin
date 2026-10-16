@@ -177,6 +177,19 @@ operasional Sentinel (RX2-2) supaya run paralel tidak saling mengontaminasi.
 Paket sama + masih ada order belum dibayar ⇒ kunci baru **dikembalikan ke order/link yang sama**;
 paket beda ⇒ blokir eksplisit; kunci sama dari nomor beda ⇒ tetap 409 `IDEMPOTENCY_KEY_CONFLICT`.
 
+### Commit ronde 3 (urutan + catatan bukti)
+
+| Commit | Isi |
+|---|---|
+| `4370e3e` | feat — F-W4-1(a): schema (`paid_at`, reuse/blokir, `mark_checkout_claim_paid`) + route + webhook |
+| `f73a281` | test — cakupan F-W4-1 + refresh ekspektasi promo/webhook |
+| `3f4c563` | docs — report/evidence ronde 3 |
+| `5ee68bf` | docs — bundel bukti mentah in-repo (`docs/w4-r3-verification.txt`) |
+
+`run-all.sh` 3× dan semua bukti negatif dijalankan pada **isi kode = `4370e3e` + `f73a281`**
+(commit docs sesudahnya tidak menyentuh kode/test). Head branch:
+`feat/checkout-consent-gate-2026-10-15` @ `5ee68bf` (di atas `0c61425`).
+
 ### Perubahan DB (`staging/schema-consent.sql`, draft → di-apply ke staging)
 
 - Kolom baru `checkout_claims.paid_at TIMESTAMPTZ` — **satu-satunya** pembeda "order belum dibayar
