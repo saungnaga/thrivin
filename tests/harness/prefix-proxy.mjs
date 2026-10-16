@@ -13,8 +13,14 @@
  */
 import http from "http";
 
-const listenPort = Number(process.argv[2] || 54321);
-const upstreamPort = Number(process.argv[3] || 54322);
+// RX2-2: wajib argumen eksplisit — default bersama (54321/54322) dulu bikin dua
+// worktree yang jalan bareng saling menimpa. Port datang dari isolate.mts.
+const listenPort = Number(process.argv[2]);
+const upstreamPort = Number(process.argv[3]);
+if (!listenPort || !upstreamPort) {
+  console.error("usage: node tests/harness/prefix-proxy.mjs <listenPort> <upstreamPort>");
+  process.exit(2);
+}
 const PREFIX = "/rest/v1";
 
 const server = http.createServer((req, res) => {
