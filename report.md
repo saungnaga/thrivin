@@ -344,6 +344,67 @@ Iterasi ini **bukan** penghalang apply migrasi W4 (`0c61425` sudah SIAP APPLY). 
 adalah **draft lanjutan** yang harus di-apply **sebelum** purge benar-benar dijadwalkan di
 lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
 
+## 6e. Ronde 4 — RX2-2 + RX2-3: isolasi harness per-worktree + teardown probe (2026-10-17)
+
+**Temuan RX2-2 (MEDIUM, infra verifikasi)** + **RX2-3 (LOW, hygiene)** dari delta-review 2 Sentinel
+(`t_7f3a1042`, laporan `security/review-w4-rx2-2026-10-16.md`). Kartu `t_c85c2678`.
+**Nol apply** ke Supabase/staging/produksi, nol data pelanggan, nol push/merge. Commit `4c89ff0` + `2ad67bf`.
+
+### Masalah yang ditutup
+
+1. **RX2-2:** semua worktree memakai satu nama DB (`thrivin_remediation_test`), satu rentang port
+   (54321/54322 + 3981-3998 + 4111) dan satu set file `/tmp` ⇒ dua `run-all` bersamaan saling
+   meniadakan: run 1 PASS, run 2-3 FAIL karena DB bersama menyimpan overload asing
+   `cancel_promo_redemption(uuid,varchar,text,text)` dari worktree lain (`CREATE OR REPLACE` menambah
+   overload, bukan mengganti). "ALL SUITES PASSED" jadi tidak layak dipakai sebagai gate antar-agent.
+2. **RX2-3:** `tests/test-probe-cross-phone.mts` memakai `process.exit(1)` **di dalam** `try`
+   ⇒ `finally` dilewati, `next start` + `mock-scalev` + postgrest + prefix-proxy tetap `LISTEN`
+   setelah probe gagal.
+
+### Perubahan
+
+| File | Isi |
+|---|---|
+| `tests/harness/isolate.mts` (baru) | Satu sumber kebenaran dari path worktree: `SLUG` (`<basename>_<6 hex sha1(path)>`), `PG_DB` = `thrivin_test_<SLUG>`, `PROMO_DB`, `PORT_BASE` = `40000 + hash%1200*20` (17 slot), `TMP_PREFIX` = `/tmp/thrivin-<SLUG>` (auto-dibuat). CLI `db`/`env` supaya bash & node tak pernah beda hitungan. Band 40000+ sengaja: di luar daftar "bad port" WHATWG yang ditolak `fetch`/undici (pelajaran §6d). |
+| `tests/harness/stack.mts` | `PG_DB`/`POSTGREST_PORT`/`POSTGREST_UPSTREAM_PORT`/config postgrest dari `isolate.mts` (env override tetap). |
+| `tests/harness/seed.sh` | Nama DB turunan + menjalankan `drop-stale.sql` **sebelum** migrasi. |
+| `tests/harness/drop-stale.sql` (baru) | Drop tiap signature `cancel_promo_redemption` dari `pg_proc` (`DROP FUNCTION <nama>` polos gagal saat ada overload: "function name is not unique"). |
+| `tests/run-all.sh` | `eval "$(isolate.mts env)"` + log build ke `$TMP_PREFIX`; cek `node` sebelum seed. |
+| 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs` | Semua port/DB/path `/tmp` dari `isolate.mts`; default lama (3981-3998, 4111, 4121, 4135, 54321, 54322, `thrivin_*_test`) hilang. `mock-scalev` default file order kini ber-pid. |
+| `tests/test-probe-cross-phone.mts` | RX2-3: jalur gagal melempar error (bukan `process.exit`) ⇒ `finally` tetap mematikan anak proses; `main().catch` pakai `process.exitCode`. |
+
+Tidak diubah dengan sengaja: asersi H-3 `!/tmp/thrivin-onboarding` (memeriksa jalur fallback PII
+**produksi** tidak ada — bukan path harness).
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Kondisi | Hasil | Log |
+|---|---|---|
+| DB bersama + overload bentuk `promo-ws` R-4 | `ERROR: function cancel_promo_redemption(uuid) is not unique … Could not choose a best candidate function` | `/tmp/rx22-overload.log` |
+| DB bersama lama (schema worktree lain) | promo e2e exit 1 di awal: `column "paid_at" does not exist` (`checkout_claims` dibuat versi lain; `CREATE TABLE IF NOT EXISTS` jadi no-op) | `/tmp/rx22-legacy.log` |
+| Probe pra-fix (HEAD~1) + guard F-S1 dimatikan | exit 1, dan `ss -ltn` **menyisakan** 3995 (next-server) + 4135 (mock) + postgrest/proxy 48180-48181 | `/tmp/rx23-pre.log` |
+
+### Bukti positif (pasca-fix)
+
+- `bash tests/run-all.sh` (isolasi terpakai, port 48180+) → **ALL SUITES PASSED** (`/tmp/w4-runall-A.log`).
+- **Dua `run-all` BERSAMAAN dari dua worktree** (`w4-consent-gate` + `/tmp/wt-brx2`) → **keduanya
+  ALL SUITES PASSED, exit 0** (`/tmp/runall-A2.log`, `/tmp/runall-B2.log`) — kriteria terima kartu.
+- `drop-stale.sql` bergigi: DB tercemar overload → `seed.sh` → promo e2e **118/118**
+  (`/tmp/rx22-sim-prefix.log`).
+- Probe pasca-fix + guard F-S1 masih dimatikan → exit 1 dengan pesan kebocoran yang jelas, lalu
+  `ss -ltn` **nol** sisa port dan nol proses yatim (`/tmp/rx23-post.log`).
+- Semua mutasi uji **direvert**; `git status` bersih (kecuali `?? graphify-out/` yang bukan milik iterasi ini).
+
+Rincian mentah: `docs/w4-rx2-2-3-verification.txt`.
+
+### Status apply
+
+Infra verifikasi saja — **tidak** menyentuh `staging/*.sql` dan tidak menghalangi apply migrasi W4.
+Efeknya: hasil suite sekarang bisa dipercaya saat dua worker (atau dua agent) jalan bersamaan.
+Menunggu review Sentinel. Batasan jujur: slot port = hash(path) % 1200 (tabrakan ~1/1200; override
+`HARNESS_PORT_BASE`/`HARNESS_PG_DB` tetap dihormati); DB bersama lama sengaja **tidak** di-drop
+karena worktree yang belum di-patch masih memakai default itu.
+
 ## 7. Temuan untuk Sentinel / keputusan pemilik
 
 - **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
@@ -402,6 +463,10 @@ lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
   versi = `terms-2026-10-15-v1`, dan tidak ada placeholder yang bocor ke `/privacy`.
 - `tests/harness/seed.sh` (migrasi 006) + `tests/run-all.sh` (step SQL & e2e consent +
   legal shape masuk gate).
+- (ronde 4, §6e) `tests/harness/isolate.mts` + `drop-stale.sql` (baru), `tests/harness/stack.mts`,
+  `tests/run-all.sh`, 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs`,
+  `tests/test-probe-cross-phone.mts` — infrastruktur verifikasi (DB/port/prefix `/tmp` per-worktree
+  + teardown probe). Tidak menyentuh `staging/*.sql`; tidak mengubah perilaku aplikasi.
 
 ## 10. Bukti & link
 
