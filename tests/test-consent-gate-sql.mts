@@ -580,6 +580,17 @@ eq(
   "F-W4-1b: tidak ada baris klaim kedua yang lahir karena replay"
 );
 
+// F-W4-1b sengaja SEMPIT: 'failed' TANPA order (Scalev gagal di tengah, klaim
+// dilepas) tetap boleh diklaim ulang dengan kunci yang SAMA — retry tidak dikunci.
+const P_fw1bRetry = "6281200000714";
+armPhone(P_fw1bRetry, "fw1b-retry-consent-1");
+const fw1bRetryA = claim(P_fw1bRetry, "quarter", "fw1b-key-retry");
+eq(fw1bRetryA.status, "granted", "F-W4-1b: pra-syarat — klaim retry diberikan");
+rpc(`select release_checkout_claim('${fw1bRetryA.claim_id}')`);
+const fw1bRetryB = claim(P_fw1bRetry, "quarter", "fw1b-key-retry");
+eq(fw1bRetryB.status, "granted", "F-W4-1b: 'failed' tanpa order tetap boleh diklaim ulang (kunci SAMA)");
+eq(fw1bRetryB.claim_id, fw1bRetryA.claim_id, "F-W4-1b: baris klaim yang sama dipakai ulang (bukan baris baru)");
+
 // (6) Reuse TIDAK mendahului gate: kalau langkah wajib hilang, tetap ditolak.
 armPhone(P_fw1gate, "fw1-gate-consent-1");
 const fw1Gate = claim(P_fw1gate, "quarter", "fw1-gate-key-1");
