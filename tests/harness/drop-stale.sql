@@ -6,5 +6,20 @@
 --   ERROR: Could not choose a best candidate function
 -- Itu yang dulu terjadi di DB bersama: `cancel_promo_redemption(uuid,varchar)`
 -- dari branch ini + `cancel_promo_redemption(uuid,varchar,text,text)` dari
--- worktree lain. Drop by NAME membuang semua overload-nya.
-DROP FUNCTION IF EXISTS cancel_promo_redemption;
+-- worktree lain.
+--
+-- `DROP FUNCTION <nama>` tanpa daftar argumen GAGAL saat ada overload
+-- ("function name ... is not unique"), jadi tiap signature di-drop dari katalog.
+DO $$
+DECLARE
+  fn record;
+BEGIN
+  FOR fn IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    WHERE p.proname = 'cancel_promo_redemption'
+      AND p.pronamespace = 'public'::regnamespace
+  LOOP
+    EXECUTE format('DROP FUNCTION %s', fn.sig);
+  END LOOP;
+END $$;
