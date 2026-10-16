@@ -510,12 +510,13 @@ function paidAt(claimId: string): string {
  * exception) supaya suite tetap jalan sampai ringkasan — penting untuk bukti
  * negatif: perilaku pra-fix harus terbaca sebagai FAIL, bukan crash.
  */
-function complete(c: any, orderId: string, url: string): void {
+function complete(c: any, orderId: string, url: string, uuid = `${orderId}-uuid`): void {
   if (!c?.claim_id) {
     check(false, `prasyarat: klaim untuk ${orderId} tidak diberikan`, JSON.stringify(c));
     return;
   }
-  rpc(`select complete_checkout_claim('${c.claim_id}', '${orderId}', '${url}', 231000)`);
+  // F-W4-1c: canonical UUID (`orderData.id`) disimpan terpisah dari nomor bisnis.
+  rpc(`select complete_checkout_claim('${c.claim_id}', '${orderId}', '${url}', 231000, '${uuid}')`);
 }
 
 armPhone(P_fw1, "fw1-consent-1");
@@ -562,47 +563,142 @@ const fw1AfterPaid = claim(P_fw1, "quarter", "fw1-key-4");
 eq(fw1AfterPaid.status, "granted", "F-W4-1: setelah lunas ⇒ kunci baru mencetak order baru");
 complete(fw1AfterPaid, "ord-FW2", "https://pay/fw2");
 
-// (5) TTL: order belum dibayar yang ditinggalkan tidak menahan nomor selamanya
+// (5) F-W4-1c: TTL TIDAK melepas order diam-diam. Order Scalev lama harus
+// DIBATALKAN (worker HTTP di route/sweep) sebelum nomor ini boleh dapat order
+// baru — kalau tidak, dua link bayar hidup dan pelanggan bisa membayar dua kali.
 // (id palsu kalau klaim tidak diberikan: pra-fix harus terbaca FAIL, bukan crash.)
 const id2 = fw1AfterPaid?.claim_id || "00000000-0000-0000-0000-000000000000";
 psqlSuper(
   `update checkout_claims set created_at = now() - interval '61 minutes' where id='${id2}'`
 );
 const fw1Stale = claim(P_fw1, "quarter", "fw1-key-5");
-eq(fw1Stale.status, "granted", "F-W4-1(a): order belum dibayar > TTL ⇒ checkout baru boleh");
+eq(fw1Stale.status, "cancel_pending", "F-W4-1c: order > TTL ⇒ nomor DITAHAN sampai cancel terverifikasi");
+check(
+  fw1Stale.order_id === undefined && fw1Stale.payment_url === undefined,
+  "F-W4-1c: blokir tidak membocorkan order_id/payment_url",
+  JSON.stringify(fw1Stale)
+);
 eq(
   psqlSuper(`select status from checkout_claims where id='${id2}'`, { csv: true }),
-  "failed",
-  "F-W4-1(a): order yang ditinggalkan ditandai failed"
+  "cancel_pending",
+  "F-W4-1c: order yang ditinggalkan ditandai cancel_pending (bukan failed/lepas)"
 );
+eq(
+  psqlSuper(`select (payment_url is not null) from checkout_claims where id='${id2}'`, { csv: true }),
+  "t",
+  "F-W4-1c: baris cancel_pending TIDAK dianggap terminal (link belum dibuang)"
+);
+// Attempt cancel: atomik + lease + wajib `paid_at IS NULL` (M-3).
+const cancelClaim = rpc(`select claim_checkout_cancel('${id2}')`);
+eq(cancelClaim.status, "claimed", "F-W4-1c: attempt cancel diklaim lewat RPC (bukan HTTP dari SQL)");
+eq(cancelClaim.scalev_order_uuid, "ord-FW2-uuid", "F-W4-1c: attempt membawa canonical UUID (bukan order_id bisnis)");
+eq(
+  rpc(`select claim_checkout_cancel('${id2}')`).status,
+  "not_claimed",
+  "F-W4-1c: lease attempt menolak worker kedua (satu baris satu worker)"
+);
+// Hasil transient ⇒ TAHAN + jejak retry; nomor tetap ditahan.
+eq(
+  rpc(`select record_checkout_cancel_result('${id2}','cancel_pending','429 transient')`).status,
+  "recorded",
+  "F-W4-1c: hasil transient dicatat"
+);
+eq(
+  psqlSuper(`select status from checkout_claims where id='${id2}'`, { csv: true }),
+  "cancel_pending",
+  "F-W4-1c: transient ⇒ tetap cancel_pending (fail-closed)"
+);
+eq(
+  psqlSuper(`select (cancel_next_retry_at is not null) from checkout_claims where id='${id2}'`, { csv: true }),
+  "t",
+  "F-W4-1c: jadwal retry tercatat"
+);
+eq(
+  psqlSuper(`select cancel_last_error from checkout_claims where id='${id2}'`, { csv: true }),
+  "429 transient",
+  "F-W4-1c: error ter-redact disimpan apa adanya dari pemanggil (<=200 char)"
+);
+eq(
+  claim(P_fw1, "quarter", "fw1-key-5b").status,
+  "cancel_pending",
+  "F-W4-1c: selama cancel belum terverifikasi, checkout tetap ditahan"
+);
+// Sukses terverifikasi ⇒ retired: link dibuang, order_id DIPERTAHANKAN (join webhook).
+eq(
+  rpc(`select record_checkout_cancel_result('${id2}','retired')`).status,
+  "recorded",
+  "F-W4-1c: hasil terverifikasi dicatat"
+);
+eq(
+  psqlSuper(
+    `select (status='retired') || '|' || (payment_url is null) || '|' || (canceled_at is not null) || '|' || order_id from checkout_claims where id='${id2}'`,
+    { csv: true }
+  ),
+  `true|true|true|ord-FW2`,
+  "F-W4-1c: retired = link dibuang + canceled_at terisi + order_id tetap (join webhook)"
+);
+eq(
+  rpc(`select record_checkout_cancel_result('${id2}','retired')`).status,
+  "not_found",
+  "F-W4-1c: replay hasil pada baris terminal ⇒ not_found (idempoten, bukan state kedua)"
+);
+const fw1StaleHealed = claim(P_fw1, "quarter", "fw1-key-6");
+eq(fw1StaleHealed.status, "granted", "F-W4-1c: setelah cancel terverifikasi ⇒ nomor bebas checkout lagi");
+complete(fw1StaleHealed, "ord-FW1c-new", "https://pay/fw1c-new");
 
 // (5b) F-W4-1b: kunci LAMA yang barisnya sudah di-retire 3b (`failed`, tapi
 // `order_id` masih tersimpan & link Scalev-nya masih bisa dibayar) TIDAK boleh
 // di-grant ulang ⇒ order kedua. Kunci sama tetap order/link yang sama.
+// Sejak F-W4-1c jalur TTL TIDAK lagi melahirkan `failed`, jadi bentuk warisan itu
+// disemai langsung (persis baris hasil retire versi LAMA).
 const P_fw1b = "6281200000713";
 armPhone(P_fw1b, "fw1b-consent-1");
 const fw1bA = claim(P_fw1b, "quarter", "fw1b-key-old");
 eq(fw1bA.status, "granted", "F-W4-1b: pra-syarat — klaim pertama diberikan");
 complete(fw1bA, "ord-FW1b-A", "https://pay/fw1b-a");
 psqlSuper(
-  `update checkout_claims set created_at = now() - interval '61 minutes' where id='${fw1bA.claim_id}'`
+  `update checkout_claims set status='failed', scalev_order_uuid=NULL where id='${fw1bA.claim_id}'`
 );
-const fw1bB = claim(P_fw1b, "quarter", "fw1b-key-new");
-eq(fw1bB.status, "granted", "F-W4-1b: pra-syarat — retire TTL membebaskan nomor (kunci baru dapat order)");
-complete(fw1bB, "ord-FW1b-B", "https://pay/fw1b-b");
 eq(
   psqlSuper(`select status from checkout_claims where id='${fw1bA.claim_id}'`, { csv: true }),
   "failed",
-  "F-W4-1b: pra-syarat — baris kunci lama sudah di-retire (failed)"
+  "F-W4-1b: pra-syarat — baris kunci lama dalam bentuk warisan (failed + order_id, tanpa canonical ID)"
 );
 
 const fw1bReplay = claim(P_fw1b, "quarter", "fw1b-key-old");
-eq(fw1bReplay.status, "already_created", "F-W4-1b: replay kunci lama setelah retire ⇒ already_created (bukan granted)");
+eq(fw1bReplay.status, "already_created", "F-W4-1b: replay kunci lama (baris warisan) ⇒ already_created (bukan granted)");
 eq(fw1bReplay.order_id, "ord-FW1b-A", "F-W4-1b: ... mengembalikan order yang MEMANG milik kunci itu");
 eq(
   psqlSuper(`select status from checkout_claims where id='${fw1bA.claim_id}'`, { csv: true }),
   "failed",
   "F-W4-1b: baris kunci lama tidak dibangkitkan jadi in_flight (tidak ada kursi kedua)"
+);
+
+// (5b-2) F-W4-1c: order warisan TANPA canonical ID tidak boleh dicancel dengan ID
+// tebakan ⇒ antrean rekonsiliasi owner (`cancel_failed` + alasan), nomor DITAHAN.
+const P_backfill = "6281200000719";
+armPhone(P_backfill, "backfill-consent-1");
+const backfillA = claim(P_backfill, "quarter", "backfill-key-1");
+eq(backfillA.status, "granted", "F-W4-1c: pra-syarat — klaim warisan diberikan");
+complete(backfillA, "ord-BACKFILL", "https://pay/backfill");
+psqlSuper(`update checkout_claims set scalev_order_uuid=NULL where id='${backfillA.claim_id}'`);
+psqlSuper(`update checkout_claims set created_at = now() - interval '61 minutes' where id='${backfillA.claim_id}'`);
+const backfillClaim = claim(P_backfill, "quarter", "backfill-key-2");
+eq(backfillClaim.status, "cancel_failed", "F-W4-1c: order TTL tanpa canonical ID ⇒ cancel_failed (rekonsiliasi owner)");
+eq(
+  psqlSuper(`select cancel_last_error from checkout_claims where id='${backfillA.claim_id}'`, { csv: true }),
+  "missing_canonical_order_id",
+  "F-W4-1c: ... alasannya tercatat (bukan cancel dengan order_id bisnis)"
+);
+eq(
+  rpc(`select claim_checkout_cancel('${backfillA.claim_id}')`).status,
+  "not_claimed",
+  "F-W4-1c: baris tanpa canonical ID TIDAK bisa diklaim worker cancel"
+);
+eq(
+  num(`select count(distinct order_id) from checkout_claims where phone='${P_backfill}' and status='created' and paid_at is null`),
+  0,
+  "F-W4-1c: ... dan nol order kedua lahir di belakang link warisan itu"
 );
 // Route mencetak order ketiga HANYA kalau gate masih memberi `granted` (pra-fix).
 // Ini yang membuat asersi hitungan di bawah bergigi — persis jalur `create-order`.
@@ -611,12 +707,12 @@ eq(
   num(
     `select count(distinct order_id) from checkout_claims where phone='${P_fw1b}' and status='created' and paid_at is null`
   ),
-  1,
-  "F-W4-1b: tepat SATU order belum-dibayar hidup sesudah replay kunci lama"
+  0,
+  "F-W4-1b: replay kunci warisan TIDAK melahirkan order belum-dibayar baru (nol kursi kedua)"
 );
 eq(
   num(`select count(*) from checkout_claims where phone='${P_fw1b}'`),
-  2,
+  1,
   "F-W4-1b: tidak ada baris klaim kedua yang lahir karena replay"
 );
 
@@ -634,14 +730,21 @@ complete(fw1bPaidA, "ord-T2-A", "https://pay/t2-a");
 psqlSuper(
   `update checkout_claims set created_at = now() - interval '61 minutes' where id='${fw1bPaidA.claim_id}'`
 );
-const fw1bPaidB = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-new");
-eq(fw1bPaidB.status, "granted", "T2: pra-syarat — retire TTL membebaskan nomor");
-complete(fw1bPaidB, "ord-T2-B", "https://pay/t2-b");
+eq(
+  claim(P_fw1bPaid, "quarter", "fw1b-paid-key-probe").status,
+  "cancel_pending",
+  "T2: pra-syarat — order > TTL ditahan sampai cancel terverifikasi"
+);
+rpc(`select claim_checkout_cancel('${fw1bPaidA.claim_id}')`);
+rpc(`select record_checkout_cancel_result('${fw1bPaidA.claim_id}','retired')`);
 eq(
   psqlSuper(`select status from checkout_claims where id='${fw1bPaidA.claim_id}'`, { csv: true }),
-  "failed",
-  "T2: pra-syarat — baris kunci lama sudah di-retire (failed)"
+  "retired",
+  "T2: pra-syarat — baris kunci lama sudah di-retire (retired)"
 );
+const fw1bPaidB = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-new");
+eq(fw1bPaidB.status, "granted", "T2: pra-syarat — retire membebaskan nomor");
+complete(fw1bPaidB, "ord-T2-B", "https://pay/t2-b");
 // Webhook pembayaran: order kunci lama lunas SESUDAH barisnya di-retire.
 eq(
   rpc(`select mark_checkout_claim_paid('ord-T2-A')`).status,
@@ -650,7 +753,17 @@ eq(
 );
 check(
   paidAt(fw1bPaidA.claim_id).length > 0,
-  "T2: pra-syarat — paid_at terisi meski status barisnya masih failed"
+  "T2: pra-syarat — paid_at terisi meski status barisnya retired"
+);
+eq(
+  psqlSuper(`select (late_payment_at is not null) from checkout_claims where id='${fw1bPaidA.claim_id}'`, { csv: true }),
+  "t",
+  "F-W4-1c: pembayaran SESUDAH retire ditandai duplikat (late_payment_at)"
+);
+eq(
+  rpc(`select (mark_checkout_claim_paid('ord-T2-A'))::json->>'late_payment'`),
+  true,
+  "F-W4-1c: RPC pembayaran membalas late_payment=true (dipakai webhook untuk alert)"
 );
 
 const fw1bPaidReplay = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-old");
@@ -913,6 +1026,61 @@ eq(
   claimSafe(P_f2, "quarter", KEY_F2_K1).status,
   "granted",
   "F-2: setelah order penahan lunas, replay K1 ⇒ granted (tidak terkunci permanen)"
+);
+
+// ── 13. F-W4-1c: BENTUK skema & retensi (bukan "apply exit 0") ───────────────
+console.log("── 13. F-W4-1c: pg_constraint/pg_indexes + purge state terminal ──");
+const constraintDef = psqlSuper(
+  `select pg_get_constraintdef(oid) from pg_constraint where conname='checkout_claims_status_check'`,
+  { csv: true }
+);
+for (const st of ["in_flight", "created", "cancel_pending", "retired", "cancel_failed", "failed"]) {
+  check(constraintDef.includes(`'${st}'`), `F-W4-1c: CHECK status memuat '${st}'`, constraintDef);
+}
+const liveIdx = psqlSuper(
+  `select indexdef from pg_indexes where indexname='uq_checkout_claims_live_phone'`,
+  { csv: true }
+);
+check(
+  liveIdx.includes("cancel_pending") && liveIdx.includes("cancel_failed"),
+  "F-W4-1c: penjaga per-nomor ikut menahan state cancel",
+  liveIdx
+);
+check(
+  liveIdx.includes("in_flight") && liveIdx.includes("created") && liveIdx.includes("paid_at IS NULL"),
+  "F-W4-1c: penjaga per-nomor masih memuat state lama + syarat paid_at IS NULL",
+  liveIdx
+);
+check(!liveIdx.includes("retired"), "F-W4-1c: 'retired' TIDAK ikut menahan (replacement sah)", liveIdx);
+const idemIdx = psqlSuper(
+  `select indexdef from pg_indexes where indexname='uq_checkout_claims_idempotency'`,
+  { csv: true }
+);
+check(
+  idemIdx.includes("WHERE") && idemIdx.includes("cancel_pending"),
+  "F-W4-1c: kunci idempotensi partial pada state aktif (kunci terminal bebas dipakai ulang)",
+  idemIdx
+);
+check(!idemIdx.includes("retired"), "F-W4-1c: kunci `retired` tidak dijepit index idempotensi", idemIdx);
+
+// Retensi: state terminal lama dibuang; `cancel_pending` TIDAK dibuang.
+psqlSuper(`insert into checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, created_at, updated_at) values
+  ('thrivin','6281200000721','purge-retired-old','quarter','retired', now() - interval '31 days', now() - interval '31 days'),
+  ('thrivin','6281200000722','purge-cancelfailed-old','quarter','cancel_failed', now() - interval '31 days', now() - interval '31 days'),
+  ('thrivin','6281200000723','purge-cancelpending-old','quarter','cancel_pending', now() - interval '31 days', now() - interval '31 days'),
+  ('thrivin','6281200000724','purge-created-old','quarter','created', now() - interval '31 days', now() - interval '31 days')`);
+rpc(`select purge_expired_onboarding_progress(30)`);
+eq(
+  num(
+    `select count(*) from checkout_claims where idempotency_key in ('purge-retired-old','purge-cancelfailed-old','purge-created-old')`
+  ),
+  0,
+  "F-W4-1c: purge membuang state terminal lama (retired/cancel_failed/created)"
+);
+eq(
+  num(`select count(*) from checkout_claims where idempotency_key='purge-cancelpending-old'`),
+  1,
+  "F-W4-1c: purge TIDAK membuang cancel_pending (metadata retry/rekonsiliasi masih perlu)"
 );
 
 // ── Ringkasan ───────────────────────────────────────────────────────────────

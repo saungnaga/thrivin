@@ -12,6 +12,7 @@ import http from "http";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import crypto from "crypto";
 
 const PORT = Number(process.argv[2] || process.env.MOCK_SCALEV_PORT || 4111);
 
@@ -25,6 +26,9 @@ const PRODUCTS = [
 /** Every order this mock has been asked to create — the assertion surface. */
 export const createdOrders = [];
 
+// F-W4-1c: `POST /v3/orders/change-status` (cancel). Dipakai uji cancel TTL.
+export const changeStatusCalls = [];
+
 // Mirror to disk so the test process (which talks to the mock over HTTP, not
 // via import) can assert on what the route actually sent Scalev. Default
 // ber-pid supaya menjalankan mock manual tidak menimpa file run lain (RX2-2).
@@ -32,6 +36,34 @@ const ORDERS_FILE =
   process.env.MOCK_SCALEV_ORDERS_FILE ||
   path.join(os.tmpdir(), `thrivin-mock-orders-${process.pid}.json`);
 fs.writeFileSync(ORDERS_FILE, "[]");
+
+/**
+ * F-W4-1c: mode cancel DIBACA DARI FILE pada tiap request (bukan env), supaya
+ * suite bisa mengubah hasil upstream tanpa me-restart mock: satu mode = satu
+ * assertion yang hanya bisa lulus kalau kode benar-benar menangani mode itu
+ * (Sentinel S-4: mode parsial adalah satu-satunya cara assertion bisa gagal).
+ * Nilai: ok (default) · partial · partial_once · wrong_status · no_id ·
+ *        200_malformed · 408 · 429 · 500 · 500_once · 400 · 403 · 401 · 404 · 409 · timeout.
+ */
+const CANCEL_MODE_FILE =
+  process.env.MOCK_SCALEV_CANCEL_MODE_FILE ||
+  path.join(os.tmpdir(), `thrivin-mock-cancel-mode-${process.pid}.txt`);
+const CANCEL_FILE =
+  process.env.MOCK_SCALEV_CANCEL_FILE ||
+  path.join(os.tmpdir(), `thrivin-mock-cancel-${process.pid}.json`);
+fs.writeFileSync(CANCEL_FILE, "[]");
+
+function cancelMode() {
+  try {
+    return fs.readFileSync(CANCEL_MODE_FILE, "utf-8").trim() || "ok";
+  } catch {
+    return "ok";
+  }
+}
+
+function persistCalls() {
+  fs.writeFileSync(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
+}
 
 function persistOrders() {
   fs.writeFileSync(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
@@ -100,6 +132,62 @@ const server = http.createServer(async (req, res) => {
         gross_revenue: gross,
         notes: body.notes,
       });
+  }
+
+  // F-W4-1c: cancel order — `POST /v3/orders/change-status`.
+  if (req.method === "POST" && url.pathname.endsWith("/orders/change-status")) {
+    const body = await readBody(req);
+    const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+    const authHeader = req.headers.authorization || "";
+    changeStatusCalls.push({
+      receivedAt: Date.now(),
+      ids,
+      status: body.status,
+      by: body.by,
+      // Nol kredensial di artefak: cukup bentuk header + sidik jari 8 hex supaya
+      // uji bisa membuktikan key CANCEL yang dipakai (bukan key create-order).
+      authKind: authHeader.startsWith("Bearer ") ? "bearer" : "none",
+      authSha8: crypto.createHash("sha256").update(authHeader).digest("hex").slice(0, 8),
+      mode: cancelMode(),
+    });
+    persistCalls();
+
+    const mode = cancelMode();
+    // Mode "*_once": hasil jelek HANYA pada panggilan pertama, lalu normal —
+    // satu-satunya cara membuktikan retry bounded benar-benar terjadi DAN
+    // idempotent (ids yang dikirim ulang harus sama).
+    const attemptNo = changeStatusCalls.filter((c) => c.mode === mode).length;
+    if (mode === "timeout") {
+      // Lebih lama dari timeout klien (5 s) supaya jalurnya benar-benar hangus.
+      await new Promise((r) => setTimeout(r, 9000));
+    }
+    if (mode === "401") return send(res, 401, { message: "unauthorized" });
+    if (mode === "403") return send(res, 403, { message: "forbidden" });
+    if (mode === "400") return send(res, 400, { message: "bad request" });
+    if (mode === "404") return send(res, 404, { error: "not found" });
+    if (mode === "408") return send(res, 408, { error: "request timeout" });
+    if (mode === "409") return send(res, 409, { message: "already canceled" });
+    if (mode === "429") return send(res, 429, { error: "rate limited" });
+    if (mode === "500") return send(res, 500, { error: "internal" });
+    if (mode === "500_once" && attemptNo === 1) return send(res, 500, { error: "internal" });
+    if (mode === "partial" || (mode === "partial_once" && attemptNo === 1)) {
+      // Sukses tapi data[] hanya memuat SEBAGIAN id yang dikirim.
+      return send(res, 200, {
+        data: ids.slice(0, Math.max(1, ids.length - 1)).map((id) => ({ id, status: "canceled" })),
+      });
+    }
+    if (mode === "wrong_status") {
+      return send(res, 200, { data: ids.map((id) => ({ id, status: "processed" })) });
+    }
+    if (mode === "no_id") {
+      return send(res, 200, { data: ids.map(() => ({ status: "canceled" })) });
+    }
+    if (mode === "200_malformed") {
+      return send(res, 200, { message: "ok" });
+    }
+    return send(res, 200, {
+      data: ids.map((id) => ({ id, status: "canceled", url: `https://thrivin.myscalev.com/orders/${id}` })),
+    });
   }
 
   send(res, 404, { error: "not found", path: url.pathname });

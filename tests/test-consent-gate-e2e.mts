@@ -41,6 +41,10 @@ const BROKEN_URL = `http://127.0.0.1:${BROKEN_APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 // Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
 const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || tmpPath("w4-orders.json");
+// F-W4-1c: jalur cancel pada mock — mode hasil upstream diubah lewat file.
+const CANCEL_FILE = process.env.MOCK_SCALEV_CANCEL_FILE || tmpPath("w4-cancel-calls.json");
+const CANCEL_MODE_FILE = process.env.MOCK_SCALEV_CANCEL_MODE_FILE || tmpPath("w4-cancel-mode.txt");
+const CANCEL_KEY = "sk_cancel_w4_suite_key";
 const LOG = tmpPath("w4-server.log");
 const BROKEN_LOG = tmpPath("w4-broken.log");
 /** Port tanpa apa-apa: mensimulasikan Supabase mati. */
@@ -67,6 +71,7 @@ const P = {
   replayAfterTtl: "6281200000818",
   paidReplay: "6281200000819",
   emptyOrderId: "6281200000820",
+  reconciliation: "6281200000821",
 };
 
 const results: Array<[string, string]> = [];
@@ -123,6 +128,9 @@ async function startApp(
     WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
     WA_SESSION_EPOCH: "0",
     SCALEV_API_KEY: "mock-scalev-key-not-real",
+    // F-W4-1c: key cancel TERPISAH (least-privilege) — tanpa ini checkout
+    // fail-closed begitu ada order basi, dan suite ini menguji jalur normalnya.
+    SCALEV_CANCEL_API_KEY: CANCEL_KEY,
     SCALEV_API_BASE_URL: MOCK_URL,
     NINA_ADMIN_PHONES: P.adminAllowed,
     ...env,
@@ -154,6 +162,17 @@ function mockOrders(): any[] {
 }
 function mockOrderCount(): number {
   return mockOrders().length;
+}
+/** F-W4-1c: panggilan cancel yang diterima mock (assertion surface). */
+function cancelCalls(): any[] {
+  try {
+    return JSON.parse(fs.readFileSync(CANCEL_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+function setCancelMode(mode: string): void {
+  fs.writeFileSync(CANCEL_MODE_FILE, mode);
 }
 
 async function postJson(
@@ -222,7 +241,13 @@ async function main() {
 
   // Mock Scalev + PostgREST + dua instance app (normal & Supabase mati).
   const mock = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
-    env: { ...process.env, MOCK_SCALEV_PORT: String(MOCK_PORT), MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
+    env: {
+      ...process.env,
+      MOCK_SCALEV_PORT: String(MOCK_PORT),
+      MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE,
+      MOCK_SCALEV_CANCEL_FILE: CANCEL_FILE,
+      MOCK_SCALEV_CANCEL_MODE_FILE: CANCEL_MODE_FILE,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   mock.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
@@ -555,9 +580,24 @@ async function main() {
         `select status from checkout_claims where order_id='${afterPaid.body.orderId}'`,
         { csv: true }
       ),
-      "failed",
-      "F-W4-1(a): order yang ditinggalkan ditandai failed (tidak menahan nomor)"
+      "retired",
+      "F-W4-1c: order yang ditinggalkan DIBATALKAN dulu (retired), bukan dilepas diam-diam"
     );
+    assertEq(
+      psqlSuper(
+        `select count(*) from checkout_claims where order_id='${afterPaid.body.orderId}' and payment_url is null and canceled_at is not null`,
+        { csv: true }
+      ),
+      "1",
+      "F-W4-1c: link bayar order lama dibuang + jejak canceled_at ada"
+    );
+    const abandonCancel = cancelCalls().slice(-1)[0];
+    assertEq(
+      abandonCancel?.ids?.[0],
+      afterPaid.body?.uuid,
+      "F-W4-1c: cancel memakai canonical UUID dari Scalev (BUKAN order_id bisnis)"
+    );
+    assertEq(abandonCancel?.status, "canceled", "F-W4-1c: body cancel memakai status=canceled");
 
     // (5) F-W4-1b: kunci LAMA yang barisnya sudah di-retire TTL (>60 menit, `failed`
     // tapi `order_id` masih tersimpan) TIDAK boleh mencetak order ketiga — kunci sama
@@ -582,10 +622,10 @@ async function main() {
     assertEq(c2bReplay.status, 200, "F-W4-1b: replay kunci lama ⇒ 200");
     assertEq(
       c2bReplay.body?.orderId,
-      c2bA.body.orderId,
-      "F-W4-1b: ... mengembalikan order milik kunci itu (bukan order ketiga)"
+      c2bB.body.orderId,
+      "F-W4-1c: replay kunci lama setelah cancel ⇒ dijawab order HIDUP yang ada (link mati tidak dikembalikan)"
     );
-    assertEq(c2bReplay.body?.replay, true, "F-W4-1b: ... ditandai replay ⇒ tidak ada panggilan Scalev");
+    assertEq(c2bReplay.body?.replay, true, "F-W4-1c: ... ditandai replay ⇒ tidak ada panggilan Scalev");
     assertEq(mockOrderCount() - c2bBefore, 1, "F-W4-1b: TIDAK ada order ketiga dicetak di Scalev");
     assertEq(
       psqlSuper(
@@ -662,8 +702,12 @@ async function main() {
     const t3A = await createOrder(P.emptyOrderId, t3Arm.idempotencyKey);
     assertEq(t3A.status, 200, "T3: pra-syarat — order pertama ⇒ 200");
     assertOk(!!t3A.body?.orderId, "T3: pra-syarat — order pertama punya orderId");
+    // F-W4-1c: premis temuan T3 = order yang TIDAK pernah ada (Scalev balas tanpa
+    // order_id ⇒ klaim dilepas). Karena itu canonical UUID-nya juga kosong; baris
+    // warisan yang PUNYA canonical UUID tapi kehilangan nomor bisnis justru
+    // ditahan (lihat kasus di bawah), bukan di-grant ulang.
     psqlSuper(
-      `update checkout_claims set status='failed', order_id='', updated_at=now() where idempotency_key='${t3Arm.idempotencyKey}'`
+      `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, updated_at=now() where idempotency_key='${t3Arm.idempotencyKey}'`
     );
     assertEq(
       psqlSuper(
@@ -703,6 +747,30 @@ async function main() {
       "created",
       "T3: barisnya kini memegang order yang BENAR-BENAR tercetak"
     );
+
+    // (8) F-W4-1c M-2: baris yang PUNYA canonical UUID tapi tanpa nomor bisnis
+    // (order/link tidak lengkap) TIDAK dikembalikan dan TIDAK dicetak ulang —
+    // tahan untuk rekonsiliasi ops. Tanpa cabang ini, UI akan menerima 200 dengan
+    // link kosong sambil kunci idempotensinya nyangkut.
+    const reconArm = await armCheckout({
+      base: APP_URL,
+      phone: P.reconciliation,
+      cookie: waSessionCookie(P.reconciliation),
+    });
+    const reconA = await createOrder(P.reconciliation, reconArm.idempotencyKey);
+    assertEq(reconA.status, 200, "RECON: pra-syarat — order pertama ⇒ 200");
+    psqlSuper(
+      `update checkout_claims set order_id='', payment_url=NULL, updated_at=now() where idempotency_key='${reconArm.idempotencyKey}'`
+    );
+    const reconBefore = mockOrderCount();
+    const reconRetry = await createOrder(P.reconciliation, reconArm.idempotencyKey);
+    assertEq(reconRetry.status, 409, "RECON: baris tanpa nomor bisnis/tanpa link ⇒ 409 (ditahan)");
+    assertEq(reconRetry.body?.code, "CHECKOUT_RECONCILIATION", "RECON: kode CHECKOUT_RECONCILIATION");
+    assertOk(
+      !reconRetry.body?.orderId && !reconRetry.body?.paymentUrl,
+      "RECON: jawaban tidak membawa orderId/paymentUrl karangan"
+    );
+    assertEq(mockOrderCount(), reconBefore, "RECON: tidak ada order kedua dicetak");
 
     // ═══ D. Opt-out eksplisit & retry lama ════════════════════════════════
     section("D. opt-out menang, retry lama tidak menyalakan ulang");
