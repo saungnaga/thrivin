@@ -473,6 +473,13 @@ async function main() {
       "dua kunci berbeda paralel: status ∈ {200 (order yang sama), 409 (in-flight)}",
       JSON.stringify(twoKeyResults.map((r) => r.status))
     );
+    // W4RX4 T1: penolakan itu kontraknya 409 ORDER_IN_FLIGHT ("tunggu sebentar lalu
+    // muat ulang"), bukan kode benturan lain — UI bergantung pada pesan itu.
+    assertOk(
+      twoKeyResults.every((r) => r.status !== 409 || r.body?.code === "ORDER_IN_FLIGHT"),
+      "dua kunci berbeda paralel: 409 = ORDER_IN_FLIGHT",
+      JSON.stringify(twoKeyResults.map((r) => `${r.status}:${r.body?.code ?? ""}`))
+    );
 
     // ═══ C2. F-W4-1 (keputusan owner 16/10, opsi a) ════════════════════════
     // Aturan: paket SAMA + masih ada order belum dibayar ⇒ kunci baru

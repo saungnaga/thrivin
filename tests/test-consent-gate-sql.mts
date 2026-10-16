@@ -8,9 +8,9 @@
  * urutan consent, idempotensi, append-only, single-flight klaim order, dan
  * hak akses (anon ditolak).
  */
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import path from "path";
-import { psqlSuper } from "./harness/stack.mts";
+import { PG_DB, psqlSuper } from "./harness/stack.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 // F-S8: Seed database lokal sebelum uji agar skema/fungsi draf terbaru selalu diuji
@@ -73,6 +73,46 @@ function numSafe(sql: string): number {
   } catch {
     return NaN;
   }
+}
+/**
+ * `psqlSuper` yang TIDAK menunggu: satu proses psql sendiri = satu koneksi
+ * sendiri. Dipakai untuk menjalankan sesi KEDUA (`claim_checkout_order`) atau
+ * menahan transaksi lain terbuka — dua sesi nyata, bukan simulasi urutan.
+ */
+function psqlSuperAsync(sql: string, extraArgs: string[] = []): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "sudo",
+      ["-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-q", "-d", PG_DB, ...extraArgs, "-c", sql],
+      { stdio: ["ignore", "pipe", "pipe"] }
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("close", (code) =>
+      code === 0 ? resolve(out.trim()) : reject(new Error(err.trim() || `psql exit ${code}`))
+    );
+  });
+}
+/** `rpc()` untuk keluaran mentah psqlSuperAsync — gagal = status yang terbaca FAIL. */
+function jsonSafe(raw: string): any {
+  try {
+    return JSON.parse(String(raw).split("\n").pop() ?? "");
+  } catch {
+    return { status: `unparsable: ${raw}` };
+  }
+}
+/** Tunggu (dengan batas) sampai ada sesi lain yang cocok dengan satu kondisi. */
+async function waitForSession(where: string, tries = 400): Promise<number> {
+  for (let i = 0; i < tries; i++) {
+    const n = numSafe(
+      `select count(*) from pg_stat_activity where pid <> pg_backend_pid() and ${where}`
+    );
+    if (n > 0) return n;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return 0;
 }
 
 const P = {
@@ -609,6 +649,81 @@ const anonMarkPaid = throws(
   `begin; set local role anon; select mark_checkout_claim_paid('ord-FW1'); rollback;`
 );
 check(!!anonMarkPaid, "anon DILARANG memanggil mark_checkout_claim_paid", "ternyata boleh");
+
+// (8) W4RX4 T1 (temuan Sentinel t_3f91103d): dua kunci BERBEDA, nomor sama, paralel.
+// Langkah 6 (`SELECT ... status='created' AND paid_at IS NULL`) dan langkah 7
+// (`INSERT`) ada di snapshot READ COMMITTED yang berbeda; commit `complete` milik
+// request pertama bisa menyelip di antaranya. Blok ini mereproduksinya DETERMINISTIK
+// (bukan balapan timing / flaky) dengan dua sesi NYATA yang memanggil RPC asli:
+// transaksi A ditahan terbuka, dan B baru dijalankan setelah terbukti A sudah
+// menjalankan complete — jadi langkah 6 milik B pasti lebih tua dari commit itu.
+console.log("── 11. W4RX4 T1: order HIDUP kedua tidak boleh lahir dari celah snapshot ──");
+const P_t1 = "6281200000715";
+const KEY_T1_A = "t1-key-a";
+const KEY_T1_B = "t1-key-b";
+/** Penanda di teks query supaya sesi A bisa dikenali di pg_stat_activity. */
+const T1_MARK = "w4rx4-hold-marker";
+armPhone(P_t1, "t1-consent-1");
+const t1A = claim(P_t1, "quarter", KEY_T1_A);
+eq(t1A.status, "granted", "T1: pra-syarat — klaim pertama diberikan");
+
+// Jalur app apa adanya: transaksi KLAIM A sudah commit; panggilan Scalev +
+// complete_checkout_claim jalan di transaksi KEDUA, dan transaksi kedua itu di
+// sini ditahan terbuka (uncommitted) selama B masuk.
+const t1HolderDone = psqlSuperAsync(`
+begin;
+select '${T1_MARK}';
+select complete_checkout_claim('${t1A.claim_id}','ord-T1-A','https://pay/t1-a',231000);
+select pg_sleep(6);
+commit;
+`);
+const t1Holding = await waitForSession(`query like '%${T1_MARK}%' and wait_event_type = 'Timeout'`);
+check(
+  t1Holding > 0,
+  "T1: pra-syarat — transaksi A sudah menjalankan complete dan masih MENAHANNYA (uncommitted)",
+  `sesi yang cocok: ${t1Holding}`
+);
+
+// B: kunci BERBEDA, nomor sama, paket sama — dijalankan juga di latar supaya bisa
+// dibuktikan bahwa ia benar-benar tertahan DI LANGKAH 7 (`wait_event_type='Lock'`),
+// bukan sekadar mengembalikan jawaban.
+const t1BDone = psqlSuperAsync(
+  `select (claim_checkout_order('${P_t1}', ARRAY[2,3,4,5,6,7,8], 'quarter', 'terms-2026-10-15-v1', '${KEY_T1_B}'))::text`,
+  ["-At"]
+);
+const t1Blocked = await waitForSession(`query like '%${KEY_T1_B}%' and wait_event_type = 'Lock'`, 200);
+check(
+  t1Blocked > 0,
+  "T1: pra-syarat — request kedua tertahan di langkah 7 (INSERT di kunci oleh baris A yang belum di-commit)",
+  `sesi yang cocok: ${t1Blocked}`
+);
+const t1B = jsonSafe(await t1BDone.catch((err) => `ERR ${err}`));
+const t1Holder = String(await t1HolderDone.catch((err) => `ERR ${err}`)).replace(/\s+/g, " ");
+check(
+  t1Holder.includes("completed"),
+  "T1: pra-syarat — complete_checkout_claim A selesai tanpa error",
+  t1Holder.slice(-160)
+);
+eq(
+  t1B.status,
+  "in_flight",
+  "T1: kunci berbeda + nomor sama ⇒ request kedua DITOLAK (in_flight ⇒ route 409 ORDER_IN_FLIGHT), bukan granted"
+);
+// Route mencetak order kedua HANYA kalau gate masih memberi `granted` (pra-fix).
+// Ini yang membuat asersi hitungan di bawah bergigi — persis jalur `create-order`.
+if (t1B.status === "granted") complete(t1B, "ord-T1-B", "https://pay/t1-b");
+eq(
+  num(
+    `select count(distinct order_id) from checkout_claims where phone='${P_t1}' and status='created' and paid_at is null`
+  ),
+  1,
+  "T1: tepat SATU order belum-dibayar hidup untuk nomor itu"
+);
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_t1}' and idempotency_key='${KEY_T1_B}'`),
+  0,
+  "T1: baris klaim kedua tidak lahir (tolak = tidak ada kursi kedua)"
+);
 
 // ── Ringkasan ───────────────────────────────────────────────────────────────
 console.log(`\nSQL gate consent/checkout: ${pass} PASS, ${failures.length} FAIL`);
