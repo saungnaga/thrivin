@@ -8,6 +8,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO"
 
 psql_() { sudo -u postgres psql "$@"; }
+# SHA pra-fix = commit tepat SEBELUM guard (a3782c6). Bisa dioverride lewat env.
+RX21A_PREFIX_SHA="${RX21A_PREFIX_SHA:-a3782c6^}"
 fresh_db() {
   local db="$1"
   psql_ -q -c "DROP DATABASE IF EXISTS $db;" >/dev/null 2>&1
@@ -24,11 +26,11 @@ probe() {
   psql_ -Atc "SELECT count(*) FROM pg_class WHERE relname='purge_audit_log';" -d "$db"
 }
 
-echo "=== PRA-FIX (staging/schema-consent.sql @ HEAD, no guard) ==="
-git show HEAD:staging/schema-consent.sql > /tmp/rx21a-prefix-consent.sql
+echo "=== PRA-FIX (staging/schema-consent.sql @ ${RX21A_PREFIX_SHA}, no guard) ==="
+git show "${RX21A_PREFIX_SHA}:staging/schema-consent.sql" > /tmp/rx21a-prefix-consent.sql
 fresh_db thrivin_rx21a_canary_prefix
 psql_ -d thrivin_rx21a_canary_prefix -f - < /tmp/rx21a-prefix-consent.sql > /tmp/rx21a-prefix.log 2>&1
-echo "  EXIT=$?  (tanpa ON_ERROR_STOP: 4x error generik, file jalan sampai habis)"
+echo "  EXIT=$?  (tanpa ON_ERROR_STOP: 5x error generik, file jalan sampai habis)"
 echo "  jumlah 'relation \"purge_audit_log\" does not exist' : $(grep -c 'relation "purge_audit_log" does not exist' /tmp/rx21a-prefix.log)"
 grep -n 'ERROR' /tmp/rx21a-prefix.log | sed 's/^/  /'
 probe thrivin_rx21a_canary_prefix

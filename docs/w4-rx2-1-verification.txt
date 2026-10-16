@@ -121,7 +121,8 @@ Commit: `a3782c6` (basis review `eaee5ed`).
 Canary skrip: `bash tests/harness/rx21a-canary.sh`   (log: /tmp/rx21a-canary-out.txt)
 DB baru = `001-core-schema.sql` saja (tanpa skema webhook H-4), lalu apply consent.
 
-  PRA-FIX (`git show HEAD:staging/schema-consent.sql`, tanpa guard, tanpa ON_ERROR_STOP):
+  PRA-FIX (`git show a3782c6^:staging/schema-consent.sql` — SHA pra-fix di-pin di skrip,
+           tanpa guard, tanpa ON_ERROR_STOP):
     EXIT=0  → file "jalan sampai habis", 5x pesan generik:
       psql:<stdin>:689..692  ERROR: relation "purge_audit_log" does not exist   (4x blok ALTER)
       psql:<stdin>:766       ERROR: relation "purge_audit_log" does not exist   (grant/objek lain)
