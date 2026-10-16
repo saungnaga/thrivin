@@ -22,10 +22,12 @@ mutate() { # $1 = fixed|pre
 import sys
 path, mode = sys.argv[1], sys.argv[2]
 sql = open(path, encoding="utf-8").read()
-fixed = """DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+fixed = """BEGIN;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
   ON checkout_claims (tenant_id, phone)
-  WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;"""
+  WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+COMMIT;"""
 pre = """CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_inflight_phone
   ON checkout_claims (tenant_id, phone)
   WHERE status = 'in_flight';"""
