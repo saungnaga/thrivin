@@ -229,6 +229,9 @@ Bukti positif sesudah perubahan (kepala 57a1c4b + perubahan ini):
   - SQL gate consent/checkout : 113 PASS, 0 FAIL, EXIT=0   (/tmp/w4f1-runall.log)
   - e2e  gate consent/checkout : 158 PASS, 0 FAIL, EXIT=0
   - `bash tests/run-all.sh` penuh: ALL SUITES PASSED, SUITE_EXIT=0
+  - apply file penuh ke DB bersih DUA kali (`psql -v ON_ERROR_STOP=1 -f -`): EXIT=0 keduanya,
+    `pg_indexes` akhir = `uq_checkout_claims_live_phone` (predikat ber-fix) — idempotensi
+    yang sudah diklaim sebelum F-1 tetap berlaku setelah blok BEGIN/COMMIT dibungkus.
   - `npx tsc --noEmit` EXIT=0 + `npm run lint` EXIT=0
   Catatan angka: kartu menyebut "95/0 dan 138/0" — itu angka di kepala T1 (`eda4966`).
   Di cabang ini asersi T2 (`bd37533`) dan T3 (`57a1c4b`) sudah merge, jadi baseline
