@@ -404,11 +404,16 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(p_tenant_id || ':checkout:' || p_phone));
 
   -- 2. Replay idempotent: order yang sudah tercetak dikembalikan apa adanya.
-  SELECT id, status, order_id, payment_url INTO v_existing
+  SELECT id, phone, status, order_id, payment_url INTO v_existing
   FROM checkout_claims
   WHERE tenant_id = p_tenant_id AND idempotency_key = p_idempotency_key;
 
   IF FOUND THEN
+    -- F-S1: Kunci terikat ke nomor pembuat pertama. Replay lintas-nomor ditolak fail-closed.
+    IF v_existing.phone <> p_phone THEN
+      RETURN json_build_object('status', 'key_conflict');
+    END IF;
+
     IF v_existing.status = 'created' THEN
       RETURN json_build_object(
         'status', 'already_created',
@@ -420,7 +425,7 @@ BEGIN
     IF v_existing.status = 'in_flight' THEN
       RETURN json_build_object('status', 'in_flight', 'claim_id', v_existing.id);
     END IF;
-    -- 'failed': percobaan sebelumnya gagal; barisnya dipakai ulang.
+    -- 'failed': percobaan sebelumnya gagal; barisnya dipakai ulang (hanya untuk nomor sama).
     UPDATE checkout_claims
       SET status = 'in_flight', plan_key = p_plan_key, updated_at = now()
       WHERE id = v_existing.id
@@ -451,15 +456,13 @@ BEGIN
   END IF;
 
   -- 5. T&C versi yang diminta harus sudah disetujui (event terbaru untuk versi itu).
-  SELECT bool_or(value) INTO v_terms
+  -- F-S7: Aturan tie-break konsisten: jika terjadi seri occurred_at, `false` menang (fail-closed).
+  SELECT value INTO v_terms
   FROM consent_events
   WHERE tenant_id = p_tenant_id AND phone = p_phone AND consent_type = 'terms'
     AND text_version = p_terms_version
-    AND occurred_at = (
-      SELECT max(occurred_at) FROM consent_events
-      WHERE tenant_id = p_tenant_id AND phone = p_phone AND consent_type = 'terms'
-        AND text_version = p_terms_version
-    );
+  ORDER BY occurred_at DESC, (value = false) DESC, created_at DESC, id DESC
+  LIMIT 1;
 
   IF COALESCE(v_terms, false) IS NOT TRUE THEN
     RETURN json_build_object('status', 'consent_required');
@@ -569,6 +572,54 @@ AS $function$
 $function$;
 
 -- ============================================================================
+-- 10b. Retensi PII Onboarding & Purge (F-S4 / Kebijakan Privasi <= 30 hari)
+-- ============================================================================
+-- Kebijakan Privasi (/privacy klausul 5) menyatakan data profil disimpan paling
+-- lama 30 hari sebelum dihapus atau dianonimkan. Fungsi ini membersihkan
+-- state onboarding yang ditinggalkan / tidak aktif serta riwayat klaim checkout lama.
+CREATE OR REPLACE FUNCTION purge_expired_onboarding_progress(
+  p_retention_days INTEGER DEFAULT 30
+)
+RETURNS TABLE (ran_at TIMESTAMPTZ, deleted_progress INTEGER, deleted_claims INTEGER)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_progress INTEGER;
+  v_claims INTEGER;
+  v_cutoff TIMESTAMPTZ;
+BEGIN
+  v_cutoff := now() - make_interval(days => p_retention_days);
+
+  -- 1. Hapus progress onboarding yang tidak aktif / ditinggalkan lebih dari 30 hari.
+  DELETE FROM onboarding_progress
+  WHERE updated_at < v_cutoff;
+  GET DIAGNOSTICS v_progress = ROW_COUNT;
+
+  -- 2. Hapus klaim checkout lama (> 30 hari) agar tabel klaim tetap ramping.
+  DELETE FROM checkout_claims
+  WHERE updated_at < v_cutoff AND status IN ('created', 'failed');
+  GET DIAGNOSTICS v_claims = ROW_COUNT;
+
+  RETURN QUERY SELECT now(), v_progress, v_claims;
+END;
+$function$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'purge-thrivin-onboarding-progress') THEN
+      PERFORM cron.schedule(
+        'purge-thrivin-onboarding-progress',
+        '15 3 * * *',
+        'SELECT purge_expired_onboarding_progress();'
+      );
+    END IF;
+  END IF;
+END $$;
+
+-- ============================================================================
 -- 11. Grants + RLS
 -- ============================================================================
 -- Semua RPC di file ini HANYA dipanggil server (service_role lewat PostgREST).
@@ -580,6 +631,7 @@ REVOKE ALL ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, I
 REVOKE ALL ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_checkout_claim(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION purge_expired_onboarding_progress(INTEGER) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION record_consent_event(TEXT, TEXT, BOOLEAN, TEXT, TEXT, TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION record_checkout_consent(TEXT, TEXT, BOOLEAN, BOOLEAN, TEXT, TEXT, TEXT, VARCHAR) TO service_role;
@@ -588,6 +640,13 @@ GRANT EXECUTE ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT
 GRANT EXECUTE ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION release_checkout_claim(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION purge_expired_onboarding_progress(INTEGER) TO service_role;
+
+-- F-S5: Revoke eksplisit hak tabel dari role klien publik (anon, authenticated, PUBLIC).
+-- Mencegah bypass default privilege Supabase di mana tabel baru dapat di-SELECT/INSERT/UPDATE oleh klien.
+REVOKE ALL ON TABLE consent_events FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE onboarding_progress FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE checkout_claims FROM PUBLIC, anon, authenticated;
 
 -- `consent_events` = bukti: service_role boleh baca + tambah, TIDAK boleh ubah/hapus
 -- (trigger menolak juga, ini lapisan kedua).

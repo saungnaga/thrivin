@@ -53,9 +53,18 @@ check(
   /TERMS_VERSION = "terms-2026-10-15-v1"/.test(read(path.join("src", "lib", "legal.ts")))
 );
 check(
-  "no owner placeholder leaks into published routes",
+  "no raw placeholder literal in page.tsx templates",
   !/«/.test(read(path.join("src", "app", "terms", "page.tsx"))) &&
     !/«/.test(read(path.join("src", "app", "privacy", "page.tsx")))
+);
+// F-S3: Uji eksplisit konstanta legal: satu-satunya placeholder yang tersisa
+// adalah LEGAL_ADDRESS (menunggu alamat riil dari owner), tidak ada placeholder lain.
+const legalConsts = read(path.join("src", "lib", "legal.ts"));
+const placeholdersInLegal = legalConsts.match(/«[^»]+»/g) || [];
+check(
+  "legal constants have exactly one placeholder (address awaiting owner decision)",
+  placeholdersInLegal.length === 1 && placeholdersInLegal[0].includes("alamat"),
+  `found placeholders: ${JSON.stringify(placeholdersInLegal)}`
 );
 
 check(

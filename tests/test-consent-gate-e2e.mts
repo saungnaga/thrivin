@@ -399,6 +399,15 @@ async function main() {
     assertEq(replay.body?.replay, true, "jawaban ditandai replay");
     assertEq(mockOrderCount(), beforeReplay, "replay TIDAK membuat order baru");
 
+    // F-S1: Nomor B mencoba replay menggunakan kunci milik nomor A (happy)
+    // Sesi B valid, tetapi kunci sudah terikat ke A ⇒ 409 IDEMPOTENCY_KEY_CONFLICT
+    // Tidak boleh mengembalikan order_id atau payment_url.
+    const crossPhone = await createOrder(P.replay, happyArm.idempotencyKey);
+    assertEq(crossPhone.status, 409, "F-S1: replay kunci milik nomor lain ditolak 409");
+    assertEq(crossPhone.body?.code, "IDEMPOTENCY_KEY_CONFLICT", "F-S1: kode IDEMPOTENCY_KEY_CONFLICT");
+    assertOk(!crossPhone.body?.orderId, "F-S1: tidak ada orderId yang bocor");
+    assertOk(!crossPhone.body?.paymentUrl, "F-S1: tidak ada paymentUrl yang bocor");
+
     const raceArm = await armCheckout({
       base: APP_URL,
       phone: P.race,
@@ -593,16 +602,19 @@ async function main() {
     assertOk(/Scalev/.test(privacyHtml) && /Meta/.test(privacyHtml), "pihak ketiga disebut di /privacy");
     assertOk(/data sensitif/.test(privacyHtml), "media Strava disebut data sensitif (keputusan no. 8)");
     assertOk(/href="\/terms"/.test(privacyHtml), "/privacy menautkan /terms");
+    // F-S3: Buktikan placeholder di /privacy ter-render persis 1 (alamat)
+    const privacyPlaceholderCount = (privacyHtml.match(/«/g) || []).length;
+    assertEq(privacyPlaceholderCount, 1, "F-S3: hanya placeholder alamat yang tersisa di /privacy");
 
     const footer = fs.readFileSync(path.join(REPO, "src/components/Footer.tsx"), "utf-8");
     assertOk(/href="\/terms"/.test(footer), "footer menautkan /terms");
     const sitemap = fs.readFileSync(path.join(REPO, "src/app/sitemap.ts"), "utf-8");
     assertOk(/\/terms/.test(sitemap), "sitemap memuat /terms");
   } finally {
-    app.stop();
-    brokenApp.stop();
-    postgrest?.stop();
-    mock.kill("SIGKILL");
+    try { app.stop(); } catch {}
+    try { brokenApp.stop(); } catch {}
+    try { postgrest?.stop(); } catch {}
+    try { mock.kill("SIGKILL"); } catch {}
   }
 
   // ── Ringkasan ──────────────────────────────────────────────────────────────

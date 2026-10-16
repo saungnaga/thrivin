@@ -113,13 +113,11 @@ export async function startPostgrest(): Promise<RunningStack | null> {
     return null;
   }
 
-  // Probe the /rest/v1 root THROUGH THE PROXY: 404 there means not up yet.
-  // (PostgREST 16.x has no `server-root-spec` — writing it is silently ignored
-  // and bare /rest/v1/ paths 404 with PGRST125. Supabase hides PostgREST behind
-  // Kong, which strips /rest/v1; prefix-proxy.mjs mirrors that. See its header.)
+  // Probe the /rest/v1 root THROUGH THE PROXY: 200 means healthy and ready.
+  // (502 or connection error means upstream is down / orphaned proxy).
   try {
     const res = await fetch(`${POSTGREST_URL}/rest/v1/`);
-    if (res.status !== 404) return { stop: () => {} }; // already up (behind proxy)
+    if (res.status === 200) return { stop: () => {} }; // already up and healthy
   } catch {
     /* not running */
   }

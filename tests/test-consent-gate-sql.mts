@@ -8,7 +8,13 @@
  * urutan consent, idempotensi, append-only, single-flight klaim order, dan
  * hak akses (anon ditolak).
  */
+import { execFileSync } from "child_process";
+import path from "path";
 import { psqlSuper } from "./harness/stack.mts";
+
+const HERE = path.dirname(new URL(import.meta.url).pathname);
+// F-S8: Seed database lokal sebelum uji agar skema/fungsi draf terbaru selalu diuji
+execFileSync("bash", [path.join(HERE, "harness", "seed.sh")], { stdio: "inherit" });
 
 let pass = 0;
 const failures: string[] = [];
@@ -155,10 +161,10 @@ check(
 );
 
 // ── 6. anon/authenticated tidak bisa baca tabel & tidak bisa panggil RPC ────
-const anonRead = num(
+const anonRead = throws(
   `begin; set local role anon; select count(*) from consent_events; rollback;`
 );
-eq(anonRead, 0, "anon baca consent_events ⇒ 0 baris (RLS deny)");
+check(!!anonRead && /permission denied/i.test(anonRead), "anon DILARANG select consent_events (REVOKE)");
 const anonWrite = throws(
   `begin; set local role anon; select record_consent_event('${P.anon}','terms',true,'x','y','anon-key-1'); rollback;`
 );
@@ -167,14 +173,30 @@ const anonClaim = throws(
   `begin; set local role anon; select claim_checkout_order('${P.anon}', ARRAY[2],'month','terms-2026-10-15-v1','anon-key-2'); rollback;`
 );
 check(!!anonClaim, "anon DILARANG memanggil claim_checkout_order", "ternyata boleh");
-const anonProgress = num(
+const anonProgress = throws(
   `begin; set local role anon; select count(*) from onboarding_progress; rollback;`
 );
-eq(anonProgress, 0, "anon baca onboarding_progress ⇒ 0 baris (RLS deny)");
-const anonClaims = num(
+check(!!anonProgress && /permission denied/i.test(anonProgress), "anon DILARANG select onboarding_progress (REVOKE)");
+const anonClaims = throws(
   `begin; set local role anon; select count(*) from checkout_claims; rollback;`
 );
-eq(anonClaims, 0, "anon baca checkout_claims ⇒ 0 baris (RLS deny)");
+check(!!anonClaims && /permission denied/i.test(anonClaims), "anon DILARANG select checkout_claims (REVOKE)");
+
+// F-S5: probe anon INSERT / UPDATE ditolak (REVOKE eksplisit)
+const anonInsertEvents = throws(
+  `begin; set local role anon; insert into consent_events (phone, consent_type, value, source, text_version, idempotency_key) values ('${P.anon}','terms',true,'src','v1','anon-evt-1'); rollback;`
+);
+check(!!anonInsertEvents && /permission denied/i.test(anonInsertEvents), "anon DILARANG insert ke consent_events", anonInsertEvents || "");
+
+const anonInsertProgress = throws(
+  `begin; set local role anon; insert into onboarding_progress (phone, steps) values ('${P.anon}','{}'::jsonb); rollback;`
+);
+check(!!anonInsertProgress && /permission denied/i.test(anonInsertProgress), "anon DILARANG insert ke onboarding_progress", anonInsertProgress || "");
+
+const anonUpdateClaims = throws(
+  `begin; set local role anon; update checkout_claims set status='failed' where phone='${P.anon}'; rollback;`
+);
+check(!!anonUpdateClaims && /permission denied/i.test(anonUpdateClaims), "anon DILARANG update checkout_claims", anonUpdateClaims || "");
 
 // ── 7. Progress onboarding server-side ──────────────────────────────────────
 console.log("── 3. progress + gate klaim ──");
@@ -235,6 +257,35 @@ const replayClaim = rpc(
 eq(replayClaim.status, "already_created", "replay kunci yang sudah jadi order ⇒ already_created");
 eq(replayClaim.order_id, "ord-777", "replay mengembalikan order_id yang SAMA");
 eq(replayClaim.payment_url, "https://pay/777", "replay mengembalikan payment_url yang SAMA");
+
+// F-S1: Kunci yang sudah dimiliki nomor A DILARANG direplay oleh nomor B
+const crossPhoneReplay = rpc(
+  `select claim_checkout_order('${P.replay}', ARRAY[2,3,4,5,6,7,8], 'quarter', 'terms-2026-10-15-v1', 'gate-key-1')`
+);
+eq(crossPhoneReplay.status, "key_conflict", "F-S1: replay kunci milik nomor lain ⇒ key_conflict (409 di route)");
+
+// F-S7: Jika ada dua event T&C dengan timestamp identik (true & false), false menang (fail-closed)
+const P_tie_terms = "6281200000799";
+for (const step of [2, 3, 4, 5, 6, 7, 8]) {
+  rpc(`select save_onboarding_step('${P_tie_terms}', ${step}, '{"step":${step}}'::jsonb)`);
+}
+rpc(
+  `select record_consent_event('${P_tie_terms}','terms',true,'checkout_step9','terms-2026-10-15-v1','tie-terms-t','2026-01-01T12:00:00Z')`
+);
+rpc(
+  `select record_consent_event('${P_tie_terms}','terms',false,'user_revoke','terms-2026-10-15-v1','tie-terms-f','2026-01-01T12:00:00Z')`
+);
+const tieTermsClaim = rpc(
+  `select claim_checkout_order('${P_tie_terms}', ARRAY[2,3,4,5,6,7,8], 'quarter', 'terms-2026-10-15-v1', 'tie-terms-key')`
+);
+eq(tieTermsClaim.status, "consent_required", "F-S7: seri T&C (true & false di timestamp sama) ⇒ false menang, gate tolak consent_required");
+
+// F-S4: Purge data onboarding dan klaim kedaluwarsa (<= 30 hari)
+const purgeResult = rpc(`select row_to_json(p) from purge_expired_onboarding_progress(30) p`);
+check(
+  purgeResult !== null && typeof purgeResult === "object" && typeof purgeResult.deleted_progress === "number",
+  "F-S4: purge_expired_onboarding_progress() berhasil dijalankan"
+);
 
 // Percobaan gagal melepas klaim supaya nomor tidak terkunci.
 const failClaim = rpc(

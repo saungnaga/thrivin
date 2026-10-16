@@ -319,6 +319,17 @@ export async function POST(req: Request) {
         { status: 409 }
       );
     }
+    if (claim.status === "key_conflict") {
+      // F-S1: Kunci idempotensi pernah dipakai nomor lain — tolak tanpa mengembalikan
+      // data apa pun (orderId / paymentUrl).
+      return NextResponse.json(
+        {
+          error: "Kunci idempotensi sudah pernah digunakan oleh nomor lain.",
+          code: "IDEMPOTENCY_KEY_CONFLICT",
+        },
+        { status: 409 }
+      );
+    }
     if (claim.status === "incomplete_onboarding") {
       return NextResponse.json(
         {

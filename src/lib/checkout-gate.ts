@@ -110,6 +110,7 @@ export type ClaimOutcome =
   | { status: "in_flight" }
   | { status: "incomplete_onboarding"; missingSteps: number[] }
   | { status: "consent_required" }
+  | { status: "key_conflict" }
   | { status: "error"; detail: string };
 
 /**
@@ -146,6 +147,8 @@ export async function claimCheckoutOrder(input: {
       return { status: "incomplete_onboarding", missingSteps: (row.missing_steps || []) as number[] };
     case "consent_required":
       return { status: "consent_required" };
+    case "key_conflict":
+      return { status: "key_conflict" };
     default:
       return { status: "error", detail: JSON.stringify(row) };
   }

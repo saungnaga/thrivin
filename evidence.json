@@ -93,14 +93,15 @@
       "unit_remediation": "27/27",
       "unit_wa_first": "16/16",
       "unit_consent_gate": "44/44 PASS, 0 FAIL",
-      "legal_draft_shape": "120/120 (kini ikut run-all)",
+      "legal_draft_shape": "121/121 (kini ikut run-all; placeholder bounded ke legal.ts)",
       "guard_checks": "pass",
       "promo_sql": "44/44",
-      "consent_gate_sql": "38/38 PASS, 0 FAIL",
+      "consent_gate_sql": "44/44 PASS, 0 FAIL",
       "webhook_e2e": "58/58",
-      "promo_e2e": "115/115",
+      "promo_e2e": "115/115 (F-S2 invariant race diperbaiki)",
       "wa_first_e2e": "136/136",
-      "consent_gate_e2e": "105/105 PASS, 0 FAIL (stabil 3x run berturut)"
+      "consent_gate_e2e": "110/110 PASS, 0 FAIL (stabil 3x run berturut)",
+      "probe_cross_phone": "PASS (F-S1: 409 IDEMPOTENCY_KEY_CONFLICT, 0 leak)"
     },
     "exit_code": 0,
     "logs": [
@@ -139,6 +140,50 @@
     }
   ],
   "regressions_found_and_fixed": [
+    {
+      "id": "F-S1",
+      "title": "Replay kunci idempotensi lintas nomor (MEDIUM, jalur uang)",
+      "severity": "medium (jalur uang / kontrol akses order)",
+      "detail": "Kunci idempotensi milik nomor A yang sudah dibuat order dapat dipanggil oleh sesi nomor B untuk mengambil order_id + payment_url milik A",
+      "fix": "claim_checkout_order memeriksa phone = p_phone pada lookup replay/failed; beda nomor mengembalikan status key_conflict -> route mengembalikan 409 IDEMPOTENCY_KEY_CONFLICT tanpa data order",
+      "proof": "tests/test-probe-cross-phone.mts, tests/test-consent-gate-sql.mts, tests/test-consent-gate-e2e.mts"
+    },
+    {
+      "id": "F-S2",
+      "title": "Asersi race paralel promo e2e flaky",
+      "severity": "test-reliability",
+      "fix": "test-promo-e2e.mts:835 diubah ke invariant yang dijamin: tepat 1 pemenang, 1 order, penolak tanpa orderId/paymentUrl, kode ∈ {ORDER_IN_FLIGHT, PROMO_PENDING_ORDER}"
+    },
+    {
+      "id": "F-S3",
+      "title": "Guard placeholder terms & privacy hanya memeriksa page.tsx",
+      "severity": "compliance-audit",
+      "fix": "assert template page.tsx bebas raw «, dan konstanta legal.ts memiliki tepat 1 placeholder (LEGAL_ADDRESS); diuji HTML render /terms & /privacy"
+    },
+    {
+      "id": "F-S4",
+      "title": "Retensi onboarding_progress & checkout_claims <= 30 hari",
+      "severity": "compliance",
+      "fix": "fungsi purge_expired_onboarding_progress(30) di schema-consent.sql + schedule pg_cron + purge-cron.sh"
+    },
+    {
+      "id": "F-S5",
+      "title": "Hardening default privilege Supabase: REVOKE ALL ON TABLE",
+      "severity": "hardening",
+      "fix": "REVOKE ALL ON TABLE consent_events, onboarding_progress, checkout_claims FROM PUBLIC, anon, authenticated di schema-consent.sql + probe anon INSERT/UPDATE di SQL suite"
+    },
+    {
+      "id": "F-S7",
+      "title": "Tie-break T&C gate selaras false-menang",
+      "severity": "consistency",
+      "fix": "claim_checkout_order ORDER BY occurred_at DESC, (value = false) DESC, created_at DESC, id DESC LIMIT 1"
+    },
+    {
+      "id": "F-S8",
+      "title": "Isolasi suite SQL dan teardown mock",
+      "severity": "test-hygiene",
+      "fix": "test-consent-gate-sql.mts auto-seed; startPostgrest status 200 check; signal handlers teardown di test-consent-gate-e2e.mts"
+    },
     {
       "id": "BUG-W4-1",
       "title": "Klaim gate tidak dilepas saat promo ditolak",

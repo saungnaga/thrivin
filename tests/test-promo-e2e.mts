@@ -828,13 +828,16 @@ async function main() {
         "PARALEL: kuota terpakai 1 dari 2 (tidak dilampaui)"
       );
       assertEq(losers.length, 3, "PARALEL: 3 checkout ditolak");
-      // Sejak W4 (kontrak §2) gate single-flight per nomor memutuskan lebih dulu:
-      // 3 request paralel dari nomor yang sama tidak pernah sampai ke klaim kuota
-      // promo, jadi kode penolaknya ORDER_IN_FLIGHT (409), bukan PROMO_PENDING_ORDER.
-      // Lomba kuota lintas-nomor tetap diuji di blok "PARALEL2" di bawah.
+      // F-S2: Invariant yang benar-benar dijamin untuk penolak paralel:
+      // tepat 1 pemenang, tepat 1 order, penolak tanpa orderId/paymentUrl,
+      // dan kode penolakan ∈ {ORDER_IN_FLIGHT (409), PROMO_PENDING_ORDER (400)}.
       assertOk(
-        losers.every((r) => r.body?.code === "ORDER_IN_FLIGHT" && r.status === 409),
-        "PARALEL: yang ditolak dapat ORDER_IN_FLIGHT 409 (gate single-flight)",
+        losers.every(
+          (r) =>
+            (r.body?.code === "ORDER_IN_FLIGHT" && r.status === 409) ||
+            (r.body?.code === "PROMO_PENDING_ORDER" && r.status === 400)
+        ),
+        "PARALEL: yang ditolak dapat ORDER_IN_FLIGHT (409) atau PROMO_PENDING_ORDER (400)",
         JSON.stringify(losers.map(label))
       );
       // Yang ditolak tidak menerima order id / link pembayaran: tidak ada order

@@ -115,16 +115,47 @@ disetujui), `src/components/Footer.tsx` + `src/app/sitemap.ts` (link `/terms`).
 |---|---|
 | unit remediation | 27/27 |
 | unit WA-first | 16/16 |
-| **unit consent/checkout (baru)** | **44/44** |
-| **legal draft shape (kini ikut gate)** | **120/120** |
+| **unit consent/checkout** | **44/44** |
+| **legal draft shape** | **121/121** (kini assert persis 1 placeholder alamat di legal.ts, 0 di templates) |
 | promo SQL (redeem atomik/kuota/race) | 44/44 |
-| **consent/checkout SQL (baru)** | **38/38** |
+| **consent/checkout SQL** | **44/44** (tambah probe anon INSERT/UPDATE, F-S1 key_conflict, F-S7 tie-break, F-S4 purge) |
 | webhook e2e | 58/58 |
-| promo e2e | 115/115 |
+| promo e2e | 115/115 (F-S2 invariant race diperbaiki) |
 | WA-first e2e | 136/136 |
-| **consent/checkout e2e (baru)** | **105/105** (stabil 3× run berturut-turut) |
+| **consent/checkout e2e** | **110/110** (tambah F-S1 cross-phone replay 409 + F-S3 /privacy placeholder) |
 
-Log: `/tmp/w4-runall3.log` (full), `/tmp/w4-cg-1..3.log` (3× consent e2e berturut).
+Log: stabil ≥3× berturut-turut di salinan bersih via `bash tests/run-all.sh`.
+
+## 6b. Remediasi Delta-Review Sentinel Ronde 1 (t_07db887d / F-S1–S8)
+
+1. **F-S1 — SYARAT WAJIB (Jalur Uang, ditutup):**
+   - Lookup replay dan reuse baris failed pada `claim_checkout_order` kini di-scope ketat: jika kunci ditemukan tetapi `phone <> p_phone`, RPC mengembalikan status `key_conflict`.
+   - Di `src/app/api/scalev/create-order/route.ts`, status `key_conflict` menghasilkan respons HTTP **409 `IDEMPOTENCY_KEY_CONFLICT`** tanpa mengembalikan `orderId` atau `paymentUrl`.
+   - Bukti repro disediakan di `tests/test-probe-cross-phone.mts`: Pelanggan A buat order -> 200; Pelanggan B (sesi valid milik B) kirim kunci A -> 409 `IDEMPOTENCY_KEY_CONFLICT` (0 data bocor); Kontrol B dengan kunci baru -> 400 `INCOMPLETE_ONBOARDING`.
+   - Diuji juga di level SQL (`test-consent-gate-sql.mts`) dan e2e route (`test-consent-gate-e2e.mts`).
+2. **F-S2 — Invariant Test Promo E2E:**
+   - Asersi `tests/test-promo-e2e.mts:835` diubah dari asumsi timing race kaku (`409 ORDER_IN_FLIGHT`) menjadi invariant yang benar-benar dijamin: tepat 1 pemenang, tepat 1 order, penolak tanpa orderId/paymentUrl, dan kode ∈ {`ORDER_IN_FLIGHT` (409), `PROMO_PENDING_ORDER` (400)}.
+   - Terbukti lulus stabil di seluruh run promo e2e.
+3. **F-S3 — Guard Placeholder Halaman Legal:**
+   - `tests/test-legal-draft-shape.mts` kini memeriksa bahwa template `page.tsx` bersih dari literal `«`, dan konstanta di `src/lib/legal.ts` memiliki tepat satu placeholder (yaitu `LEGAL_ADDRESS` yang menunggu keputusan owner sesuai ACC 16/10).
+   - `tests/test-consent-gate-e2e.mts` menguji HTML ter-render baik di `/terms` maupun `/privacy`, memastikan placeholder count ter-render tepat 1.
+4. **F-S4 — Retensi PII Onboarding ≤ 30 Hari & Purge:**
+   - Fungsi `purge_expired_onboarding_progress(p_retention_days INTEGER DEFAULT 30)` ditambahkan ke `staging/schema-consent.sql` dan `tests/harness/migrations/006-consent-gate.sql`.
+   - Menghapus data `onboarding_progress` dan `checkout_claims` lama (>30 hari) sesuai klausul 5 Kebijakan Privasi (/privacy).
+   - Didaftarkan ke `pg_cron` (bila ekstensi ada) dan dipanggil di `staging/purge-cron.sh`.
+   - Diuji fungsionalitasnya di `test-consent-gate-sql.mts`.
+5. **F-S5 — Hardening Grants & REVOKE Eksplisit:**
+   - Ditambahkan `REVOKE ALL ON TABLE consent_events, onboarding_progress, checkout_claims FROM PUBLIC, anon, authenticated;` di `staging/schema-consent.sql`.
+   - Ditambahkan probe negatif anon INSERT ke `consent_events`, anon INSERT ke `onboarding_progress`, dan anon UPDATE ke `checkout_claims` di `tests/test-consent-gate-sql.mts` (semua terbukti melempar permission denied).
+6. **F-S7 — Konsistensi Tie-Break T&C Gate (`false` Menang):**
+   - Query T&C gate di `claim_checkout_order` diubah dari `bool_or` menjadi `ORDER BY occurred_at DESC, (value = false) DESC, created_at DESC, id DESC LIMIT 1`. Jika ada dua event di timestamp identik (true & false), nilai `false` yang diambil (fail-closed, `consent_required`).
+   - Diuji kasus seri T&C di `tests/test-consent-gate-sql.mts`.
+7. **F-S8 — Isolasi & Harness Teardown:**
+   - `tests/test-consent-gate-sql.mts` kini secara otomatis memanggil `seed.sh` di awal run.
+   - `tests/harness/stack.mts` memastikan `startPostgrest()` hanya menganggap running bila status HTTP 200 (bukan 502/orphaned proxy).
+   - `tests/test-consent-gate-e2e.mts` menambahkan trap signal SIGINT/SIGTERM untuk memastikan mock Scalev dan server selalu di-kill saat exit.
+8. **F-W4-1 — Status Temuan Kunci Baru:**
+   - Menunggu keputusan pemilik (sedang diproses via Koron). Tidak diubah sepihak. Tetap fail-closed per satu kunci = satu order dan satu nomor tidak bisa cetak order bersamaan.
 
 ### Bukti negatif (pra-fix GAGAL) — bukan klaim, ada log-nya
 

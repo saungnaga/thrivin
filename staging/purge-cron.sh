@@ -12,4 +12,7 @@ set -euo pipefail
 : "${PGURL:?PGURL (postgres://...) must be set}"
 
 psql "$PGURL" -v ON_ERROR_STOP=1 -Atc \
-  "SELECT 'purge at ' || now() || ' deleted_inbox=' || deleted_inbox || ' deleted_snapshots=' || deleted_snapshots FROM purge_expired_webhook_data();"
+  "SELECT 'purge webhook at ' || now() || ' deleted_inbox=' || deleted_inbox || ' deleted_snapshots=' || deleted_snapshots FROM purge_expired_webhook_data();"
+
+psql "$PGURL" -v ON_ERROR_STOP=1 -Atc \
+  "SELECT 'purge onboarding at ' || now() || ' deleted_progress=' || deleted_progress || ' deleted_claims=' || deleted_claims FROM purge_expired_onboarding_progress();"
