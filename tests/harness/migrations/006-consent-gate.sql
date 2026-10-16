@@ -686,6 +686,15 @@ $function$;
 -- NULL (bukan 0) supaya alarm webhook tidak salah membaca run ini sebagai runnya
 -- sendiri. Karena itu NOT NULL di kedua kolom webhook dilonggarkan.
 -- Urutan apply: skema webhook (H-4) mendahului file ini — lihat tests/harness/seed.sh.
+-- Guard di bawah menegakkan urutan itu: tanpa `purge_audit_log`, blok ALTER cuma
+-- berisik 4x "relation does not exist" tapi fungsi retensi tetap tercipta (body
+-- plpgsql tidak divalidasi saat CREATE) dan gagal setiap run — PII tidak terhapus,
+-- tanpa alarm. Lebih baik berhenti di sini dengan pesan yang menyebut file-nya.
+DO $$ BEGIN
+  IF to_regclass('public.purge_audit_log') IS NULL THEN
+    RAISE EXCEPTION 'RX2-1: apply schema-webhook-onboarding.sql dulu (purge_audit_log belum ada)';
+  END IF;
+END $$;
 ALTER TABLE purge_audit_log ADD COLUMN IF NOT EXISTS deleted_progress INTEGER;
 ALTER TABLE purge_audit_log ADD COLUMN IF NOT EXISTS deleted_claims INTEGER;
 ALTER TABLE purge_audit_log ALTER COLUMN deleted_inbox DROP NOT NULL;
