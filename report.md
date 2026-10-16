@@ -1,223 +1,196 @@
-# W3 — WA-first: identitas, status langganan, eligibility perpanjangan
+# W4 — Gate completion checkout server-side + consent T&C/opt-in + publish `/terms`
 
-**Kartu:** `t_86bf9739` (root `t_fdba2939`) · **Assignee:** Forge · **Tanggal:** 2026-10-15
-**Status:** ✅ implementasi + suite lokal hijau · ⛔ **blocked-live** (mock/staging saja) ·
-**gerbang:** audit Sentinel `t_a498a912` sudah keluar (**AMAN DENGAN CATATAN**, 0 veto, belum boleh apply);
-temuan F-1/F-2/F-4 diremediasi di `t_ee4d66c7` (§9) → **menunggu re-check Sentinel**
+**Kartu:** `t_f5ec336c` (root `t_fdba2939`) · **Assignee:** Forge · **Tanggal:** 2026-10-16
+**Status:** ✅ implementasi + suite lokal hijau · ⛔ **review-required (Sentinel)** ·
+**belum merge / belum apply SQL / belum deploy** · base kerja **`9392cdd`** (RC) + W3 head `e01a27a`
 
 ---
 
 ## 1. Ringkas
 
-Slice vertikal WA-first: pengguna memasukkan nomor WhatsApp → kode verifikasi (OTP) →
-sesi server terikat nomor → **hanya setelah terbukti** baru status langganan dibaca dan
-ditampilkan (`none` / `active` / `expired`), lengkap dengan sisa masa aktif + CTA
-perpanjangan, dan kandidat promo reaktivasi untuk yang non-aktif > 7×24 jam.
+Tiga hal dikerjakan di kartu ini:
 
-Tidak ada data pelanggan yang disentuh, tidak ada DB staging/produksi yang ditulis, tidak
-ada outbound WhatsApp, tidak ada deploy/push ke `main`. OTP dikirim lewat **provider mock**
-yang hanya menulis ke file sink lokal untuk keperluan tes.
+- **A2 — completion punya rumah di server.** Sebelum ini "selesai" hanya berarti
+  `localStorage` di browser dan `create-order` menerima `onboarding` / `amount` /
+  `planName` / `customerName` dari body (S0 B-5, B-2). Sekarang langkah 2–8 disimpan
+  server-side per nomor sesi, dan `create-order` memutuskan kelengkapan **sebelum**
+  efek samping eksternal apa pun. Gate gagal ⇒ nol panggilan Scalev, nol order, nol
+  sukses palsu.
+- **A7 — dua persetujuan terpisah, disimpan sebelum popup bayar.** T&C wajib, opt-in
+  pengingat opsional; dua checkbox mulai tidak tercentang; gagal simpan ⇒ tidak lanjut
+  bayar. Status efektif di `users.*`, bukti append-only di `consent_events`.
+- **A6 — publikasi teks yang sudah disetujui owner (ACC 16/10).** `/terms` + delta
+  `/privacy` + link dari footer, halaman checkout, dan sitemap.
 
-## 2. Titik berangkat (base kerja)
+Tidak ada data pelanggan yang disentuh, tidak ada SQL yang di-apply, tidak ada Scalev
+nyata (mock lokal), tidak ada outbound WhatsApp, tidak ada push/merge ke `main`.
+
+## 2. Base kerja & workspace
 
 | Hal | Nilai |
 |---|---|
-| Base wajib (kontrak S0) | `9392cdd` (`release/rc-integration-2026-10-13`) — **bukan** `origin/main` (`1d54a36`) |
-| Promo existing | `promo-ws` @ `f456d0f` (`feat/promo-management`) di-*fetch* sebagai **base branch** (descendant bersih dari `9392cdd`); memberi `admin-auth.ts`, `promo.ts`, `promo_codes` + RPC `redeem_promo`, dashboard admin |
-| Branch kerja | `feat/wa-first-2026-10-15` |
-| Worktree | `/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w3-wa-first` (worktree bersama `repo` tidak diubah) |
-| Kontrak | `batch-2026-10-15/s0-security/integration-contract.md` (§1, §4, §5, §9, §11) |
+| Base wajib (kontrak S0) | `9392cdd` (`release/rc-integration-2026-10-13`) — **bukan** `origin/main` |
+| Ditumpuk di atas | W3 head `e01a27a` (`feat/wa-first-2026-10-15`) — sesi WA HMAC yang dipakai gate |
+| Branch | `feat/checkout-consent-gate-2026-10-15` |
+| Worktree | `/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate` (worktree bersama tidak diubah) |
+| Kontrak | `batch-2026-10-15/s0-security/integration-contract.md` §2 (completion) + §3 (consent) |
 
 ## 3. Yang dibangun
 
 ### Server (baru)
-| Berkas | Isi |
-|---|---|
-| `staging/schema-wa-identity.sql` | **DRAFT** (belum di-apply ke mana pun): tabel `wa_otp_challenges` (RLS deny + grant eksplisit) + 3 RPC: `create_wa_otp_challenge`, `verify_wa_otp_challenge`, `subscription_status_for_owner`. Semua `SECURITY INVOKER`, `REVOKE … FROM PUBLIC, anon, authenticated`, `GRANT` hanya `service_role`. |
-| `src/lib/wa-session.ts` | Sesi pelanggan HMAC (pola `admin-auth.ts`): cookie `thrivin_wa_session`, env `WA_SESSION_SECRET`/`WA_SESSION_EPOCH`, TTL 60 menit, `httpOnly` + `sameSite=strict` + `secure` di produksi. **Terpisah** dari secret & cookie admin. |
-| `src/lib/otp.ts` | Kode 6 digit dari `crypto.randomInt`; yang disimpan hanya `HMAC-SHA256(phone:code, WA_OTP_SECRET)`; TTL/batas percobaan/batas resend ditegakkan di RPC atomik; gagal-tertutup tanpa secret. |
-| `src/lib/otp-provider.ts` | Transport OTP **satu pintu**, sekarang hanya `mock` (`WA_OTP_PROVIDER=mock`). Provider lain → `null` → endpoint menjawab 503 generik. Tidak ada panggilan Graph/Baileys. **Mock DITOLAK saat `NODE_ENV=production`** (F-2) kecuali pintu darurat eksplisit `WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1` yang hanya dipakai harness; file sink ditulis mode 0600. |
-| `src/lib/subscription-lookup.ts` | Panggil RPC sempit; error upstream **melempar** (pemanggil tidak boleh menganggap "nomor baru"). |
-| `src/lib/renewal.ts` | Eligibility dari `expires_at` (`now - expires_at > 168 jam`, strictly greater ⇒ **tepat 7 hari = tidak eligible**); kandidat dibaca dari `promo_codes` (satu-satunya sumber); katalog harga dari `PLAN_CATALOG`. |
-| `src/lib/session-secret.ts` | `isWeakSecret`/`safeEqual` dipindah dari `admin-auth.ts` supaya bisa dipakai bersama tanpa menyeret runtime Next. **Tanpa perubahan perilaku**; `admin-auth.ts` mengimpor + re-export dari sini. |
-| `src/app/api/wa/session/request/route.ts` | Normalisasi server-side (`62…`), invalid → 400, jawaban **generik identik** untuk semua nomor, throttle IP+nomor (`limitRequest`), jawaban 503 generik kalau transport/DB mati. |
-| `src/app/api/wa/session/verify/route.ts` | Verifikasi single-use server-side → cookie sesi; semua kegagalan memakai satu pesan. |
-| `src/app/api/wa/session/route.ts` | `DELETE` = akhiri sesi (buang cookie). |
-| `src/app/api/wa/subscription/route.ts` | Sesi → RPC sempit → `{state, expiresAt, remainingMs, lastPlanKey, maskedPhone, renewal, renewalActivationEnabled:false}`. Nomor **hanya** dari sesi; query/body tidak pernah dipakai untuk memilih nomor. Upstream error → 503 **tanpa** field `state`. |
-| `src/app/companion/nina/status/{page,layout}.tsx` | UI 3 langkah (nomor → kode → status); label eksplisit, `inputMode=numeric`, `type=tel`, `autocomplete=one-time-code`, `aria-live`, target sentuh ≥ 44px, responsif; CTA perpanjangan hanya muncul di layar status. |
 
-### Test (baru)
 | Berkas | Isi |
 |---|---|
-| `tests/test-wa-first-units.mts` | 15 check murni: batas eligibility (±1 ms di 168 jam), normalisasi nomor, hash OTP, sesi (epoch/kedaluwarsa/secret lemah), katalog. |
-| `tests/test-wa-first-e2e.mts` | 118 check: Next.js produksi → HTTP → PostgREST → Postgres lokal + provider OTP mock (12 seksi, lihat §5). |
-| `tests/harness/seed.sh` | + `005-wa-identity.sql` (disalin otomatis dari `staging/`) |
-| `tests/run-all.sh` | + unit WA-first (langkah 2) + `test-wa-first-e2e.mts` (langkah 7/7) |
+| `src/lib/onboarding-steps.ts` | Definisi langkah wajib 2–8 + validasi per langkah + perakitan profil dari data tersimpan. Validasi memakai konstanta `validate-onboarding.ts` (satu sumber aturan). |
+| `src/lib/checkout-gate.ts` | Pembungkus RPC: `save_onboarding_step`, baca `onboarding_progress`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`, plus `authoritativeProfile()` (nomor profil wajib = nomor sesi). |
+| `src/lib/consent.ts` | Penulisan consent di server: T&C wajib, `reminderOptIn=false` **tetap disimpan**, versi teks tak dikenal ditolak, timestamp dari `now()` RPC. Tanpa store ⇒ **fail closed**. |
+| `src/lib/legal.ts` | Fakta + versi dokumen (owner ACC 16/10): entitas, CS WA `6287788141388` 09.00–21.00 WIB, yurisdiksi Indonesia, retensi, `TERMS_VERSION=terms-2026-10-15-v1`. Tanpa impor Node supaya bisa dipakai komponen klien. |
+| `src/app/api/onboarding/progress/route.ts` | Simpan SATU langkah per nomor sesi; langkah 8 dengan nomor ≠ sesi ⇒ 409 `SESSION_PHONE_MISMATCH`; isi langkah tidak valid ⇒ 400 `INVALID_STEP_DATA`. |
+| `src/app/api/consent/route.ts` | Simpan consent (identitas dari cookie sesi, nomor body diabaikan); `termsAccepted !== true` ⇒ 400; tanpa sesi ⇒ 401. |
+| `staging/schema-consent.sql` | **DRAFT, belum di-apply**: kolom `users.opt_in`/`opted_out`, tabel `consent_events` (append-only via trigger; unique idempotensi; status efektif = event terbaru; opt-out menang saat seri), `onboarding_progress`, `checkout_claims` (+ unique parsial in-flight per nomor), RPC `record_consent_event`, `record_checkout_consent`, `save_onboarding_step`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`. Semua `SECURITY INVOKER`, `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT` hanya `service_role`. Idempotent. |
+
+### Server (diubah)
+
+`src/app/api/scalev/create-order/route.ts` — urutan baru, semuanya **sebelum** Scalev:
+
+1. kunci idempotensi wajib (≥8 char) ⇒ 400 `IDEMPOTENCY_KEY_REQUIRED`;
+2. sesi WA wajib ⇒ 401 `SESSION_REQUIRED`; nomor body ≠ nomor sesi ⇒ 403 `PHONE_SESSION_MISMATCH`;
+3. `claim_checkout_order` (atomik) ⇒ `incomplete_onboarding` 400 · `consent_required` 400 ·
+   `in_flight` 409 · `error` 503 `GATE_UNAVAILABLE` · `already_created` ⇒ **200 replay**
+   (order yang sama, tanpa panggilan Scalev kedua);
+4. profil otoritatif dirakit dari langkah tersimpan + divalidasi ulang (400 `INVALID_ONBOARDING`);
+5. harga/paket dari katalog & variant server (`resolvePlanPrice`, `lookupVariant`);
+   `body.amount` / `body.planName` / `body.onboarding` / `body.customerName` **diabaikan**.
+
+### UI
+
+`src/app/companion/nina/onboarding/[step]/page.tsx` — dua checkbox terpisah
+(`consent-terms`, `consent-reminder`) mulai **tidak** tercentang, label eksplisit +
+`aria-describedby` + focus ring, tombol bayar `disabled` sampai T&C dicentang;
+`/api/consent` dikirim **sebelum** `/api/scalev/create-order`; langkah 2–8 dikirim ke
+`/api/onboarding/progress` (peringatan bila gagal — gate server tetap yang menentukan);
+`checkoutKeyRef` = satu kunci per halaman supaya klik ganda = replay.
+
+Publikasi A6: `src/app/terms/page.tsx` (baru), `src/app/privacy/page.tsx` (delta
+disetujui), `src/components/Footer.tsx` + `src/app/sitemap.ts` (link `/terms`).
 
 ## 4. Kepatuhan ke kontrak S0 (yang paling mudah dilanggar)
 
-| Aturan | Implementasi | Bukti |
+| Aturan §2/§3 | Implementasi | Bukti uji |
 |---|---|---|
-| Normalisasi server-side, tanpa substitusi nomor default | `normalizePhone()`, invalid → 400 | `privasi: nomor tidak valid -> 400` |
-| Respons generik sebelum bukti kepemilikan | satu literal `GENERIC_OK` untuk semua nomor | `privasi: bentuk body IDENTIK untuk nomor ada vs tidak ada` |
-| Challenge server-side: hashed-at-rest, single-use, TTL, batas percobaan/resend | RPC atomik + `FOR UPDATE`; kuota/jam dihitung dari baris tercatat + `pg_advisory_xact_lock` per nomor | `otp: kode yang sama TIDAK bisa dipakai dua kali`, `otp: percobaan habis -> 429`, `kuota-http: HANYA 5 kode dalam satu jam (default app), bukan 6 — dan bukan 60` (lihat §9 F-1) |
-| Binding sesi ke nomor terverifikasi | payload = nomor; lookup hanya dari cookie | `swap: data … tetap milik nomor SESI`, `swap: kode milik nomor lain tidak bisa ditukar` |
-| Secret & cookie terpisah dari admin | `WA_SESSION_SECRET` + `thrivin_wa_session` | `sesi: cookie ADMIN tidak diterima di endpoint pelanggan` |
-| **Tidak** memakai `check_subscription()` | RPC sempit baru | `rpc: jawaban hanya 3 field`, `rpc: jalur BACA tidak mengubah status di DB` |
-| Least privilege RPC | `REVOKE` anon/authenticated, `GRANT` service_role; harness meniru default privilege Supabase | `rpc: anon DITOLAK (401/403)` |
-| Fail closed saat upstream mati | 503 tanpa `state` | `fail-closed: DB mati -> 503`, `… tanpa field state` |
-| Promo: mekanisme existing, tanpa ledger/endpoint kedua, tanpa aktivasi | kandidat dibaca dari `promo_codes`; `renewalActivationEnabled:false` | `promo: NOL baris redemption`, `promo: aktivasi reaktivasi ditahan` |
-| Tepat 7×24 jam tidak eligible | `> 168 jam` (strict) | `boundary: TEPAT 7 hari = TIDAK eligible`, `boundary: 7 hari + 30 detik -> eligible` |
-| Nomor allowlist admin tidak mem-bypass | gate langganan tidak pernah melihat `NINA_ADMIN_PHONES` | `admin: nomor di NINA_ADMIN_PHONES tetap dievaluasi normal` |
-| Harga tidak pernah dari client | katalog server | `promo: harga tetap katalog server walau client mengirim amount/promo_code` |
+| Completion dari data server, bukan body | kelengkapan dibaca dari `onboarding_progress`; `body.onboarding` tidak pernah dibaca | `langkah belum lengkap ⇒ 400`, `data tersimpan tidak valid ⇒ 400`, `nol panggilan order ke Scalev pada semua kegagalan gate` |
+| Harga/paket tidak dari client | `PLAN_CATALOG` + variant server | `total yang akan ditagih = harga katalog server (bukan angka klien)`, `body klien tidak bocor ke Scalev` |
+| Race & replay | klaim single-flight per kunci; replay mengembalikan order SAMA | `tiga permintaan paralel dengan kunci sama ⇒ satu order`, `replay mengembalikan order_id SAMA`, `replay TIDAK membuat order baru` |
+| Versi/expiry/session binding | T&C versi wajib tersimpan; sesi HMAC (cookie & secret terpisah dari admin) | `belum ada consent T&C ⇒ 400`, `sesi kedaluwarsa ⇒ 401`, `sesi dipalsukan ⇒ 401 (fail closed)` |
+| Allowlist admin tidak mem-bypass | gate tidak pernah melihat `NINA_ADMIN_PHONES` | `nomor allowlist admin tetap kena gate` |
+| Dua consent terpisah, awal kosong | `useState(false)` ×2, `htmlFor`/`aria-describedby` | 13 check markup + `tidak ada checkbox yang di-precheck` |
+| `opt_in=false` tetap tersimpan & tidak menghalangi bayar | `p_reminder_value=false` ditulis; checkout pada nomor itu tetap 200 | `pengingat ditolak ⇒ opt_in false`, `menolak pengingat BUKAN opt-out`, `nilai false tetap disimpan sebagai baris`, `checkout sah ⇒ 200` |
+| Opt-out menang; retry lama tidak menyalakan ulang | trigger + status dari event terbaru | `setelah BERHENTI ⇒ opted_out true`, `retry lama (occurred_at lebih tua) tidak menyalakan opt_in`, `opt-out tetap menang`, `replay kunci lama (idempotent) tidak menghapus opt-out` |
+| Gagal simpan ⇒ tidak ada sukses palsu | `/api/consent` non-200 ⇒ UI berhenti sebelum order | `store consent tak tersedia ⇒ 503`, `gate tidak bisa diverifikasi ⇒ 5xx (tidak lanjut)`, `T&C tidak dicentang ⇒ 400 (bukan cuma tombol mati)`, `consent tanpa sesi ⇒ 401` |
+| Bukti append-only | trigger menolak UPDATE/DELETE | `append-only: UPDATE/DELETE ditolak trigger` |
+| Least privilege | `REVOKE` anon/authenticated + `GRANT` service_role; harness meniru default privilege Supabase | `anon/authenticated ditolak` (SQL suite) |
 
-## 5. Hasil suite (dijalankan nyata, bukan klaim)
+## 5. Regresi yang ditemukan & diperbaiki di kartu ini (jalur uang)
 
-```
-bash tests/run-all.sh
-  → 16/16 unit WA-first
-  → 136/136 WA-first e2e
-```
-(lengkap dengan suite existing: unit, guards, promo SQL, webhook e2e, promo e2e — exit 0 / ALL SUITES PASSED)
+1. **Klaim gate tidak dilepas saat promo ditolak (BUG, ditemukan oleh suite).**
+   `/api/scalev/create-order` jalur `PROMO_*` (kuota habis / kode sudah dipakai / nomor
+   sudah pakai) mengembalikan 400 **tanpa** melepas klaim `in_flight` → nomor pelanggan
+   terkunci `TTL` 10 menit: checkout ulang dijawab 409 `ORDER_IN_FLIGHT` padahal tidak ada
+   order apa pun. Akar: klaim diambil sebelum klaim kuota promo, dan jalur tolak itu lupa
+   melepas. Fix + 2 asersi regresi di `tests/test-promo-e2e.mts`.
+2. **Scalev 200 tanpa `order_id`** meninggalkan klaim `in_flight` selamanya (nomor terkunci).
+   Sekarang: klaim **dilepas** + log error (bukan diam-diam mengunci).
+3. **Asersi race lama flaky.** "Dua kunci berbeda paralel untuk satu nomor ⇒ satu order"
+   kadang 1, kadang 2 order: klaim in-flight hanya menahan permintaan yang benar-benar
+   bersamaan, sedangkan kunci **baru** memang percobaan beli baru (perilaku itu diuji
+   eksplisit di kasus "pembelian ulang" di suite yang sama). Diganti asersi invariant yang
+   benar-benar dijamin (≥1 × 409 dari klaim in-flight; tidak semua permintaan mencetak
+   order) pada 4 permintaan paralel, dan celahnya ditulis sebagai temuan **F-W4-1**.
 
-Seksi e2e: (1) privasi nomor telanjang & batas laju · (2) race 3 permintaan paralel =
-1 challenge hidup · (3) OTP abuse (salah, bentuk ngawur, habis percobaan, rotasi kode,
-replay, 3 verifikasi paralel = 1 lolos, kedaluwarsa) · (4) resend/cooldown server-side ·
-(5) binding/swap/pemalsuan token/epoch/pemisahan dari admin · (6) batas aktif/none/
-expired/kandidat · (7) promo tamper & nol aktivasi · (8) admin vs non-admin ·
-(9) RPC sempit (anon ditolak, jalur baca tidak menulis) · (10) gagal-tertutup (DB mati,
-transport tidak diotorisasi, **mock ditolak di produksi**) · (10b) **kuota per jam lewat
-jalur HTTP dengan default app** (menunggu 61 s jendela batas laju) · (11) markup UI
-keyboard/mobile · (12) log bebas kode OTP & nomor mentah · (6b) **format nomor `users`
-(`+62…`/`0812…`/berspasi)**.
+## 6. Hasil suite (dijalankan nyata) + bukti negatif
 
-## 6. Blocker & yang SENGAJA belum dikerjakan (blocked-live)
-
-1. **Provider OTP nyata belum ada.** `WA_OTP_PROVIDER` selain `mock` → 503 (gagal-tertutup).
-   Transport resmi satu pintu `sendWhatsApp()` ada di worktree `channel-sender-ws`
-   (`d7b5527`, belum di RC); allowlist/transport OTP masih `open_decisions` owner.
-   Menyambungkannya = keputusan owner + review.
-2. **`staging/schema-wa-identity.sql` belum di-apply** ke staging maupun produksi.
-   Hanya dijalankan di DB harness lokal (data dummy, sekali pakai) agar jalur nyata teruji.
-   Wajib **delta-review Sentinel** (permukaan API baru: tabel + 3 RPC).
-3. **TEMENANLAGI tidak dibuat dan tidak diaktifkan** (`t_7bcb4487` masih blocked).
-   Endpoint status menyatakan `renewalActivationEnabled: false`; kalau baris promo-nya
-   belum ada, UI **tidak** menampilkan angka apa pun (tidak mengarang persentase).
-4. **Lookup langganan live belum diverifikasi** — RPC diuji terhadap skema harness yang
-   meniru `db-tables.sql`/`db-functions.sql`; runtime Nina produksi tidak dapat dijangkau
-   dari host kantor (`blocked-live`, verifikasi read-only menyusul di N1/N2/Q1).
-5. **Batas yang jujur ditulis**: `limitRequest` in-process per instance (bukan pengaman
-   multi-instance); sesi stateless (cabut semua = naikkan `WA_SESSION_EPOCH`); UI diuji di
-   level markup — harness tidak punya browser headless, jadi "keyboard/mobile" dibuktikan
-   lewat atribut aksesibilitas + alur form, bukan simulasi ketukan di perangkat.
-6. **Tidak menyentuh jalur uang**: tidak ada perubahan `create-order`/webhook/`promo.ts`;
-   tidak ada aktivasi langganan dari slice ini (itu `t_f5ec336c`).
-
-## 7. Perubahan pada kode existing (perlu ikut dibaca reviewer)
-
-- `src/lib/admin-auth.ts`: `isWeakSecret` + `safeEqual` dipindah ke `src/lib/session-secret.ts`
-  (dipakai bersama sesi pelanggan) dan di-*re-export* dari sini — API publik tidak berubah,
-  logika tidak berubah. Perubahan ini perlu karena `admin-auth.ts` mengimpor `next/headers`
-  sehingga tidak bisa dimuat tes node murni.
-- `tests/harness/seed.sh`, `tests/run-all.sh`: menambah migrasi 005 + suite WA-first.
-
-## 8. Bukti & link
-
-- Commit: `25050ec` di branch `feat/wa-first-2026-10-15` (worktree `batch-2026-10-15/w3-wa-first`)
-- Kontrak: `~/workspaces/thrivin/batch-2026-10-15/s0-security/integration-contract.md`
-- Review S0: `~/workspaces/thrivin/batch-2026-10-15/s0-security/report.md`
-- Laporan ini + `evidence.json`: `~/workspaces/thrivin/batch-2026-10-15/w3-wa-first/`
-- Catatan vault: `~/obsidian/kantor-ai/projects/thrivin/features/wa-first-2026-10-15.md`
-
-### Hasil gate penuh (`bash tests/run-all.sh`, exit 0 — ALL SUITES PASSED)
+### Gate penuh, `bash tests/run-all.sh` → **ALL SUITES PASSED** (exit 0)
 
 | Suite | Hasil |
 |---|---|
 | unit remediation | 27/27 |
-| unit WA-first (baru) | 16/16 |
-| guard checks (redaksi/replay) | pass |
-| promo SQL (redeem atomik, kuota, race) | 44/44 |
-| webhook e2e | 57/57 |
-| promo e2e (dashboard/checkout/webhook) | 113/113 |
-| **WA-first e2e (baru)** | **136/136** |
+| unit WA-first | 16/16 |
+| **unit consent/checkout (baru)** | **44/44** |
+| **legal draft shape (kini ikut gate)** | **120/120** |
+| promo SQL (redeem atomik/kuota/race) | 44/44 |
+| **consent/checkout SQL (baru)** | **38/38** |
+| webhook e2e | 58/58 |
+| promo e2e | 115/115 |
+| WA-first e2e | 136/136 |
+| **consent/checkout e2e (baru)** | **105/105** (stabil 3× run berturut-turut) |
 
-## 9. Tindak lanjut audit W3 (RX) — `t_ee4d66c7`
+Log: `/tmp/w4-runall3.log` (full), `/tmp/w4-cg-1..3.log` (3× consent e2e berturut).
 
-Commit: `eef4c6c` (fix + uji) dan `be69f95` (bukti) di `feat/wa-first-2026-10-15`.
-Audit Sentinel `t_a498a912`: **AMAN DENGAN CATATAN**, 0 veto, belum boleh apply. Temuan yang
-dikerjakan di sini: **F-1, F-2, F-4** + refresh klaim `resend_limit`. (F-3 & F-5 tetap item
-pasca-apply.) Tidak ada fitur baru, tidak ada apply SQL, tidak ada push/deploy.
+### Bukti negatif (pra-fix GAGAL) — bukan klaim, ada log-nya
 
-### F-1 — kuota OTP per jam mati di jalur app (MEDIUM)
-Akar masalah: kuota dihitung dari baris hidup (`consumed_at IS NULL`) sementara jalur tulis
-memakai UPSERT → baris hidup selalu 1 → `resend_limit` hanya bisa tercapai bila
-`p_max_per_hour ≤ 1`. Batas nyata = cooldown 60 s (sampai **60 OTP/jam/nomor**, 12× niat 5/jam).
+| Mutasi | Suite | Hasil | Log |
+|---|---|---|---|
+| `create-order` dikembalikan ke versi pra-W4 (tanpa gate) | consent e2e | **74 PASS / 31 FAIL** (order tercetak tanpa sesi, tanpa consent, tanpa langkah) | `/tmp/w4-prefix-consent.log` |
+| Fix sendiri dimatikan (pelepasan klaim pada penolakan promo dihapus) | promo e2e | **113/115** — tepat 2 asersi baru GAGAL: `expected 200, got 409` dan `expected 0, got 1` (klaim in-flight tertinggal) | `/tmp/w4-prefix2-promo.log` |
+| Asersi race lama (timing) dijalankan 2× | consent e2e | 1× lulus, 1× GAGAL (`expected 1, got 2`) → dibuktikan flaky, lalu diganti | `/tmp/w4-runall3.log` §C |
 
-Fix di `staging/schema-wa-identity.sql` (`create_wa_otp_challenge`):
-1. kuota dihitung dari **setiap baris** dalam 1 jam terakhir (status apa pun);
-2. baris hidup lama **ditutup** (`consumed_at = now()`), lalu baris **baru** dicatat — tiap
-   penerbitan terhitung, dan invariant "satu challenge hidup per nomor" tetap dijaga oleh
-   unique partial index;
-3. `pg_advisory_xact_lock(hashtext(tenant:phone))` men-serialisasi permintaan paralel
-   (sebelumnya serialisasi kebetulan datang dari `ON CONFLICT` yang kini tidak dipakai).
+## 7. Temuan untuk Sentinel / keputusan pemilik
 
-Uji baru lewat **jalur HTTP** (bukan RPC langsung), instance **tanpa** `WA_OTP_MAX_PER_HOUR`
-→ nilai **default app = 5**: 6 permintaan ke `POST /api/wa/session/request` (3, tunggu jendela
-batas laju 61 s, 3 lagi) → tepat **5 kode**, 5 baris tercatat, 1 challenge hidup, ke-6 tetap
-dijawab 200 generik (batas tidak dibocorkan).
+- **F-W4-1 (kunci idempotensi baru tidak pernah ditolak).** Selama tidak ada klaim
+  in-flight untuk nomor itu, kunci baru = percobaan beli baru. Reload halaman checkout
+  (kunci dibuat per page-load) bisa mencetak **order kedua yang belum dibayar**; kedua
+  link bisa dibayar ⇒ potensi pembayaran ganda yang disengaja pengguna. Yang tetap dijamin:
+  satu kunci = satu order (replay), dan dua order tidak bisa tercetak **bersamaan** untuk
+  satu nomor. Opsi (butuh keputusan): (a) kunci baru dari nomor sama mengembalikan order
+  belum dibayar yang sama; (b) blokir kunci baru selama ada order belum dibayar + TTL;
+  (c) biarkan seperti sekarang. Opsi (a)/(b) mengubah perilaku "pembelian ulang dengan
+  kunci baru ⇒ 200" yang saat ini diuji di suite promo e2e (perlu diubah bersama + review
+  jalur uang). **Tidak diubah sendiri di kartu ini.**
+- **F-W4-2** — `checkout_claims` + `onboarding_progress` tumbuh tanpa purge; butuh retensi
+  terjadwal saat apply (dicatat sebagai komentar di `staging/schema-consent.sql`).
+- **F-W4-3** — sesi WA berumur 60 menit. Kalau token kedaluwarsa setelah consent tersimpan
+  tapi sebelum gate: 401 dan pengguna diminta verifikasi ulang (fail-closed, tidak ada order).
+- **F-W4-4** — `terms` masih memuat satu placeholder: alamat entitas
+  («alamat lengkap menyusul dari pemilik»). Diuji: hanya SATU placeholder tersisa di `/terms`.
 
-Bukti uji **GAGAL di kode pra-fix** (`git stash push staging/schema-wa-identity.sql` +
-`seed.sh --fresh` → `node --experimental-strip-types tests/test-wa-first-e2e.mts`):
-**130/136, exit 1** — `expected 5, got 6` (kode terkirim) dan `expected 5, got 1` (baris
-tercatat) ⇒ kontrol memang tidak efektif sebelum fix. Log `/tmp/w3rx-prefix-e2e.log`.
+## 8. Blocker & yang SENGAJA belum dikerjakan
 
-### F-2 — mock lolos di produksi (LOW)
-`getOtpProvider()` sekarang **menolak mock saat `NODE_ENV=production`** (log error keras,
-gagal-tertutup) kecuali pintu darurat eksplisit `WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1` yang
-**hanya** dipakai harness yang menjalankan build produksi. `.env.example` tidak lagi mengirim
-`WA_OTP_PROVIDER=mock` sebagai nilai aktif (jadi komentar + larangan didokumentasikan), dan
-file sink mock ditulis mode `0600`.
+1. **Delta-review Sentinel sebelum apply** `staging/schema-consent.sql` (permukaan baru:
+   4 tabel + 1 kolom-set + 6 RPC + policy). Belum di-apply ke staging maupun produksi;
+   hanya dijalankan di DB harness lokal (dummy, sekali pakai).
+2. **Kolom consent belum ada di skema mana pun** (S0 B-2). Sampai apply, endpoint consent
+   di staging akan gagal-tertutup (503/400) — itu perilaku yang diinginkan, bukan bug.
+3. `whatsapp_channel_bindings` (S0 B-3) tetap belum ada DDL; jalur pengingat outbound belum
+   boleh hidup. `opt_in=true` **tidak** memicu pesan apa pun dari kartu ini.
+4. Jalur uang (`create-order`) → **setiap diff wajib review**; kartu ini berhenti di
+   `review-required`.
+5. Tidak ada merge/push ke `main`, tidak ada deploy, tidak ada aktivasi promo.
 
-Uji: unit (gerbang `NODE_ENV`) + e2e instance produksi **tanpa** pintu darurat → 503 generik,
-**file sink tidak dibuat sama sekali** (nol kode OTP/nomor mentah ke disk), nol challenge
-diterbitkan. Pra-fix: unit FAIL (`mock lolos di produksi tanpa pintu darurat`) dan e2e
-`expected 503, got 200` dengan body "kode verifikasi sudah dikirim" + sink tertulis
-(log `/tmp/w3rx-prefix-units.log`, `/tmp/w3rx-prefix2-e2e.log`).
+## 9. Perubahan pada kode/suite existing (perlu ikut dibaca reviewer)
 
-### F-4 — format `users.phone` (LOW, pra-apply)
-Query **READ-ONLY** ke **staging** (Supabase Management API, token scoped staging — `GET
-/v1/projects` hanya menampilkan `thrivin-staging`), hanya `SELECT` agregat tanpa nilai mentah:
+- `src/app/api/scalev/create-order/route.ts` — **jalur uang**: gate + klaim + replay +
+  pelepasan klaim (3 jalur) + nama/harga dari server.
+- `src/app/companion/nina/onboarding/[step]/page.tsx` — body order tidak lagi mengirim
+  `amount`/`planName`/`onboarding`/`customerName`; dua checkbox; simpan progress per langkah.
+- `src/app/privacy/page.tsx`, `src/components/Footer.tsx`, `src/app/sitemap.ts` — A6.
+- `tests/test-promo-e2e.mts` — helper `checkout()` menyiapkan sesi+progress+consent lewat
+  HTTP (jalur yang sama dengan UI) sebelum memanggil `create-order`; nama uji ikut masuk
+  langkah 2 (kalau tidak, injeksi kegagalan mock Scalev "FAILORDER" tidak lagi sampai ke
+  server karena nama diambil dari profil tersimpan); asersi race lama diganti; 2 asersi
+  regresi klaim ditambahkan.
+- `tests/test-webhook-e2e.mts` — menyiapkan sesi+consent untuk checkout-nya; kasus
+  "profil invalid" berubah makna: profil dari body tidak lagi dibaca ⇒ 400
+  `INCOMPLETE_ONBOARDING` (bukan 400 karena rentang nilai).
+- `tests/test-legal-draft-shape.mts` — W2 memeriksa "belum ada route/link /terms"; setelah
+  owner ACC dan publikasi A6, pemeriksaan dibalik: route ada, footer & checkout menaut,
+  versi = `terms-2026-10-15-v1`, dan tidak ada placeholder yang bocor ke `/privacy`.
+- `tests/harness/seed.sh` (migrasi 006) + `tests/run-all.sh` (step SQL & e2e consent +
+  legal shape masuk gate).
 
-| Metrik | Nilai |
-|---|---|
-| `total_users` | 5 |
-| `phone_null` | 0 |
-| `fmt_62_ok` (`^62[0-9]{8,13}$`) | **0** |
-| `fmt_plus62` (`^\+62`) | **5** |
-| `fmt_leading_zero` / non-digit / butuh trim | 0 / 0 / 0 |
+## 10. Bukti & link
 
-Sample termask: `+628****01 … +628****05` (len 13). **Kesimpulan: 5/5 baris staging
-tersimpan `+62…`** — predikat lama `phone = '628…'` tidak pernah cocok, jadi pelanggan lama
-akan terbaca `none` (layar "Belum ada langganan" padahal aktif). Format **campuran** bila
-dibandingkan konvensi app (`62…`) ⇒ normalisasi ditambahkan.
-
-Fix di RPC (tanpa menyentuh data): bandingkan **digit saja** —
-`regexp_replace(phone,'[^0-9]','','g') IN (p_phone, '0' || substring(p_phone from 3))` →
-`+62…`, `62…`, `0812…`, spasi/dash semuanya cocok. Uji menambah baris dummy `+62…`, `0812…`,
-dan berspasi → ketiganya terbaca `active` lewat sesi `62…`; pra-fix ketiganya `none`.
-Catatan performa: predikat ini **seq scan** (tidak memakai `users_phone_key`) — ganti ke
-index ekspresi/normalisasi data saat `users` membesar (dicatat sebagai `ponytail` di SQL).
-
-### Evidence `resend_limit` (refresh)
-Klaim lama ("`resend: … resend_limit`") hanya benar untuk pemanggilan RPC dengan
-`p_max_per_hour = 1`. Klaim yang berlaku sekarang: **kuota per jam ditegakkan lewat jalur HTTP
-dengan default app (5) → maksimal 5 kode/jam/nomor**, dan batas tetap tidak dibocorkan ke klien.
-
-### Batas klaim baru (jujur)
-- Pintu darurat `WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1` **wajib tidak ada** di env staging/produksi
-  saat apply (default = mock ditolak).
-- Baris `wa_otp_challenges` kini menumpuk (satu baris per penerbitan) → butuh **purge terjadwal**
-  saat apply (dicatat di SQL + `evidence.json`).
-- F-3 (regex nomor lebih ketat di 3 tempat) & F-5 (INFO) **tidak** dikerjakan di sini — item
-  pasca-apply sesuai keputusan audit.
-
+- Kontrak: `~/workspaces/thrivin/batch-2026-10-15/s0-security/integration-contract.md`
+- Review S0: `~/workspaces/thrivin/batch-2026-10-15/s0-security/report.md` §5
+- Laporan ini + `evidence.json`: `~/workspaces/thrivin/batch-2026-10-15/w4-consent-gate/`
+- Catatan vault: `~/obsidian/kantor-ai/projects/thrivin/features/checkout-consent-gate-2026-10-15.md`
+- Draft teks legal yang disetujui: `docs/legal/{terms-draft,privacy-delta,consent-wording}-2026-10-15.md`
