@@ -39,6 +39,12 @@ export function Footer() {
           >
             Privacy Policy
           </Link>
+          <Link
+            href="/terms"
+            className="hover:text-brand-900 transition-colors"
+          >
+            Syarat &amp; Ketentuan
+          </Link>
           <a
             href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20butuh%20bantuan"
             target="_blank"

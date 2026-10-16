@@ -35,22 +35,39 @@ function read(rel: string): string {
 
 const terms = read(path.join("docs", "legal", DOCS[0]));
 
-// ── 1. nothing published ─────────────────────────────────────────────────────
-check("no src/app/terms route", !fs.existsSync(path.join(REPO, "src", "app", "terms")));
+// ── 1. status publikasi (DIPERBARUI di W4: draft sudah dipublikasikan) ───────
+// W2 memeriksa "belum ada route/link". Setelah owner menyetujui teks (16/10),
+// W4 t_f5ec336c mempublikasikannya — jadi yang diperiksa sekarang adalah
+// kebalikannya, plus bukti bahwa yang dipublikasikan = versi yang dicatat.
+check("src/app/terms route EXISTS (published in W4)", fs.existsSync(path.join(REPO, "src", "app", "terms")));
 check(
-  "no /terms link in app/components",
-  !fs
-    .readdirSync(path.join(REPO, "src"), { recursive: true })
-    .filter((f) => /\.(tsx?|mjs)$/.test(String(f)))
-    .some((f) => /["'`]\/terms["'`]/.test(read(path.join("src", String(f)))))
+  "footer links /terms",
+  /href="\/terms"/.test(read(path.join("src", "components", "Footer.tsx")))
+);
+check(
+  "checkout links /terms",
+  /TERMS_PATH/.test(read(path.join("src", "app", "companion", "nina", "onboarding", "[step]", "page.tsx")))
+);
+check(
+  "published version constant is terms-2026-10-15-v1",
+  /TERMS_VERSION = "terms-2026-10-15-v1"/.test(read(path.join("src", "lib", "legal.ts")))
+);
+check(
+  "no owner placeholder leaks into published routes",
+  !/«/.test(read(path.join("src", "app", "terms", "page.tsx"))) &&
+    !/«/.test(read(path.join("src", "app", "privacy", "page.tsx")))
 );
 
-const baseDiff = execFileSync("git", ["diff", "--name-only", BASE, "--", "src"], { cwd: REPO })
-  .toString()
-  .trim();
-check("src/ untouched vs base " + BASE, baseDiff === "", `changed: ${baseDiff}`);
-
-check("privacy page still has its 4 existing sections", ["1. Data Apa", "2. Bagaimana", "3. Garansi Uang", "4. Hubungi"].every((s) => read(path.join("src", "app", "privacy", "page.tsx")).includes(s)));
+check(
+  "privacy page has the new published sections",
+  ["1. Data Apa", "2. Bagaimana", "3. Pengingat WhatsApp", "4. Garansi", "5. Berapa Lama", "6. Pihak Ketiga", "7. Perubahan", "8. Hubungi"].every((s) =>
+    read(path.join("src", "app", "privacy", "page.tsx")).includes(s)
+  )
+);
+check(
+  "absolute claim replaced",
+  !/100% aman/.test(read(path.join("src", "app", "privacy", "page.tsx")))
+);
 
 // ── 2. draft files + registries ──────────────────────────────────────────────
 for (const doc of DOCS) check(`draft exists: docs/legal/${doc}`, fs.existsSync(path.join(LEGAL_DIR, doc)));
