@@ -39,7 +39,9 @@ import {
   SERVICE_KEY,
   ANON_KEY,
   POSTGREST_URL,
+  PORTS,
   startPostgrest,
+  tmpPath,
   truncateAll,
   psqlSuper,
 } from "./harness/stack.mts";
@@ -56,8 +58,9 @@ const REPO = path.resolve(HERE, "..");
 // Sesi pelanggan untuk `create-order` (kontrak W4 §2).
 const WA_SESSION_SECRET = DEFAULT_WA_SESSION_SECRET;
 
-const APP_PORT = Number(process.env.HARNESS_PROMO_APP_PORT || 3988);
-const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4111);
+const APP_PORT = Number(process.env.HARNESS_PROMO_APP_PORT || PORTS.promoApp);
+const WEAK_APP_PORT = Number(process.env.HARNESS_PROMO_WEAK_PORT || PORTS.promoWeak);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.promoMock);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 
@@ -66,8 +69,10 @@ const ADMIN_PASS = "promo-admin-pass-1234";
 const ADMIN_SECRET = "promo-session-secret-at-least-32-chars-long";
 const WEBHOOK_SECRET = "promo_e2e_webhook_secret_12345";
 
-const MOCK_ORDERS_FILE = "/tmp/thrivin-promo-e2e-orders.json";
-const LOG_FILE = "/tmp/thrivin-promo-e2e-server.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const MOCK_ORDERS_FILE = tmpPath("promo-orders.json");
+const LOG_FILE = tmpPath("promo-server.log");
+const WEAK_LOG = tmpPath("promo-weak.log");
 
 /**
  * Harga variant 3-bulan di Scalev. Katalog server (PLAN_CATALOG.quarter) =
@@ -402,11 +407,11 @@ async function main() {
     // ══ C-2: secret sesi lemah tidak boleh diterima ═════════════════════════
     console.log("\n── C-2: ADMIN_SESSION_SECRET lemah ──");
     {
-      const weakPort = APP_PORT + 1;
+      const weakPort = WEAK_APP_PORT;
       const weak = await startApp(
         { ADMIN_SESSION_SECRET: "a".repeat(32) },
         weakPort,
-        "/tmp/thrivin-promo-e2e-weak.log"
+        WEAK_LOG
       );
       try {
         const weakBase = `http://127.0.0.1:${weakPort}`;

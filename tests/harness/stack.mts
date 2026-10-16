@@ -12,19 +12,25 @@ import crypto from "crypto";
 import fs from "fs";
 import { spawn } from "child_process";
 import { execFileSync } from "child_process";
+import { PORTS, PG_DB, tmpPath } from "./isolate.mts";
+
+export { PG_DB, PORTS, PROMO_DB, PORT_BASE, REPO_ROOT, SLUG, TMP_PREFIX, tmpPath } from "./isolate.mts";
 
 export const PG_HOST = process.env.HARNESS_PG_HOST || "127.0.0.1";
 export const PG_PORT = process.env.HARNESS_PG_PORT || "5432";
-export const PG_DB = process.env.HARNESS_PG_DB || "thrivin_remediation_test";
 export const PG_USER = "authenticator";
 export const PG_PASSWORD = process.env.HARNESS_PG_PASSWORD || "localtestpw";
 export const PG_URL = `postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}`;
 
-export const POSTGREST_PORT = Number(process.env.HARNESS_POSTGREST_PORT || 54321);
+// Default per-worktree (isolate.mts): dua worktree paralel tidak boleh berbagi
+// port. Override lewat env kalau memang mau berbagi.
+export const POSTGREST_PORT = Number(
+  process.env.HARNESS_POSTGREST_PORT || PORTS.postgrest
+);
 export const POSTGREST_URL = `http://127.0.0.1:${POSTGREST_PORT}`;
 /** PostgREST listens here; the app only ever sees POSTGREST_URL (prefix proxy). */
 export const POSTGREST_UPSTREAM_PORT = Number(
-  process.env.HARNESS_POSTGREST_UPSTREAM_PORT || 54322
+  process.env.HARNESS_POSTGREST_UPSTREAM_PORT || PORTS.postgrestUpstream
 );
 export const JWT_SECRET =
   process.env.HARNESS_JWT_SECRET || "super-secret-jwt-key-with-at-least-32-chars-long";
@@ -122,7 +128,7 @@ export async function startPostgrest(): Promise<RunningStack | null> {
     /* not running */
   }
 
-  const upstreamConfig = "/tmp/thrivin-harness-postgrest.conf";
+  const upstreamConfig = tmpPath("postgrest.conf");
   const proxyScript = new URL("./prefix-proxy.mjs", import.meta.url).pathname;
   fs.writeFileSync(
     upstreamConfig,

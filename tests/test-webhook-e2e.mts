@@ -29,7 +29,9 @@ import {
   SERVICE_KEY,
   ANON_KEY,
   POSTGREST_URL,
+  PORTS,
   startPostgrest,
+  tmpPath,
   truncateAll,
   countRows,
   query,
@@ -46,13 +48,15 @@ const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 
 const WEBHOOK_SECRET = "test_scalev_secret_12345";
-const APP_PORT = Number(process.env.HARNESS_APP_PORT || 3987);
-const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4111);
+const APP_PORT = Number(process.env.HARNESS_APP_PORT || PORTS.webhookApp);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.webhookMock);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 
-const DISK_DIR = "/tmp/thrivin-e2e-onboarding";
-const LOG_FILE = "/tmp/thrivin-e2e-server.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const ORDERS_FILE = tmpPath("webhook-orders.json");
+const DISK_DIR = tmpPath("e2e-onboarding");
+const LOG_FILE = tmpPath("webhook-server.log");
 
 const results: Array<[string, string]> = [];
 function record(ok: boolean, name: string, detail = "") {
@@ -92,6 +96,7 @@ interface Stack {
 
 async function startMockScalev(): Promise<Stack> {
   const child = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
+    env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", () => {});
@@ -302,9 +307,7 @@ async function main() {
     const orderJson = await orderRes.json();
     assertEq(orderRes.status, 200, "B-2  order created");
 
-    const mockOrders = JSON.parse(
-      fs.readFileSync("/tmp/thrivin-e2e-mock-orders.json", "utf-8")
-    );
+    const mockOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8"));
     const lastOrder = mockOrders[mockOrders.length - 1];
     assertEq(
       lastOrder.body.ordervariants[0].quantity * 219000 - lastOrder.body.product_discount,

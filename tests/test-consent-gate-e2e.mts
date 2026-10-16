@@ -13,8 +13,10 @@ import { spawn, execFileSync } from "child_process";
 import {
   POSTGREST_URL,
   SERVICE_KEY,
+  PORTS,
   startPostgrest,
   psqlSuper,
+  tmpPath,
 } from "./harness/stack.mts";
 import { resolvePlanPrice } from "../src/lib/plans.ts";
 import {
@@ -31,15 +33,16 @@ import {
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 
-const APP_PORT = Number(process.env.HARNESS_W4_APP_PORT || 3981);
-const BROKEN_APP_PORT = Number(process.env.HARNESS_W4_BROKEN_PORT || 3982);
-const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4121);
+const APP_PORT = Number(process.env.HARNESS_W4_APP_PORT || PORTS.w4App);
+const BROKEN_APP_PORT = Number(process.env.HARNESS_W4_BROKEN_PORT || PORTS.w4Broken);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.w4Mock);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const BROKEN_URL = `http://127.0.0.1:${BROKEN_APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
-const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || "/tmp/thrivin-w4-mock-orders.json";
-const LOG = "/tmp/thrivin-w4-server.log";
-const BROKEN_LOG = "/tmp/thrivin-w4-broken.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || tmpPath("w4-orders.json");
+const LOG = tmpPath("w4-server.log");
+const BROKEN_LOG = tmpPath("w4-broken.log");
 /** Port tanpa apa-apa: mensimulasikan Supabase mati. */
 const DEAD_SUPABASE = "http://127.0.0.1:59996";
 

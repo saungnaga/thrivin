@@ -12,12 +12,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 cd "$REPO"
 
+if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
+
+# DB / port / prefix /tmp per-worktree (RX2-2). Satu sumber kebenaran supaya
+# bash dan node tidak pernah menghitung nilai berbeda.
+eval "$(node --experimental-strip-types "$HERE/harness/isolate.mts" env)"
+echo "worktree: $HARNESS_SLUG  db: $HARNESS_PG_DB  port base: $HARNESS_PORT_BASE"
+
 echo "=============================================================="
 echo "1/9  harness: local Postgres stand-in + mock Scalev"
 echo "=============================================================="
 bash "$HERE/harness/seed.sh"
-
-if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
 
 echo
 echo "=============================================================="
@@ -55,7 +60,7 @@ echo "6/9  end-to-end: webhook routes -> PostgREST -> Postgres"
 echo "=============================================================="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo ">> next build"
-  npm run build >/tmp/thrivin-test-build.log 2>&1 || { tail -40 /tmp/thrivin-test-build.log; exit 1; }
+  npm run build >"$TMP_PREFIX/build.log" 2>&1 || { tail -40 "$TMP_PREFIX/build.log"; exit 1; }
   echo ">> build ok"
 fi
 node --experimental-strip-types "$HERE/test-webhook-e2e.mts"

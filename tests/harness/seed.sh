@@ -4,6 +4,10 @@
 #   ./tests/harness/seed.sh          # create db + apply migrations (idempotent)
 #   ./tests/harness/seed.sh --fresh  # drop and recreate first
 #
+# Nama DB diturunkan dari path worktree (tests/harness/isolate.mts) supaya dua
+# worktree bisa `run-all` bersamaan tanpa berebut Postgres (RX2-2). Override
+# dengan HARNESS_PG_DB.
+#
 # Migrations applied in order:
 #   001-core-schema.sql          users/subscriptions/subscription_plans (harness core)
 #   002-webhook-onboarding.sql   webhook_events_inbox + onboarding_snapshots + purge (from staging/)
@@ -11,7 +15,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-DB="${HARNESS_PG_DB:-thrivin_remediation_test}"
+DB="${HARNESS_PG_DB:-$(node --experimental-strip-types "$HERE/isolate.mts" db)}"
 
 FRESH=0
 for a in "$@"; do [ "$a" = "--fresh" ] && FRESH=1; done
@@ -27,6 +31,10 @@ if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB';"
   echo ">> creating $DB"
   run_pg postgres -c "CREATE DATABASE $DB OWNER postgres;"
 fi
+
+# Fungsi yang signature-nya berubah menyisakan overload lama di DB yang sudah
+# ada -> panggilan tanpa cast jadi ambigu. Lihat drop-stale.sql.
+run_pg "$DB" -f - < "$HERE/drop-stale.sql" >/dev/null
 
 # Keep the harness copies in lock-step with the schema under review. Copying
 # (instead of hand-maintaining a second file) is what keeps the leak/quota tests

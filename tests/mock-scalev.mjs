@@ -10,6 +10,8 @@
  */
 import http from "http";
 import fs from "fs";
+import os from "os";
+import path from "path";
 
 const PORT = Number(process.argv[2] || process.env.MOCK_SCALEV_PORT || 4111);
 
@@ -24,8 +26,11 @@ const PRODUCTS = [
 export const createdOrders = [];
 
 // Mirror to disk so the test process (which talks to the mock over HTTP, not
-// via import) can assert on what the route actually sent Scalev.
-const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || "/tmp/thrivin-e2e-mock-orders.json";
+// via import) can assert on what the route actually sent Scalev. Default
+// ber-pid supaya menjalankan mock manual tidak menimpa file run lain (RX2-2).
+const ORDERS_FILE =
+  process.env.MOCK_SCALEV_ORDERS_FILE ||
+  path.join(os.tmpdir(), `thrivin-mock-orders-${process.pid}.json`);
 fs.writeFileSync(ORDERS_FILE, "[]");
 
 function persistOrders() {
