@@ -156,12 +156,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_idempotency
 -- Nama index DIGANTI (bukan `IF NOT EXISTS` dengan nama lama): seed.sh/apply
 -- mengulang file ini ke DB yang sudah ada, dan `CREATE ... IF NOT EXISTS` bernama
 -- sama akan DIAM-DIAM mempertahankan index lama yang lebih sempit = lubang tetap
--- terbuka. Karena itu index lama di-DROP dulu, dan penjaganya diverifikasi lewat
+-- terbuka. Karena itu index lama di-DROP, dan penjaganya diverifikasi lewat
 -- `pg_indexes` di dokumen bukti.
-DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+--
+-- URUTAN + SATU TRANSAKSI (W4RX4 T1 follow-up F-1): file ini diapply
+-- per-statement (`psql -v ON_ERROR_STOP=1 -f -`, autocommit). Tanpa blok di bawah,
+-- DROP yang mendahului CREATE COMMIT lebih dulu, lalu CREATE gagal (mis. DB sudah
+-- memuat >=2 baris hidup untuk satu nomor) dan DB tertinggal TANPA penjaga
+-- per-nomor sama sekali — kegagalan apply justru meninggalkan DB LEBIH LEMAH dari
+-- sebelum apply, di kondisi yang paling butuh penjaganya. CREATE dulu ⇒ gagal =
+-- index lama masih berdiri; DROP belakangan ⇒ tidak pernah ada keadaan separuh.
+-- `CREATE INDEX` non-concurrent memegang ACCESS EXCLUSIVE sebentar: apply saat
+-- trafik rendah, dan jalankan pre-check duplikat (lihat dokumen bukti §5) SEBELUM
+-- apply — kalau ada duplikat, CREATE memang harus gagal; bersihkan datanya dulu,
+-- jangan tempel index-nya.
+BEGIN;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
   ON checkout_claims (tenant_id, phone)
   WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+COMMIT;
 
 -- ============================================================================
 -- 5. RPC primitif: catat SATU event consent (+ aturan urutan)
