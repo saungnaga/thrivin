@@ -371,6 +371,7 @@ lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
 | `tests/harness/seed.sh` | Nama DB turunan + menjalankan `drop-stale.sql` **sebelum** migrasi. |
 | `tests/harness/drop-stale.sql` (baru) | Drop tiap signature `cancel_promo_redemption` dari `pg_proc` (`DROP FUNCTION <nama>` polos gagal saat ada overload: "function name is not unique"). |
 | `tests/run-all.sh` | `eval "$(isolate.mts env)"` + log build ke `$TMP_PREFIX`; cek `node` sebelum seed. |
+| `tests/harness/prefix-proxy.mjs` | Port wajib lewat argumen (default bersama 54321/54322 dibuang); tanpa argumen → usage + exit 2. Hanya `stack.mts` yang memanggilnya, selalu dengan port `isolate.mts`. |
 | 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs` | Semua port/DB/path `/tmp` dari `isolate.mts`; default lama (3981-3998, 4111, 4121, 4135, 54321, 54322, `thrivin_*_test`) hilang. `mock-scalev` default file order kini ber-pid. |
 | `tests/test-probe-cross-phone.mts` | RX2-3: jalur gagal melempar error (bukan `process.exit`) ⇒ `finally` tetap mematikan anak proses; `main().catch` pakai `process.exitCode`. |
 
@@ -390,11 +391,26 @@ Tidak diubah dengan sengaja: asersi H-3 `!/tmp/thrivin-onboarding` (memeriksa ja
 - `bash tests/run-all.sh` (isolasi terpakai, port 48180+) → **ALL SUITES PASSED** (`/tmp/w4-runall-A.log`).
 - **Dua `run-all` BERSAMAAN dari dua worktree** (`w4-consent-gate` + `/tmp/wt-brx2`) → **keduanya
   ALL SUITES PASSED, exit 0** (`/tmp/runall-A2.log`, `/tmp/runall-B2.log`) — kriteria terima kartu.
+  Diulang di HEAD `dd6fd6c` (worktree kedua di-detach ke SHA yang sama, `src/` nol perubahan):
+  **A_EXIT=0, B_EXIT=0**, step 9 kedua sisi 128/128, sesudahnya nol port tersisa
+  (`/tmp/rx22-r3-A.log`, `/tmp/rx22-r3-B.log`).
+- `prefix-proxy.mjs` tanpa argumen → usage + exit 2; suite yang lewat proxy
+  (`test-webhook-e2e.mts`) **61/61 PASS, exit 0** (`/tmp/rx22-r3-prefixproxy-smoke.log`).
 - `drop-stale.sql` bergigi: DB tercemar overload → `seed.sh` → promo e2e **118/118**
   (`/tmp/rx22-sim-prefix.log`).
 - Probe pasca-fix + guard F-S1 masih dimatikan → exit 1 dengan pesan kebocoran yang jelas, lalu
   `ss -ltn` **nol** sisa port dan nol proses yatim (`/tmp/rx23-post.log`).
 - Semua mutasi uji **direvert**; `git status` bersih (kecuali `?? graphify-out/` yang bukan milik iterasi ini).
+
+### Observasi jujur: satu `run-all` penuh sempat merah (flaky, bukan akibat perubahan ini)
+
+`bash tests/run-all.sh` pada head beku **sekali** berakhir exit 1 di step 9:
+`e2e gate consent/checkout: 126 PASS, 2 FAIL` — asersi race "dua kunci berbeda paralel" melihat
+**2** order tercetak (bukan 1). Tidak bisa direproduksi: **7 run berikutnya hijau 128/128**
+(3× suite itu sendiri, + 4× di bawah beban paralel: dua salinan suite yang sama dari dua worktree
+sekaligus). `src/` tidak tersentuh di ronde ini (perubahan hanya `tests/` + `docs/`), jadi ini
+sifat timing-sensitive yang sudah ada — kelas yang sama dengan flakiness F-S2 yang didokumentasikan
+Sentinel. **Belum** diklaim penyebabnya; kartu ini tidak memperbaikinya.
 
 Rincian mentah: `docs/w4-rx2-2-3-verification.txt`.
 

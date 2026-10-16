@@ -7,7 +7,8 @@ Branch: feat/checkout-consent-gate-2026-10-15
 Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
 Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi, nol push/merge.
 
-Commit: 4c89ff0 + 4b5412f (RX2-2) dan 2ad67bf (RX2-3). Semua mutasi uji (schema guard F-S1) DIREVERT;
+Commit: 4c89ff0 + 4b5412f (RX2-2), 2ad67bf (RX2-3), dd6fd6c (dokumentasi), 2 commit sesudahnya =
+prefix-proxy tanpa default port + bukti ulangan. Semua mutasi uji (schema guard F-S1) DIREVERT;
 `git status` bersih sesudahnya (hanya `?? graphify-out/` yang bukan milik iterasi ini).
 
 ==============================================================================
@@ -33,6 +34,9 @@ Perubahan lain:
   drop-stale.sql : DROP tiap signature `cancel_promo_redemption` dari katalog pg_proc
                    (DROP FUNCTION <nama> polos GAGAL saat ada overload: "function name is not unique")
   run-all.sh     : `eval "$(isolate.mts env)"` + log build ke $TMP_PREFIX
+  prefix-proxy.mjs: argumen port WAJIB (default bersama 54321/54322 dibuang); tanpa
+                   argumen -> exit 2 + usage. Hanya stack.mts yang memanggilnya dan
+                   selalu dengan port isolate.mts, jadi tak ada jalur yang berubah.
   5 suite e2e + promo-sql + mock-scalev: port/DB/path /tmp dari isolate.mts
                    (semua default lama 3981-3998/4111/4121/4135/54321/54322/thrivin_*_test sudah hilang)
 
@@ -77,10 +81,31 @@ selama DB masih bersama: run 1 PASS, run berikutnya FAIL karena ulah worktree la
       B (/tmp/wt-brx2)                                                    -> ALL SUITES PASSED, B_EXIT=0  (log /tmp/runall-B2.log)
     RAM VPS selama dua run bersamaan: available ~2,0 GB (aman, lihat skill vps-resource-guardrails).
 
+3b-bis. Ulangan kriteria terima di HEAD (`dd6fd6c`, sesudah drop-stale.sql versi "buang semua
+    overload"). Worktree kedua di-detach ke `dd6fd6c` lebih dulu
+    (`git -C /tmp/wt-brx2 checkout --detach dd6fd6c`; `git diff --name-only 2ad67bf..dd6fd6c` =
+    docs + drop-stale.sql saja, `src/` nol perubahan ⇒ build lama masih sah, SKIP_BUILD=1).
+      A (w4-consent-gate) -> ALL SUITES PASSED, A_EXIT=0   (log /tmp/rx22-r3-A.log)
+      B (/tmp/wt-brx2)    -> ALL SUITES PASSED, B_EXIT=0   (log /tmp/rx22-r3-B.log)
+      step 9 kedua sisi: "e2e gate consent/checkout: 128 PASS, 0 FAIL"
+      sesudah selesai: `ss -ltn | grep -cE ":4[0-9]{4}"` -> 0 (nol port tersisa)
+
+    Catatan jujur: perubahan `prefix-proxy.mjs` (default port dibuang) masuk SESUDAH run ini,
+    jadi langkah 3b/3b-bis membuktikan isolasi DB/port/prefix tanpa perubahan itu. Untuk perubahan
+    itu buktinya lebih kecil dan cukup: `node tests/harness/prefix-proxy.mjs` -> usage + exit 2,
+    lalu `node --experimental-strip-types tests/test-webhook-e2e.mts` (satu-satunya suite yang
+    lewat proxy) -> lihat log /tmp/rx22-r3-prefixproxy-smoke.log.
+
 3c. drop-stale.sql punya gigi (memulihkan DB yang SUDAH tercemar overload, tanpa drop DB):
     DB yang sama + overload asing -> `bash tests/harness/seed.sh` -> hanya 1 signature tersisa ->
     suite `tests/test-promo-e2e.mts` 118/118 ALL PROMO E2E CHECKS PASSED (log /tmp/rx22-sim-prefix.log).
     Tanpa langkah itu, panggilan bare-nya ERROR "not unique" (bagian 2a).
+
+3d. Bukti tambahan bahwa isolasi bekerja: DUA salinan suite yang SAMA (consent-gate e2e) dijalankan
+    BERSAMAAN dari dua worktree (w4-consent-gate + /tmp/wt-brx2), 2× berturut-turut:
+      A 1 exit=0 128 PASS / 0 FAIL      B 1 exit=0 128 PASS / 0 FAIL
+      A 2 exit=0 128 PASS / 0 FAIL      B 2 exit=0 128 PASS / 0 FAIL
+    (log /tmp/w4-load-A-*.log, /tmp/w4-load-B-*.log, ringkasan /tmp/w4-load-summary.txt)
 
 ==============================================================================
 4. RX2-3 — apa yang berubah + bukti dua arah
@@ -129,3 +154,18 @@ Mutasi uji (sementara, SUDAH DIREVERT): guard F-S1 di `staging/schema-consent.sq
   Jalan keluar: set `HARNESS_PORT_BASE` / `HARNESS_PG_DB` eksplisit (sudah dihormati semua suite).
 - Belum: `seed.sh --fresh` masih manual (bukan default run-all) — sengaja, karena drop+recreate DB
   setiap run memperlambat gate; drop-stale.sql sudah menutup kasus signature berubah.
+
+==============================================================================
+6. CATATAN JUJUR — satu `run-all` penuh sempat merah (flaky, bukan akibat ronde ini)
+==============================================================================
+`bash tests/run-all.sh` pada head beku SEKALI exit 1 di step 9:
+  e2e gate consent/checkout: 126 PASS, 2 FAIL
+  FAIL dua kunci berbeda paralel: tepat SATU order tercetak (…) — expected 1, got 2
+  FAIL dua kunci berbeda paralel: semua jawaban 200 menunjuk order yang SAMA — expected 1, got 2
+(log /tmp/w4-runall-final.log)
+
+Tidak bisa direproduksi: 7 run berikutnya hijau 128/128 (3× suite itu sendiri: /tmp/w4-cge-{1,2,3}.log;
+dan 4× di bawah beban paralel: /tmp/w4-load-A-{1,2}.log + /tmp/w4-load-B-{1,2}.log).
+`src/` tidak tersentuh di ronde ini (hanya tests/ + docs/), jadi ini sifat timing-sensitive yang sudah
+ada — kelas yang sama dengan flakiness F-S2 yang didokumentasikan Sentinel. Penyebab BELUM diklaim;
+ronde ini tidak memperbaikinya (di luar lingkup kartu: DB/port/path, bukan logika gate).
