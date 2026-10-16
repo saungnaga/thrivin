@@ -1,8 +1,10 @@
 # W4 — Gate completion checkout server-side + consent T&C/opt-in + publish `/terms`
 
-**Kartu:** `t_f5ec336c` (root `t_fdba2939`) · **Assignee:** Forge · **Tanggal:** 2026-10-16
-**Status:** ✅ implementasi + suite lokal hijau · ⛔ **review-required (Sentinel)** ·
-**belum merge / belum apply SQL / belum deploy** · base kerja **`9392cdd`** (RC) + W3 head `e01a27a`
+**Kartu:** `t_f5ec336c` (root `t_fdba2939`) · **Assignee:** Forge · **Tanggal:** 2026-10-16 (r3 2026-10-17)
+**Status:** ✅ implementasi + suite hijau (`run-all.sh` 3× berturut) · ✅ migrasi consent
+**di-apply ke STAGING** (batch, bukan produksi) + readback · ✅ **F-W4-1 opsi (a)** diimplementasi ·
+⛔ **review-required (delta-review 3, Sentinel)** · **belum merge / belum deploy produksi** ·
+base kerja **`9392cdd`** (RC) + W3 head `e01a27a`
 
 ---
 
@@ -22,8 +24,9 @@ Tiga hal dikerjakan di kartu ini:
 - **A6 — publikasi teks yang sudah disetujui owner (ACC 16/10).** `/terms` + delta
   `/privacy` + link dari footer, halaman checkout, dan sitemap.
 
-Tidak ada data pelanggan yang disentuh, tidak ada SQL yang di-apply, tidak ada Scalev
-nyata (mock lokal), tidak ada outbound WhatsApp, tidak ada push/merge ke `main`.
+Tidak ada data pelanggan yang disentuh, tidak ada Scalev nyata (mock lokal), tidak ada
+outbound WhatsApp, tidak ada push/merge ke `main`, tidak ada deploy produksi. Migrasi consent
+**sudah di-apply ke staging** (batch, readback §6c) atas perintah operator batch.
 
 ## 2. Base kerja & workspace
 
@@ -47,7 +50,7 @@ nyata (mock lokal), tidak ada outbound WhatsApp, tidak ada push/merge ke `main`.
 | `src/lib/legal.ts` | Fakta + versi dokumen (owner ACC 16/10): entitas, CS WA `6287788141388` 09.00–21.00 WIB, yurisdiksi Indonesia, retensi, `TERMS_VERSION=terms-2026-10-15-v1`. Tanpa impor Node supaya bisa dipakai komponen klien. |
 | `src/app/api/onboarding/progress/route.ts` | Simpan SATU langkah per nomor sesi; langkah 8 dengan nomor ≠ sesi ⇒ 409 `SESSION_PHONE_MISMATCH`; isi langkah tidak valid ⇒ 400 `INVALID_STEP_DATA`. |
 | `src/app/api/consent/route.ts` | Simpan consent (identitas dari cookie sesi, nomor body diabaikan); `termsAccepted !== true` ⇒ 400; tanpa sesi ⇒ 401. |
-| `staging/schema-consent.sql` | **DRAFT, belum di-apply**: kolom `users.opt_in`/`opted_out`, tabel `consent_events` (append-only via trigger; unique idempotensi; status efektif = event terbaru; opt-out menang saat seri), `onboarding_progress`, `checkout_claims` (+ unique parsial in-flight per nomor), RPC `record_consent_event`, `record_checkout_consent`, `save_onboarding_step`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`. Semua `SECURITY INVOKER`, `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT` hanya `service_role`. Idempotent. |
+| `staging/schema-consent.sql` | **Draft → ✅ di-apply ke staging (batch) ronde 3**: kolom `users.opt_in`/`opted_out`, tabel `consent_events` (append-only via trigger; unique idempotensi; status efektif = event terbaru; opt-out menang saat seri), `onboarding_progress`, `checkout_claims` (+ `paid_at`, unique parsial in-flight per nomor, reuse/blokir F-W4-1), RPC `record_consent_event`, `record_checkout_consent`, `save_onboarding_step`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`, `mark_checkout_claim_paid`, `purge_expired_onboarding_progress`. Semua `SECURITY INVOKER`, `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT` hanya `service_role`. Idempotent. |
 
 ### Server (diubah)
 
@@ -111,20 +114,23 @@ disetujui), `src/components/Footer.tsx` + `src/app/sitemap.ts` (link `/terms`).
 
 ### Gate penuh, `bash tests/run-all.sh` → **ALL SUITES PASSED** (exit 0)
 
-| Suite | Hasil |
+| Suite | Hasil (ronde 3) |
 |---|---|
 | unit remediation | 27/27 |
 | unit WA-first | 16/16 |
 | **unit consent/checkout** | **44/44** |
 | **legal draft shape** | **121/121** (kini assert persis 1 placeholder alamat di legal.ts, 0 di templates) |
 | promo SQL (redeem atomik/kuota/race) | 44/44 |
-| **consent/checkout SQL** | **44/44** (tambah probe anon INSERT/UPDATE, F-S1 key_conflict, F-S7 tie-break, F-S4 purge) |
-| webhook e2e | 58/58 |
-| promo e2e | 115/115 (F-S2 invariant race diperbaiki) |
+| **consent/checkout SQL** | **64/64** (+20 asersi F-W4-1; sudah termasuk anon INSERT/UPDATE, key_conflict, tie-break, purge) |
+| webhook e2e | 61/61 (+3: webhook → `paid_at`) |
+| promo e2e | 116/116 (F-S2 invariant race diperbaiki + asersi F-W4-1 pada retry) |
 | WA-first e2e | 136/136 |
-| **consent/checkout e2e** | **110/110** (tambah F-S1 cross-phone replay 409 + F-S3 /privacy placeholder) |
+| **consent/checkout e2e** | **128/128** (+18: F-W4-1(a) reuse/409/TTL/pembelian ulang setelah lunas) |
 
-Log: stabil ≥3× berturut-turut di salinan bersih via `bash tests/run-all.sh`.
+Log: `bash tests/run-all.sh` **ALL SUITES PASSED 3× berturut-turut** di salinan bersih
+(`/tmp/w4f1-runall-1..3.log`, ringkasan `/tmp/w4f1-runall3.out`), DB & port terisolasi per run
+(`HARNESS_PG_DB=thrivin_w4f1`, postgrest 54641/54642, app/mock unik) — sesuai catatan
+operasional Sentinel (RX2-2) supaya run paralel tidak saling mengontaminasi.
 
 ## 6b. Remediasi Delta-Review Sentinel Ronde 1 (t_07db887d / F-S1–S8)
 
@@ -165,20 +171,107 @@ Log: stabil ≥3× berturut-turut di salinan bersih via `bash tests/run-all.sh`.
 | Fix sendiri dimatikan (pelepasan klaim pada penolakan promo dihapus) | promo e2e | **113/115** — tepat 2 asersi baru GAGAL: `expected 200, got 409` dan `expected 0, got 1` (klaim in-flight tertinggal) | `/tmp/w4-prefix2-promo.log` |
 | Asersi race lama (timing) dijalankan 2× | consent e2e | 1× lulus, 1× GAGAL (`expected 1, got 2`) → dibuktikan flaky, lalu diganti | `/tmp/w4-runall3.log` §C |
 
+## 6c. Ronde 3 — F-W4-1 opsi (a) + apply migrasi consent ke STAGING (2026-10-17)
+
+**Keputusan owner (16/10, via Koron):** opsi (a) — *"iya kasih link bayar yang sama"*.
+Paket sama + masih ada order belum dibayar ⇒ kunci baru **dikembalikan ke order/link yang sama**;
+paket beda ⇒ blokir eksplisit; kunci sama dari nomor beda ⇒ tetap 409 `IDEMPOTENCY_KEY_CONFLICT`.
+
+### Perubahan DB (`staging/schema-consent.sql`, draft → di-apply ke staging)
+
+- Kolom baru `checkout_claims.paid_at TIMESTAMPTZ` — **satu-satunya** pembeda "order belum dibayar
+  yang masih hidup" dari riwayat lunas (pembelian ulang sah). Diisi jalur uang, tidak pernah klien.
+- `claim_checkout_order` (signature & grant **tidak berubah** ⇒ tidak ada overload PostgREST baru):
+  - langkah **3b**: klaim `created` yang belum dibayar & lebih tua dari **TTL 60 menit** dianggap
+    ditinggalkan (`status='failed'`) — supaya link yang ditinggalkan tidak menahan nomor selamanya;
+  - langkah **6**: nomor yang masih punya order belum dibayar ⇒ **paket sama** `reuse_unpaid`
+    (`order_id` + `payment_url` yang sama), **paket beda** `unpaid_conflict`;
+  - urutan gate TIDAK berubah: kunci/nomor (F-S1 `key_conflict`) → expire → langkah wajib → T&C →
+    **baru** reuse. Reuse tidak pernah melewati gate (diuji eksplisit: langkah wajib dihapus ⇒
+    tetap `incomplete_onboarding`).
+- RPC baru `mark_checkout_claim_paid(p_order_id, p_paid_at, p_tenant_id)` — idempotent
+  (`COALESCE(paid_at, …)`, retry webhook tidak menggeser timestamp pertama), `SECURITY INVOKER`,
+  `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT EXECUTE` hanya `service_role`.
+
+### Perubahan app
+
+- `src/lib/checkout-gate.ts` — `ClaimOutcome` + `reuse_unpaid` / `unpaid_conflict`;
+  tambahan `markCheckoutClaimPaid(orderId, paidAt?)` (best effort, tidak pernah melempar).
+- `src/app/api/scalev/create-order/route.ts` (jalur uang) — `reuse_unpaid` ⇒ **200**
+  `{orderId, paymentUrl, replay:true, unpaidOrderReused:true}` **tanpa panggilan Scalev**;
+  `unpaid_conflict` ⇒ **409 `UNPAID_ORDER_EXISTS`** tanpa `orderId`/`paymentUrl`
+  (tidak ada data order yang dibocorkan). Nomor != nomor body tetap 403, kunci milik nomor lain
+  tetap 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- `src/app/api/scalev/webhook/route.ts` (jalur uang) — pada `payment.received`/`order.paid`
+  yang sudah lolos validasi status pembayaran & klaim inbox: `markCheckoutClaimPaid(orderUniqueId)`
+  (pola sama dengan `consume_promo_for_order`, tidak pernah melempar ke jalur webhook).
+
+### Suite yang berubah/tambah
+
+| Suite | Tambahan |
+|---|---|
+| `test-consent-gate-sql.mts` | bagian 10: `reuse_unpaid` (order/link sama, **tidak** ada baris klaim kedua), `unpaid_conflict` + tanpa `order_id`, F-S1 tetap `key_conflict`, `mark_checkout_claim_paid` idempotent + `not_found`, TTL 61 menit ⇒ boleh checkout baru + baris lama `failed`, reuse tidak mendahului gate, anon dilarang memanggil `mark_checkout_claim_paid` |
+| `test-consent-gate-e2e.mts` | bagian C2 (HTTP): reuse ⇒ 200 order/link SAMA & 0 order baru, paket beda ⇒ 409 `UNPAID_ORDER_EXISTS` tanpa data order, setelah dibayar ⇒ order baru, order ditinggalkan > TTL ⇒ boleh. Invariant "dua kunci berbeda paralel" diganti: **tepat satu** order, semua jawaban 200 ke order yang sama, sisanya 409 |
+| `test-webhook-e2e.mts` | webhook pembayaran mengisi `checkout_claims.paid_at` (bukan tes yang menulis); loop H-5 menandai lunas supaya percobaan berikutnya benar-benar mencetak order baru |
+| `test-promo-e2e.mts` | retry setelah pembatalan reservasi promo: kembali ke **order yang sama** (satu order), bukan order kedua |
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Mutasi | Suite | Hasil | Log |
+|---|---|---|---|
+| lookup order-belum-dibayar dimatikan (`LIMIT 1` → `LIMIT 0`) | consent/checkout SQL | **55 PASS / 10 FAIL** — reuse jadi `granted`, lahir baris klaim kedua, `unpaid_conflict` tidak pernah muncul | `/tmp/w4f1-neg-sql.log` |
+| sama (lewat HTTP) | consent/checkout e2e | **118 PASS / 10 FAIL** — terukur **dua order berbeda yang keduanya bisa dibayar** (`test_5_…` vs `test_6_…`) untuk satu nomor + satu paket | `/tmp/w4f1-neg-e2e.log` |
+
+Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED** (exit 0).
+
+### Apply ke STAGING + readback (bukan produksi, bukan data pelanggan)
+
+- Metode: `POST https://api.supabase.com/v1/projects/<ref>/database/query` dengan token
+  **scoped staging** dari rak kredensial (`~/.hermes/secrets/staging/supabase.env`); isi file
+  `staging/schema-consent.sql` dikirim apa adanya (idempotent). Tidak ada kredensial yang dicetak.
+- **Sebelum apply (readback):** `consent_events` / `onboarding_progress` / `checkout_claims`
+  **belum ada** di staging (migrasi memang belum pernah di-apply).
+- **Sesudah apply (readback):** 3 tabel ada; `users.opt_in`/`opted_out` (boolean, default false,
+  `NOT NULL`); `checkout_claims.paid_at` ada; 8 index termasuk `uq_checkout_claims_idempotency`,
+  `uq_checkout_claims_inflight_phone`, `uq_onboarding_progress_phone`,
+  `idx_consent_events_phone_type_time`; 10 RPC (`claim_checkout_order` **tepat satu** overload
+  7-arg, `mark_checkout_claim_paid` 3-arg, `purge_expired_onboarding_progress`,
+  `consent_state_for_phone`, …); `trg_consent_events_append_only` aktif; RLS aktif di 3 tabel +
+  policy `deny_client_access_*`; hak akses: `anon` **tidak** boleh EXECUTE RPC mana pun & **tidak**
+  boleh SELECT/INSERT tabel, `service_role` boleh — persis hasil F-S5 di staging.
+- **Probe fungsional di staging, SATU transaksi lalu `ROLLBACK`** (tidak menulis apa pun):
+  `claim` → `granted`, baris klaim = **1**, `complete` → `completed`,
+  kunci baru paket sama → **`reuse_unpaid`** dengan `order_id`+`payment_url` yang SAMA,
+  paket beda → **`unpaid_conflict`**, `mark_checkout_claim_paid` → `marked` + `paid_at` terisi,
+  kunci baru setelah lunas → `granted` (order baru), kunci milik nomor lain → **`key_conflict`**.
+  Residu sesudahnya: `checkout_claims=0`, `consent_events=0`, `onboarding_progress=0`,
+  `users=5` (seed fiktif staging, tidak bertambah).
+- Bukti mentah: `/tmp/w4f1/staging-readback-consent.txt` (dilampirkan ke kartu) ·
+  probe yang sama juga dijalankan di **harness lokal** setiap `run-all.sh`.
+
+### Catatan operasional ronde 3
+
+- **`pg_cron` TIDAK terpasang di staging** ⇒ blok penjadwalan purge di `schema-consent.sql`
+  ter-guard dan **tidak membuat job**. Fungsi `purge_expired_onboarding_progress` ada & terbukti
+  berfungsi, tapi **retensi 30 hari belum terjadwal di staging**. Butuh keputusan ops (dan
+  follow-up RX2-1 `t_383959b7` soal audit log purge) sebelum purge dijadwalkan di lingkungan
+  berisi data pelanggan riil.
+- **Residual F-W4-1:** melewati TTL 60 menit, order lama dianggap ditinggalkan (boleh checkout
+  baru) sementara link Scalev lama bisa masih bisa dibayar. Jendela ini disengaja (alternatifnya
+  lockout total tanpa jalur keluar) dan dibatasi 60 menit; kalau TTL link Scalev diketahui lebih
+  pendek, angkanya bisa diturunkan (satu konstanta di `claim_checkout_order`).
+- RX2-2 (harness berbagi DB/port) & RX2-3 (proses yatim saat probe gagal) sudah punya kartu
+  follow-up sendiri (`t_c85c2678`); run ronde 3 memakai env terisolasi sehingga tidak terdampak.
+
 ## 7. Temuan untuk Sentinel / keputusan pemilik
 
-- **F-W4-1 (kunci idempotensi baru tidak pernah ditolak).** Selama tidak ada klaim
-  in-flight untuk nomor itu, kunci baru = percobaan beli baru. Reload halaman checkout
-  (kunci dibuat per page-load) bisa mencetak **order kedua yang belum dibayar**; kedua
-  link bisa dibayar ⇒ potensi pembayaran ganda yang disengaja pengguna. Yang tetap dijamin:
-  satu kunci = satu order (replay), dan dua order tidak bisa tercetak **bersamaan** untuk
-  satu nomor. Opsi (butuh keputusan): (a) kunci baru dari nomor sama mengembalikan order
-  belum dibayar yang sama; (b) blokir kunci baru selama ada order belum dibayar + TTL;
-  (c) biarkan seperti sekarang. Opsi (a)/(b) mengubah perilaku "pembelian ulang dengan
-  kunci baru ⇒ 200" yang saat ini diuji di suite promo e2e (perlu diubah bersama + review
-  jalur uang). **Tidak diubah sendiri di kartu ini.**
-- **F-W4-2** — `checkout_claims` + `onboarding_progress` tumbuh tanpa purge; butuh retensi
-  terjadwal saat apply (dicatat sebagai komentar di `staging/schema-consent.sql`).
+- **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
+  masih punya order belum dibayar **dikembalikan ke order/link yang sama** (paket sama), dan
+  **diblokir eksplisit** kalau paketnya beda. Implementasi + bukti negatif ada di §6c. Residual
+  satu-satunya: TTL 60 menit (order lama dianggap ditinggalkan) — dicatat di §6c.
+- **F-W4-2** — `checkout_claims` + `onboarding_progress` tumbuh tanpa purge; retensi 30 hari
+  sudah ada fungsinya, **belum terjadwal di staging** (pg_cron tidak terpasang) — lihat §6c.
+  Audit log purge = follow-up RX2-1 `t_383959b7`.
 - **F-W4-3** — sesi WA berumur 60 menit. Kalau token kedaluwarsa setelah consent tersimpan
   tapi sebelum gate: 401 dan pengguna diminta verifikasi ulang (fail-closed, tidak ada order).
 - **F-W4-4** — `terms` masih memuat satu placeholder: alamat entitas
@@ -186,16 +279,19 @@ Log: stabil ≥3× berturut-turut di salinan bersih via `bash tests/run-all.sh`.
 
 ## 8. Blocker & yang SENGAJA belum dikerjakan
 
-1. **Delta-review Sentinel sebelum apply** `staging/schema-consent.sql` (permukaan baru:
-   4 tabel + 1 kolom-set + 6 RPC + policy). Belum di-apply ke staging maupun produksi;
-   hanya dijalankan di DB harness lokal (dummy, sekali pakai).
-2. **Kolom consent belum ada di skema mana pun** (S0 B-2). Sampai apply, endpoint consent
-   di staging akan gagal-tertutup (503/400) — itu perilaku yang diinginkan, bukan bug.
+1. **Delta-review 3 (Sentinel) atas diff ronde 3** — permukaan baru: `checkout_claims.paid_at`,
+   langkah reuse/blokir di `claim_checkout_order`, RPC `mark_checkout_claim_paid`, jalur uang
+   `create-order` + `webhook`. Kartu review terpisah dibuat (assignee Sentinel).
+2. **Migrasi consent SUDAH di-apply ke staging** (readback di §6c). **Produksi belum** dan
+   **belum merge/push/deploy**. Sampai RC final di-merge, endpoint consent di lingkungan lain
+   tetap gagal-tertutup (503/400) — perilaku yang diinginkan, bukan bug.
 3. `whatsapp_channel_bindings` (S0 B-3) tetap belum ada DDL; jalur pengingat outbound belum
    boleh hidup. `opt_in=true` **tidak** memicu pesan apa pun dari kartu ini.
-4. Jalur uang (`create-order`) → **setiap diff wajib review**; kartu ini berhenti di
+4. Purge retensi belum terjadwal di staging (pg_cron tidak ada) + audit log purge (RX2-1).
+5. Jalur uang (`create-order`, `webhook`) → **setiap diff wajib review**; kartu ini berhenti di
    `review-required`.
-5. Tidak ada merge/push ke `main`, tidak ada deploy, tidak ada aktivasi promo.
+6. Tidak ada merge/push ke `main`, tidak ada deploy produksi, tidak ada aktivasi promo,
+   tidak ada outbound WhatsApp/Cloud, tidak ada data pelanggan yang disentuh.
 
 ## 9. Perubahan pada kode/suite existing (perlu ikut dibaca reviewer)
 
@@ -212,6 +308,12 @@ Log: stabil ≥3× berturut-turut di salinan bersih via `bash tests/run-all.sh`.
 - `tests/test-webhook-e2e.mts` — menyiapkan sesi+consent untuk checkout-nya; kasus
   "profil invalid" berubah makna: profil dari body tidak lagi dibaca ⇒ 400
   `INCOMPLETE_ONBOARDING` (bukan 400 karena rentang nilai).
+- `src/app/api/scalev/webhook/route.ts` — **jalur uang** (ronde 3): satu panggilan
+  `markCheckoutClaimPaid(orderUniqueId)` setelah validasi status pembayaran & klaim inbox.
+- `src/lib/checkout-gate.ts` — (ronde 3) `reuse_unpaid` / `unpaid_conflict` + `markCheckoutClaimPaid`.
+- `staging/schema-consent.sql` + `tests/harness/migrations/006-consent-gate.sql` (salinan
+  otomatis dari `staging/` oleh `seed.sh`) — (ronde 3) `paid_at`, langkah reuse/blokir + TTL,
+  RPC `mark_checkout_claim_paid`.
 - `tests/test-legal-draft-shape.mts` — W2 memeriksa "belum ada route/link /terms"; setelah
   owner ACC dan publikasi A6, pemeriksaan dibalik: route ada, footer & checkout menaut,
   versi = `terms-2026-10-15-v1`, dan tidak ada placeholder yang bocor ke `/privacy`.
