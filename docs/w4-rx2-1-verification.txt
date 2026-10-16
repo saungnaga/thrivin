@@ -108,3 +108,104 @@ tests/harness/migrations/00{2,6}-*.sql  salinan otomatis oleh tests/harness/seed
 tests/test-consent-gate-sql.mts      §9b asersi baru + helper scalar()/numSafe()
 tests/test-promo-e2e.mts             probe anon/service_role v_onboarding_retention_backlog
 report.md                            §6d
+
+==============================================================================
+6. RX2-1a — CANARY URUTAN APPLY (follow-up kartu t_4ba4a86c, temuan Sentinel)
+==============================================================================
+Guard `to_regclass('public.purge_audit_log')` ditambahkan di §10b (tepat sebelum blok
+`ALTER TABLE purge_audit_log ...`), di `staging/schema-consent.sql` dan di salinan harness
+`tests/harness/migrations/006-consent-gate.sql` (file itu hasil salinan seed.sh — jangan
+edit manual, tapi ikut ter-commit seperti biasa).
+Commit: `a3782c6` (basis review `eaee5ed`).
+
+Canary skrip: `bash tests/harness/rx21a-canary.sh`   (log: /tmp/rx21a-canary-out.txt)
+DB baru = `001-core-schema.sql` saja (tanpa skema webhook H-4), lalu apply consent.
+
+  PRA-FIX (`git show HEAD:staging/schema-consent.sql`, tanpa guard, tanpa ON_ERROR_STOP):
+    EXIT=0  → file "jalan sampai habis", 5x pesan generik:
+      psql:<stdin>:689..692  ERROR: relation "purge_audit_log" does not exist   (4x blok ALTER)
+      psql:<stdin>:766       ERROR: relation "purge_audit_log" does not exist   (grant/objek lain)
+      psql:<stdin>:770..772  ERROR: relation "v_onboarding_retention_backlog" does not exist
+    pg_proc purge_expired_onboarding_progress : ADA   <- body plpgsql tidak divalidasi saat CREATE
+    pg_views v_onboarding_retention_backlog   : 0
+    pg_class purge_audit_log                  : 0
+    (Sesuai temuan Sentinel: migrasi "kelihatan jalan" tapi job retensi akan gagal tiap run.)
+    Catatan deviasi kecil: hitungan error `purge_audit_log` di skrip ini 5, bukan 4 seperti di
+    kartu — 4 blok ALTER + 1 objek lain di baris 766. Tidak mengubah kesimpulan.
+
+  PASCA-FIX (guard terpasang, psql -v ON_ERROR_STOP=1):
+    EXIT=3  → berhenti TEPAT di guard:
+      psql:<stdin>:697: ERROR:  RX2-1: apply schema-webhook-onboarding.sql dulu
+                                (purge_audit_log belum ada)
+      CONTEXT:  PL/pgSQL function inline_code_block line 3 at RAISE
+    pg_proc purge_expired_onboarding_progress : (kosong)   <- tidak ada lagi yang dibuat setengah jadi
+    pg_views v_onboarding_retention_backlog   : 0
+    pg_class purge_audit_log                  : 0
+
+  Urutan normal tetap hijau: `seed.sh` (002-webhook-onboarding.sql mendahului 006-consent-gate.sql)
+  dan run-all §8 di bawah — nol perubahan pesan/eror.
+
+==============================================================================
+7. RX2-1b — MUTASI NEGATIF: ASERSI H-4 LAMA TUMPUL, BARU BERGIGI
+==============================================================================
+Asersi H-4 (tests/test-webhook-e2e.mts) diberi filter `AND deleted_inbox IS NOT NULL`,
+sama seperti view `v_webhook_retention_backlog`, supaya baris jejak dari job retensi PII
+(purge_expired_onboarding_progress — kolom webhook NULL) tidak bisa memuaskannya.
+Commit: `d665a7c` (basis `a3782c6`).
+
+Skrip: `bash tests/harness/rx21b-mutation.sh`   (log: /tmp/rx21b-mutation-out.txt,
+log suite: /tmp/rx21b-M-old.log, /tmp/rx21b-M-new.log)
+
+  A. Dua query atas isi tabel yang sama (satu run retensi PII, tanpa mutasi):
+       deleted_inbox=NULL deleted_progress=0 triggered_by=psql
+       LAMA (tanpa filter)              count = 1
+       BARU (deleted_inbox IS NOT NULL) count = 0
+     → penulis lain memang memuaskan query lama.
+
+  B. Mutasi: baris `INSERT INTO purge_audit_log` di purge_expired_webhook_data() dikomentari
+     (di staging/schema-webhook-onboarding.sql; seed.sh menyalinnya ke harness, jadi mutasi
+     ikut ter-apply tiap run). Diverifikasi di DB: "INSERT audit DIKOMENTARI (mutasi aktif)".
+     Penulis lain disimulasikan tiap 5s selama run pertama (baris kolom webhook NULL) supaya
+     jendela 1 menit pasti terisi — identik dengan yang ditulis purge_expired_onboarding_progress.
+
+       run M-old  (asersi PRA-FIX, tanpa filter) : EXIT=0   61/61 PASS
+           PASS  H-4  every run leaves a purge_audit_log row        <- LOLOS walau job webhook bisu
+       run M-new  (asersi PASCA-FIX, +filter)    : EXIT=1   60/61 PASS
+           FAIL  H-4  every run leaves a purge_audit_log row — expected true, got false
+       (baris 1 menit terakhir di kedua run: LAMA=2  BARU=0)
+
+  Pemulihan: file staging dipulihkan (git status bersih) + seed.sh dijalankan ulang →
+     "INSERT audit hidup (pulih)". Suite webhook lengkap kembali 61/61 (run-all §8).
+
+==============================================================================
+8. run-all.sh — hijau penuh di pohon kerja RX2-1a+1b (termasuk build)
+==============================================================================
+Isi pohon kerja saat run = yang di-commit di a3782c6 + d665a7c (dokumen ini satu-satunya
+file yang beda).
+$ bash tests/run-all.sh > /tmp/rx21-runall-fresh.log 2>&1   # EXIT=0
+  27/27 unit checks passed
+  16/16 unit checks passed
+  unit gate consent/checkout: 44 PASS, 0 FAIL
+  121/121 checks passed                       (legal draft shape)
+  44/44 promo SQL checks passed
+  SQL gate consent/checkout: 88 PASS, 0 FAIL
+  >> next build / >> build ok
+  61/61 end-to-end checks passed              (webhook — asersi H-4 versi baru)
+  118/118 promo e2e checks passed
+  136/136 WA-first e2e checks passed
+  e2e gate consent/checkout: 137 PASS, 0 FAIL
+  ALL SUITES PASSED
+
+==============================================================================
+9. FILE YANG BERUBAH (RX2-1a + RX2-1b)
+==============================================================================
+staging/schema-consent.sql              + guard to_regclass sebelum blok ALTER purge_audit_log
+tests/harness/migrations/006-consent-gate.sql  salinan seed.sh (ikut ter-commit seperti biasa)
+tests/harness/rx21a-canary.sh           bukti §6 (canary urutan apply)
+tests/test-webhook-e2e.mts              asersi H-4 + filter deleted_inbox
+tests/harness/rx21b-mutation.sh         bukti §7 (mutasi negatif dua varian asersi)
+docs/w4-rx2-1-verification.txt          dokumen ini
+
+Tidak disentuh (sesuai catatan kartu): view v_webhook_retention_backlog.last_purge_at,
+batas `cutoff - 600s`. Delta RX2-2 tidak dicampur ke commit ini.
+
