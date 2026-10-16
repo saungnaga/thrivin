@@ -850,6 +850,71 @@ eq(
   "T1: baris klaim kedua tidak lahir (tolak = tidak ada kursi kedua)"
 );
 
+// (9) W4RX4 F-2 (temuan Sentinel t_19cf9c8f, LOW-MEDIUM jalur uang): replay kunci
+// LAMA (`failed`, tanpa order) saat nomor itu sudah punya order HIDUP dari kunci
+// LAIN. Langkah 2 dulu `UPDATE ... in_flight` TANPA EXCEPTION ⇒ unique_violation
+// naik mentah ⇒ PostgREST 500 ⇒ route balas 503 GATE_UNAVAILABLE, bukan 409
+// ORDER_IN_FLIGHT: pelanggan mentok sampai order penahan lunas / retire TTL.
+// Data tetap fail-closed (nol order kedua) — yang salah cuma jawabannya.
+console.log("── 12. W4RX4 F-2: replay baris failed saat nomor sudah punya order hidup ⇒ in_flight ──");
+const P_f2 = "6281200000718";
+const KEY_F2_K1 = "f2-key-k1";
+const KEY_F2_K2 = "f2-key-k2";
+/** `claim()` yang menangkap error mentah supaya pra-fix terbaca FAIL, bukan crash. */
+function claimSafe(phone: string, plan: string, key: string): any {
+  try {
+    return claim(phone, plan, key);
+  } catch (err) {
+    return { status: `ERR ${String(err).slice(0, 120)}` };
+  }
+}
+
+armPhone(P_f2, "f2-consent-1");
+const f2K1 = claim(P_f2, "quarter", KEY_F2_K1);
+eq(f2K1.status, "granted", "F-2: pra-syarat — klaim K1 diberikan");
+eq(
+  rpc(`select release_checkout_claim('${f2K1.claim_id}')`).status,
+  "released",
+  "F-2: pra-syarat — K1 dilepas (Scalev gagal) ⇒ baris failed tanpa order"
+);
+const f2K2 = claim(P_f2, "quarter", KEY_F2_K2);
+eq(f2K2.status, "granted", "F-2: pra-syarat — K2 diberikan (nomor bebas lagi)");
+complete(f2K2, "ord-F2-K2", "https://pay/f2-k2");
+
+const f2Replay = claimSafe(P_f2, "quarter", KEY_F2_K1);
+eq(
+  f2Replay.status,
+  "in_flight",
+  "F-2: replay K1 saat nomor punya order hidup ⇒ in_flight (route 409 ORDER_IN_FLIGHT), bukan error 500/503 GATE_UNAVAILABLE"
+);
+check(
+  f2Replay.claim_id === undefined && f2Replay.order_id === undefined && f2Replay.payment_url === undefined,
+  "F-2: jawaban tolak tidak membawa claim/order/payment_url"
+);
+eq(
+  num(
+    `select count(distinct order_id) from checkout_claims where phone='${P_f2}' and status='created' and paid_at is null`
+  ),
+  1,
+  "F-2: tetap tepat SATU order belum-dibayar hidup"
+);
+eq(
+  num(
+    `select count(*) from checkout_claims where phone='${P_f2}' and status='in_flight'`
+  ),
+  0,
+  "F-2: baris K1 TIDAK dinaikkan jadi in_flight (tolak = nol kursi kedua)"
+);
+
+// (10) pemulihan: begitu order penahan lunas, kunci lama itu jalan lagi (bukan
+// terkunci selamanya karena perbaikan yang terlalu longgar/terlalu ketat).
+rpc(`select mark_checkout_claim_paid('ord-F2-K2')`);
+eq(
+  claimSafe(P_f2, "quarter", KEY_F2_K1).status,
+  "granted",
+  "F-2: setelah order penahan lunas, replay K1 ⇒ granted (tidak terkunci permanen)"
+);
+
 // ── Ringkasan ───────────────────────────────────────────────────────────────
 console.log(`\nSQL gate consent/checkout: ${pass} PASS, ${failures.length} FAIL`);
 for (const f of failures) console.log(`  FAIL ${f}`);
