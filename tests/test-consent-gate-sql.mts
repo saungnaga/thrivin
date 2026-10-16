@@ -703,6 +703,59 @@ const fw1bRetryB = claim(P_fw1bRetry, "quarter", "fw1b-key-retry");
 eq(fw1bRetryB.status, "granted", "F-W4-1b: 'failed' tanpa order tetap boleh diklaim ulang (kunci SAMA)");
 eq(fw1bRetryB.claim_id, fw1bRetryA.claim_id, "F-W4-1b: baris klaim yang sama dipakai ulang (bukan baris baru)");
 
+// (5d) W4RX4 T3 (temuan Sentinel t_3f91103d, LOW jalur uang): `order_id = ''`
+// memuaskan `order_id IS NOT NULL`, jadi baris `failed` ber-order_id KOSONG dulu
+// membalas `already_created` dengan order_id kosong SEKALIGUS tidak bisa dipakai
+// ulang — kunci idempotensinya nyangkut permanen. Jalur tulisnya hanya RPC
+// langsung (`complete_checkout_claim` di route selalu diisi hasil Scalev, dan
+// Scalev tanpa order_id dilepas sebagai `failed`), jadi barisnya disemai
+// langsung di SQL: persis bentuk yang dimaksud temuan itu.
+const P_fw1bEmpty = "6281200000717";
+armPhone(P_fw1bEmpty, "fw1b-empty-consent-1");
+const fw1bEmptyA = claim(P_fw1bEmpty, "quarter", "fw1b-key-empty");
+eq(fw1bEmptyA.status, "granted", "T3: pra-syarat — klaim pertama diberikan");
+psqlSuper(
+  `update checkout_claims set status='failed', order_id='', updated_at=now() where id='${fw1bEmptyA.claim_id}'`
+);
+eq(
+  psqlSuper(`select (order_id = '') from checkout_claims where id='${fw1bEmptyA.claim_id}'`, { csv: true }),
+  "t",
+  "T3: pra-syarat — baris `failed` dengan order_id KOSONG tersimpan"
+);
+
+const fw1bEmptyB = claim(P_fw1bEmpty, "quarter", "fw1b-key-empty");
+eq(
+  fw1bEmptyB.status,
+  "granted",
+  "T3: `failed` dengan order_id KOSONG tetap boleh diklaim ulang (bukan already_created)"
+);
+check(
+  fw1bEmptyB.order_id !== "",
+  "T3: jawaban TIDAK membawa order_id kosong sebagai 'order'",
+  JSON.stringify(fw1bEmptyB)
+);
+eq(
+  fw1bEmptyB.claim_id,
+  fw1bEmptyA.claim_id,
+  "T3: baris klaim yang SAMA dipakai ulang (kunci tidak nyangkut, tidak ada baris baru)"
+);
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_fw1bEmpty}'`),
+  1,
+  "T3: tidak ada baris klaim kedua yang lahir"
+);
+// Route mencetak order HANYA kalau gate memberi `granted` (pra-fix: 200 dengan
+// orderId kosong, tidak ada panggilan Scalev sama sekali).
+if (fw1bEmptyB.status === "granted") complete(fw1bEmptyB, "ord-T3-A", "https://pay/t3-a");
+eq(
+  psqlSuper(
+    `select coalesce(order_id,'<null>') from checkout_claims where id='${fw1bEmptyA.claim_id}'`,
+    { csv: true }
+  ),
+  "ord-T3-A",
+  "T3: klaim ulang memakai order yang BENAR-BENAR tercetak ('' tidak lagi jadi 'order')"
+);
+
 // (6) Reuse TIDAK mendahului gate: kalau langkah wajib hilang, tetap ditolak.
 armPhone(P_fw1gate, "fw1-gate-consent-1");
 const fw1Gate = claim(P_fw1gate, "quarter", "fw1-gate-key-1");

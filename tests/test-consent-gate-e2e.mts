@@ -66,6 +66,7 @@ const P = {
   mismatchBody: "6281200000817",
   replayAfterTtl: "6281200000818",
   paidReplay: "6281200000819",
+  emptyOrderId: "6281200000820",
 };
 
 const results: Array<[string, string]> = [];
@@ -645,6 +646,62 @@ async function main() {
       psqlSuper(`select count(*) from checkout_claims where phone='${P.paidReplay}'`, { csv: true }),
       "2",
       "T2: tidak ada baris klaim ketiga lahir karena replay"
+    );
+
+    // (7) W4RX4 T3 (temuan Sentinel t_3f91103d, LOW jalur uang): `order_id = ''`
+    // memuaskan `order_id IS NOT NULL`, jadi replay kunci dengan baris `failed`
+    // ber-order_id KOSONG dulu dijawab 200 `{ orderId: "", paymentUrl: "" }` —
+    // klien menganggap ada order, dan kunci idempotensinya nyangkut permanen.
+    // Hanya RPC langsung yang bisa menulis '' (route selalu mengisi hasil Scalev),
+    // jadi barisnya disemai lewat SQL; sisanya jalur app apa adanya.
+    const t3Arm = await armCheckout({
+      base: APP_URL,
+      phone: P.emptyOrderId,
+      cookie: waSessionCookie(P.emptyOrderId),
+    });
+    const t3A = await createOrder(P.emptyOrderId, t3Arm.idempotencyKey);
+    assertEq(t3A.status, 200, "T3: pra-syarat — order pertama ⇒ 200");
+    assertOk(!!t3A.body?.orderId, "T3: pra-syarat — order pertama punya orderId");
+    psqlSuper(
+      `update checkout_claims set status='failed', order_id='', updated_at=now() where idempotency_key='${t3Arm.idempotencyKey}'`
+    );
+    assertEq(
+      psqlSuper(
+        `select (order_id = '') from checkout_claims where idempotency_key='${t3Arm.idempotencyKey}'`,
+        { csv: true }
+      ),
+      "t",
+      "T3: pra-syarat — baris `failed` dengan order_id KOSONG tersimpan"
+    );
+
+    const t3Before = mockOrderCount();
+    const t3Retry = await createOrder(P.emptyOrderId, t3Arm.idempotencyKey);
+    assertEq(t3Retry.status, 200, "T3: retry kunci baris failed ber-order_id kosong ⇒ 200");
+    assertOk(
+      !!t3Retry.body?.orderId,
+      "T3: ... orderId TIDAK kosong (dulu 200 dengan orderId '' tanpa order di Scalev)",
+      JSON.stringify(t3Retry.body)
+    );
+    assertOk(
+      t3Retry.body?.orderId !== "",
+      "T3: ... tidak ada 'order' palsu dari string kosong",
+      JSON.stringify(t3Retry.body)
+    );
+    assertEq(
+      t3Retry.body?.replay,
+      undefined,
+      "T3: ... bukan jalur replay palsu (kunci dipakai ulang untuk order BARU)"
+    );
+    assertEq(mockOrderCount() - t3Before, 1, "T3: tepat SATU order baru dicetak di Scalev");
+    assertEq(
+      psqlSuper(`select count(*) from checkout_claims where phone='${P.emptyOrderId}'`, { csv: true }),
+      "1",
+      "T3: baris klaim yang SAMA dipakai ulang (tidak ada baris kedua)"
+    );
+    assertEq(
+      psqlSuper(`select status from checkout_claims where phone='${P.emptyOrderId}'`, { csv: true }),
+      "created",
+      "T3: barisnya kini memegang order yang BENAR-BENAR tercetak"
     );
 
     // ═══ D. Opt-out eksplisit & retry lama ════════════════════════════════
