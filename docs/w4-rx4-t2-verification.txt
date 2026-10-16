@@ -1,0 +1,172 @@
+W4RX4 T2 — replay baris klaim yang ordernya SUDAH LUNAS mengembalikan payment_url
+order lunas (UI redirect ke halaman pembayaran order yang sudah dibayar).
+Temuan T2 delta-review 4 Sentinel (kartu induk t_3f91103d; laporan
+~/obsidian/kantor-ai/projects/thrivin/security/review-w4-rx4-fw41b-2026-10-17.md).
+Kartu: t_91e53bfe (forge), dipisah dari kartu index T1 (t_e57ee77b). Severity LOW, jalur uang.
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15
+
+Semua uji di harness LOKAL (Postgres lokal + PostgREST lokal + mock Scalev lokal).
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
+nol Scalev nyata, nol push/merge/deploy. Mutasi uji DIREVERT (bagian 3).
+Isolasi worktree ini apa adanya (tests/harness/isolate.mts): db
+thrivin_test_w4_consent_gate_e92cbc, port base 48180.
+
+==============================================================================
+1. Akar + fix (pilihan yang diambil dan alasannya)
+==============================================================================
+Akar: `paid_at` bukan pembeda di cabang replay. Dua fakta yang bertemu:
+  * `mark_checkout_claim_paid` (dipanggil webhook) mencocokkan HANYA `order_id`,
+    tanpa syarat status — jadi baris hasil retire TTL 3b (`status='failed'`,
+    `order_id` masih tersimpan agar kunci lama tetap menunjuk order yang sama)
+    tetap `failed` sesudah ordernya dibayar, hanya `paid_at` yang terisi;
+  * cabang replay F-W4-1b menjawab `already_created` + `order_id` + `payment_url`
+    untuk tiap baris `failed` ber-`order_id`, tanpa melihat `paid_at`.
+=> replay kunci lama membalas LINK BAYAR order yang sudah lunas. UI
+(`src/app/companion/nina/onboarding/[step]/page.tsx:536-549`) memakai
+`if (!response.ok || !resData.paymentUrl) throw …` lalu
+`window.location.href = resData.paymentUrl` ⇒ pembeli dilempar ke halaman
+pembayaran order yang sudah dibayar. Risiko uang = nol (order sama tidak bisa
+dibayar dua kali), tapi statusnya menyesatkan dan tak ada observabilitas.
+
+Fix (staging/schema-consent.sql, satu blok, badan fungsi `claim_checkout_order`):
+  SELECT id, phone, status, order_id, payment_url, paid_at INTO v_existing …   -- + paid_at
+  …
+  IF v_existing.paid_at IS NOT NULL THEN
+    RETURN json_build_object('status', 'already_paid', 'claim_id', v_existing.id);
+  END IF;
+Route (`src/app/api/scalev/create-order/route.ts`): `already_paid` ⇒ **409** +
+`code: "ALREADY_PAID"` + pesan Indonesia, TANPA `orderId`/`paymentUrl`, plus satu
+`console.warn` ber-`claim_id` (UUID, bukan PII) sebagai observabilitas.
+`src/lib/checkout-gate.ts`: satu varian union + satu `case` (meneruskan `claim_id` saja).
+
+Kenapa 409 (bukan 200 tanpa `paymentUrl`), dan kenapa UI TIDAK disentuh:
+- Halaman checkout yang sudah ada SUDAH berhenti sebelum redirect kalau
+  `!response.ok` ATAU `!resData.paymentUrl`, dan sudah menampilkan `resData.error`.
+  Jadi 409 + pesan = perilaku yang benar (pembeli diberi tahu langganannya sudah
+  aktif, tidak diarahkan ke pembayaran) dengan **nol perubahan UI** — diff tetap
+  kecil dan nol keputusan UX baru yang dikarang.
+- 200 tanpa `paymentUrl` justru jatuh ke pesan generik "Gagal membuat sesi
+  pembayaran…" karena `resData.error` tidak ada. Lebih buruk untuk pengguna.
+- Halaman/CTA "langganan kamu sudah aktif" yang layak (mis. tombol buka Nina) =
+  keputusan produk/ops, bukan sesuatu yang pantas ditebak di kartu LOW ini.
+  Kalau owner mau, itu kartu terpisah; yang dijaga di sini adalah: link bayar
+  order lunas TIDAK boleh sampai ke UI.
+
+Cakupan yang sengaja SEDIKIT lebih luas dari usulan kartu ("hanya baris `failed`
+ber-`order_id`"): penjaganya diletakkan SEBELUM percabangan status, jadi satu
+kondisi `paid_at IS NOT NULL` menutup DUA bentuk baris yang sama bahayanya —
+`failed` (temuan T2 apa adanya) dan `created` yang dibayar webhook (replay kunci
+itu juga mengembalikan link order lunas ke UI yang sama). Nol baris tambahan
+dibanding versi sempit; kontrak `already_created` untuk baris BELUM lunas tidak
+disentuh (asersi §8/§10 lama tetap hijau — lihat 2c).
+
+==============================================================================
+2. Bukti positif (jalur app)
+==============================================================================
+2a. SQL gate consent/checkout: 106 PASS, 0 FAIL, EXIT=0        (/tmp/w4t2-sql-post.log)
+    (+11 asersi dibanding pra-kartu 95; semuanya di suite yang sama.)
+2b. e2e gate consent/checkout (HTTP → PostgREST → Postgres, mock Scalev):
+    148 PASS, 0 FAIL, EXIT=0 pada SETIAP run  (/tmp/w4t2-e2e-{1,2}.log,
+    /tmp/w4t2-runall.log, /tmp/w4t2-mut-post-e2e.log) — 4 run, 4/4 hijau.
+    (+10 asersi; blok baru "T2" = 8 asersi, sisanya dari asersi pra-syarat.)
+2c. Asersi T2 yang baru (jalur app, bukan RPC dengan parameter pilihan):
+    SQL suite — RPC asli `claim_checkout_order` tanpa override TTL, retire
+    dipicu dengan memundurkan `created_at` 61 menit (jalur normal langkah 3b),
+    `mark_checkout_claim_paid` dipanggil seperti webhook:
+      - pra-syarat: klaim pertama `granted`, retire TTL membebaskan nomor,
+        baris kunci lama `failed`, `mark_checkout_claim_paid('ord-T2-A')` = marked,
+        `paid_at` terisi padahal status masih `failed`                  PASS
+      - replay kunci lama ⇒ `already_paid` (bukan `already_created`)    PASS
+      - jawaban TIDAK membawa `payment_url`                             PASS
+      - jawaban TIDAK membawa `order_id`                                PASS
+      - tidak ada baris klaim KETIGA lahir                              PASS
+      - replay kunci baris `created` yang sudah dibayar ⇒ `already_paid`
+        + tanpa `order_id`/`payment_url`                                PASS
+    e2e suite (lewat HTTP `/api/scalev/create-order` + cookie sesi WA):
+      - pra-syarat order kunci lama 200 + punya orderId, retire ⇒ 200,
+        `mark_checkout_claim_paid` ⇒ baris tercatat lunas               PASS
+      - replay kunci lama ⇒ **409**                                     PASS
+      - `code === "ALREADY_PAID"`                                       PASS
+      - TIDAK ada `paymentUrl` di jawaban (UI tidak redirect)           PASS
+      - TIDAK ada `orderId` di jawaban                                  PASS
+      - nol order baru dicetak di mock Scalev; nol baris klaim ketiga   PASS
+    Penjaga regresi yang ikut hijau di suite yang sama: `reuse_unpaid`,
+    `unpaid_conflict`, `key_conflict` (F-S1), replay `already_created` untuk baris
+    BELUM lunas (§10(5b) tetap `already_created` + order/link yang sama), retry
+    `failed` tanpa order, gate onboarding/T&C duluan, `anon` ditolak, retire TTL,
+    beli ulang setelah lunas dengan kunci baru (§10(4)), T1 dua sesi (§11).
+2d. `bash tests/run-all.sh` penuh: ALL SUITES PASSED, EXIT=0  (/tmp/w4t2-runall.log)
+      step 5/9 SQL gate consent/checkout: 106 PASS, 0 FAIL
+      step 9/9 e2e gate consent/checkout: 148 PASS, 0 FAIL
+2e. `npx tsc --noEmit` EXIT=0 (/tmp/w4t2-tsc.log);
+    `npm run lint` (= tsc --noEmit) EXIT=0 (/tmp/w4t2-lint.log).
+2f. `staging/schema-consent.sql` vs `tests/harness/migrations/006-consent-gate.sql`
+    byte-identik (diff kosong) — salinan harness tidak boleh drift dari draft.
+    ACL/overload tidak berubah: nol `CREATE FUNCTION` signature baru
+    (`claim_checkout_order` tetap pronargs=7, satu overload), nol GRANT berubah.
+
+==============================================================================
+3. Bukti negatif (mutasi pembalik: blok penjaga `already_paid` dibuang)
+==============================================================================
+Reproduksi: `bash tests/harness/w4t2-mutation.sh`   (log: /tmp/w4t2-mutation.log)
+Yang dilakukan: satu blok `IF v_existing.paid_at IS NOT NULL …` di
+staging/schema-consent.sql dihapus (satu hal saja — bukan revert commit), lalu
+`seed.sh --fresh` dan KEDUA suite dijalankan; sesudahnya file dipulihkan + seed
+ulang (trap EXIT).
+
+(a) SQL suite: **101 PASS / 5 FAIL**, EXIT=1  (/tmp/w4t2-mut-sql.log)
+      FAIL T2: replay kunci yang ordernya SUDAH LUNAS ⇒ already_paid
+               — expected "already_paid", got "already_created"
+      FAIL T2: ... TIDAK membawa payment_url order lunas
+               — {"status":"already_created","claim_id":"…",
+                  "order_id":"ord-T2-A","payment_url":"https://pay/t2-a"}
+      FAIL T2: ... TIDAK membawa order_id order lunas   (jawaban yang sama)
+      FAIL T2: replay kunci baris `created` yang sudah dibayar ⇒ already_paid
+               — expected "already_paid", got "already_created"
+      FAIL T2: ... tanpa order_id/payment_url
+               — {"status":"already_created","order_id":"ord-FW1",
+                  "payment_url":"https://pay/fw1"}
+    Semua pra-syarat T2 HIJAU di run ini juga ⇒ yang berubah hanya jawabannya,
+    persis temuan T2 (bukan efek samping urutan).
+(b) e2e suite (jalur app, HTTP + mock Scalev): **144 PASS / 4 FAIL**, EXIT=1
+    (/tmp/w4t2-mut-e2e.log). Jawaban mentah pra-fix = temuan T2 apa adanya:
+      FAIL T2: replay kunci order yang sudah lunas ⇒ 409 — expected 409, got 200
+      FAIL T2: kode ALREADY_PAID — got undefined
+      FAIL T2: jawaban TIDAK membawa paymentUrl order lunas
+               — {"orderId":"test_10_…","paymentUrl":"https://thrivin.myscalev.com/pay/test_10_…",
+                  "replay":true}
+      FAIL T2: jawaban TIDAK membawa orderId order lunas
+    Ini sekaligus mereproduksi probe P1 Sentinel (route 200 + `paymentUrl`).
+(c) Sesudah dipulihkan (`penjaga: ADA`): SQL 106 PASS / 0 FAIL dan e2e
+    148 PASS / 0 FAIL (/tmp/w4t2-mut-post-sql.log, /tmp/w4t2-mut-post-e2e.log).
+    `git status staging/schema-consent.sql` = perubahan ber-fix milik kartu ini
+    (nol sisa mutasi).
+
+==============================================================================
+4. Batasan & catatan jujur
+==============================================================================
+- 409 vs 200: kartu mengizinkan keduanya; yang diambil 409 + pesan karena UI
+  yang ADA sudah benar untuk itu (berhenti sebelum redirect, menampilkan pesan).
+  Tombol/halaman "langganan sudah aktif" = keputusan produk/ops, tidak dikarang
+  di sini. Yang dijamin: `paymentUrl` order lunas tidak pernah sampai ke UI.
+- Perubahan perilaku yang SENGAJA: replay kunci untuk baris yang ordernya sudah
+  lunas kini `already_paid` (+409), termasuk baris `created` ber-`paid_at`
+  (sebelumnya `already_created`). Kontrak untuk baris BELUM lunas
+  (`already_created` / `reuse_unpaid` / `granted`) tidak disentuh dan tetap
+  diasersi. Tidak ada kode produksi yang bergantung pada replay baris lunas:
+  satu-satunya pemanggil `claim_checkout_order` adalah jalur `create-order`,
+  dan kunci idempotensi klien dibuat per-mount (`page.tsx:125-131`) sehingga
+  reload menghasilkan kunci baru.
+- `staging/schema-consent.sql` masih DRAFT; staging masih memuat badan fungsi
+  pra-fix. Jalur uang ⇒ apply ke staging/produksi = keputusan ops terpisah,
+  dan kartu ini **wajib delta-review Sentinel** sebelum merge/deploy.
+- Bukan lingkup kartu ini (tetap terbuka): T3 `order_id=''` (kartu `t_42e00da2`),
+  F-1 §4 urutan DDL fail-open (`t_3139e05f`), F-2 re-grant replay tanpa
+  `EXCEPTION` (`t_26909c87`), T5 link Scalev lama tetap hidup setelah retire
+  (F-W4-1c: `t_16dd8537` / release `t_7a21689e`). Desain F-W4-1c (cancel order
+  saat retire) nanti menyentuh baris `failed` ber-`order_id` yang sama; penjaga
+  `paid_at` di sini tidak menghalanginya.
+- Nol perubahan `src/app/**/page.tsx`: perilaku UI yang diinginkan sudah tercapai
+  lewat kontrak route. Asersi e2e memaku 409/`ALREADY_PAID` supaya kode itu tidak
+  diam-diam berubah jadi jalur 200 + redirect.
