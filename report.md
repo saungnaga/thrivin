@@ -246,7 +246,10 @@ Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED*
   kunci baru setelah lunas → `granted` (order baru), kunci milik nomor lain → **`key_conflict`**.
   Residu sesudahnya: `checkout_claims=0`, `consent_events=0`, `onboarding_progress=0`,
   `users=5` (seed fiktif staging, tidak bertambah).
-- Bukti mentah: `/tmp/w4f1/staging-readback-consent.txt` (dilampirkan ke kartu) ·
+- Bukti mentah (disalin ke repo supaya ikut terbawa reviewer): `docs/w4-r3-verification.txt`
+  (ringkasan `run-all` 3× · daftar FAIL pra-fix SQL & e2e · readback staging penuh).
+  Sumber asli: `/tmp/w4f1-runall3.out`, `/tmp/w4f1-neg-sql.log`, `/tmp/w4f1-neg-e2e.log`,
+  `/tmp/w4f1/staging-readback-consent.txt` ·
   probe yang sama juga dijalankan di **harness lokal** setiap `run-all.sh`.
 
 ### Catatan operasional ronde 3

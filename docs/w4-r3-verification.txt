@@ -1,0 +1,105 @@
+RUN 1 EXIT=0
+27/27 unit checks passed
+16/16 unit checks passed
+unit gate consent/checkout: 44 PASS, 0 FAIL
+121/121 checks passed
+44/44 promo SQL checks passed
+SQL gate consent/checkout: 64 PASS, 0 FAIL
+61/61 end-to-end checks passed
+116/116 promo e2e checks passed
+136/136 WA-first e2e checks passed
+e2e gate consent/checkout: 128 PASS, 0 FAIL
+ALL SUITES PASSED
+RUN 2 EXIT=0
+27/27 unit checks passed
+16/16 unit checks passed
+unit gate consent/checkout: 44 PASS, 0 FAIL
+121/121 checks passed
+44/44 promo SQL checks passed
+SQL gate consent/checkout: 64 PASS, 0 FAIL
+61/61 end-to-end checks passed
+116/116 promo e2e checks passed
+136/136 WA-first e2e checks passed
+e2e gate consent/checkout: 128 PASS, 0 FAIL
+ALL SUITES PASSED
+RUN 3 EXIT=0
+27/27 unit checks passed
+16/16 unit checks passed
+unit gate consent/checkout: 44 PASS, 0 FAIL
+121/121 checks passed
+44/44 promo SQL checks passed
+SQL gate consent/checkout: 64 PASS, 0 FAIL
+61/61 end-to-end checks passed
+116/116 promo e2e checks passed
+136/136 WA-first e2e checks passed
+e2e gate consent/checkout: 128 PASS, 0 FAIL
+ALL SUITES PASSED
+
+==========
+SQL gate consent/checkout: 55 PASS, 10 FAIL
+  FAIL F-W4-1(a): paket sama + kunci baru ⇒ reuse_unpaid — expected "reuse_unpaid", got "granted"
+  FAIL F-W4-1(a): mengembalikan order_id yang SAMA — expected "ord-FW1", got undefined
+  FAIL F-W4-1(a): mengembalikan payment_url yang SAMA — expected "https://pay/fw1", got undefined
+  FAIL F-W4-1(a): tidak ada baris klaim kedua yang lahir — expected 1, got 2
+  FAIL F-W4-1(a): paket beda ⇒ unpaid_conflict — expected "unpaid_conflict", got "in_flight"
+  FAIL F-W4-1(a): paket yang menahan disebut (diagnostik, bukan rahasia) — expected "quarter", got undefined
+  FAIL F-W4-1: setelah lunas ⇒ kunci baru mencetak order baru — expected "granted", got "in_flight"
+  FAIL prasyarat: klaim untuk ord-FW2 tidak diberikan — {"status":"in_flight"}
+  FAIL F-W4-1(a): order belum dibayar > TTL ⇒ checkout baru boleh — expected "granted", got "in_flight"
+  FAIL F-W4-1(a): order yang ditinggalkan ditandai failed — expected "failed", got ""
+
+==========
+e2e gate consent/checkout: 118 PASS, 10 FAIL
+  FAIL F-W4-1(a): orderId yang SAMA — expected "test_5_mvb66ifv", got "test_6_mvb66igr"
+  FAIL F-W4-1(a): link bayar yang SAMA — expected "https://thrivin.myscalev.com/pay/test_5_mvb66ifv", got "https://thrivin.myscalev.com/pay/test_6_mvb66igr"
+  FAIL F-W4-1(a): jawaban ditandai unpaidOrderReused — expected true, got undefined
+  FAIL F-W4-1(a): TIDAK ada order kedua di Scalev — expected 5, got 6
+  FAIL F-W4-1(a): paket beda ⇒ 409 — expected 409, got 200
+  FAIL F-W4-1(a): kode UNPAID_ORDER_EXISTS — expected "UNPAID_ORDER_EXISTS", got undefined
+  FAIL F-W4-1(a): paket beda tidak membocorkan orderId/paymentUrl
+  FAIL F-W4-1(a): paket beda juga tidak mencetak order — expected 5, got 7
+  FAIL F-W4-1(a): ... mencetak SATU order baru — expected 1, got 3
+  FAIL F-W4-1(a): totalnya tetap satu order baru (reuse tidak menghitung order) — expected 1, got 3
+
+==========
+# Readback apply migrasi consent ke STAGING (Supabase project thrivin-staging)
+# Dijalankan: 2026-10-16T16:20:59Z oleh Forge (kartu t_f5ec336c)
+# Metode: Management API POST /v1/projects/<ref>/database/query (token scoped staging dari rak kredensial)
+
+## [BEFORE] tabel consent ada?
+[{"tablename":"checkout_claims"},{"tablename":"consent_events"},{"tablename":"conversations"},{"tablename":"knowledge_base"},{"tablename":"memories"},{"tablename":"messages"},{"tablename":"onboarding_progress"},{"tablename":"onboarding_snapshots"},{"tablename":"purge_audit_log"},{"tablename":"subscription_blocks"},{"tablename":"subscription_plans"},{"tablename":"subscriptions"},{"tablename":"users"},{"tablename":"webhook_events_inbox"}]
+
+## [AFTER] tabel consent
+[{"tablename":"checkout_claims"},{"tablename":"consent_events"},{"tablename":"onboarding_progress"}]
+
+## [AFTER] kolom users
+[{"column_name":"opt_in","data_type":"boolean","column_default":"false"},{"column_name":"opted_out","data_type":"boolean","column_default":"false"}]
+
+## [AFTER] kolom checkout_claims (paid_at = F-W4-1)
+[{"column_name":"id","data_type":"uuid"},{"column_name":"tenant_id","data_type":"character varying"},{"column_name":"phone","data_type":"character varying"},{"column_name":"idempotency_key","data_type":"text"},{"column_name":"plan_key","data_type":"text"},{"column_name":"status","data_type":"text"},{"column_name":"order_id","data_type":"text"},{"column_name":"payment_url","data_type":"text"},{"column_name":"amount","data_type":"integer"},{"column_name":"paid_at","data_type":"timestamp with time zone"},{"column_name":"created_at","data_type":"timestamp with time zone"},{"column_name":"updated_at","data_type":"timestamp with time zone"}]
+
+## [AFTER] index
+[{"indexname":"checkout_claims_pkey"},{"indexname":"consent_events_pkey"},{"indexname":"idx_consent_events_phone_type_time"},{"indexname":"onboarding_progress_pkey"},{"indexname":"uq_checkout_claims_idempotency"},{"indexname":"uq_checkout_claims_inflight_phone"},{"indexname":"uq_consent_events_idempotency"},{"indexname":"uq_onboarding_progress_phone"}]
+
+## [AFTER] RPC + signature
+[{"proname":"claim_checkout_order","pg_get_function_identity_arguments":"p_phone text, p_required_steps integer[], p_plan_key text, p_terms_version text, p_idempotency_key text, p_inflight_ttl_seconds integer, p_tenant_id character varying"},{"proname":"complete_checkout_claim","pg_get_function_identity_arguments":"p_claim_id uuid, p_order_id text, p_payment_url text, p_amount integer"},{"proname":"consent_events_block_mutation","pg_get_function_identity_arguments":""},{"proname":"consent_state_for_phone","pg_get_function_identity_arguments":"p_phone text, p_tenant_id character varying"},{"proname":"mark_checkout_claim_paid","pg_get_function_identity_arguments":"p_order_id text, p_paid_at timestamp with time zone, p_tenant_id character varying"},{"proname":"purge_expired_onboarding_progress","pg_get_function_identity_arguments":"p_retention_days integer"},{"proname":"record_checkout_consent","pg_get_function_identity_arguments":"p_phone text, p_terms_version text, p_terms_value boolean, p_reminder_value boolean, p_reminder_version text, p_source text, p_idempotency_key text, p_tenant_id character varying"},{"proname":"record_consent_event","pg_get_function_identity_arguments":"p_phone text, p_type text, p_value boolean, p_source text, p_text_version text, p_idempotency_key text, p_occurred_at timestamp with time zone, p_tenant_id character varying"},{"proname":"release_checkout_claim","pg_get_function_identity_arguments":"p_claim_id uuid"},{"proname":"save_onboarding_step","pg_get_function_identity_arguments":"p_phone text, p_step integer, p_data jsonb, p_tenant_id character varying"}]
+
+## [AFTER] hak akses (F-S5)
+[{"anon_claim_exec":false,"anon_markpaid_exec":false,"svc_markpaid_exec":true,"anon_sel_events":false,"anon_ins_claims":false}]
+
+## [AFTER] RLS + policy deny
+[{"relname":"checkout_claims","relrowsecurity":true},{"relname":"consent_events","relrowsecurity":true},{"relname":"onboarding_progress","relrowsecurity":true}]
+[{"tablename":"checkout_claims","policyname":"deny_client_access_checkout_claims"},{"tablename":"consent_events","policyname":"deny_client_access_consent_events"},{"tablename":"onboarding_progress","policyname":"deny_client_access_onboarding_progress"}]
+
+## [AFTER] trigger append-only
+[{"tgname":"trg_consent_events_append_only","tgrelid":"consent_events"}]
+
+## [AFTER] residu (semua harus 0; users tetap 5 seed fiktif)
+[{"claims":0,"events":0,"progress":0,"users_total":5}]
+
+## [AFTER] probe fungsional F-W4-1 di staging (SATU transaksi, di-ROLLBACK — tidak menulis apa pun)
+SQL: begin; ...(consent+steps+claim+complete+reuse+conflict+mark_paid+after_paid+cross_phone)...; rollback;
+[{"jsonb_object_agg":{"2_rows":{"claims":1},"1_claim":{"status":"granted","claim_id":"a9ff2f9f-3540-4145-9f9a-d4c9fef7feae"},"3_complete":{"status":"completed"},"6_mark_paid":{"status":"marked","claim_id":"a9ff2f9f-3540-4145-9f9a-d4c9fef7feae"},"8_after_paid":{"status":"granted","claim_id":"2af52b50-b60f-42ec-a5d0-d8641828b62b"},"7_paid_at_set":true,"4_reuse_same_plan":{"status":"reuse_unpaid","claim_id":"a9ff2f9f-3540-4145-9f9a-d4c9fef7feae","order_id":"stg-ord-1","payment_url":"https://pay/stg1"},"9_cross_phone_key":{"status":"key_conflict"},"5_conflict_other_plan":{"status":"unpaid_conflict","claim_id":"a9ff2f9f-3540-4145-9f9a-d4c9fef7feae","plan_key":"quarter"}}}]
+
+# Catatan: ringkasan di atas dihasilkan dari /tmp/w4f1-runall3.out, /tmp/w4f1-neg-sql.log,
+# /tmp/w4f1-neg-e2e.log, dan /tmp/w4f1/staging-readback-consent.txt saat ronde 3 berjalan.

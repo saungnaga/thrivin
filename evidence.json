@@ -304,7 +304,7 @@
       "grants": "anon: EXECUTE false (semua RPC) & SELECT/INSERT tabel false; service_role: true"
     },
     "functional_probe": "SATU transaksi lalu ROLLBACK: granted -> complete -> reuse_unpaid (order+link sama) -> unpaid_conflict (paket beda) -> marked (paid_at terisi) -> granted (order baru setelah lunas) -> key_conflict (kunci nomor lain). Residu: claims=0, events=0, progress=0, users=5 (seed fiktif, tidak bertambah)",
-    "evidence": "/tmp/w4f1/staging-readback-consent.txt (dilampirkan ke kartu)",
+    "evidence": "docs/w4-r3-verification.txt (in-repo) + /tmp/w4f1/staging-readback-consent.txt",
     "ops_note": "pg_cron TIDAK terpasang di staging -> job purge tidak dibuat (blok ter-guard). Retensi 30 hari belum terjadwal di staging"
   },
   "review_required": {
