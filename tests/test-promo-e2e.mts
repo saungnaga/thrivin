@@ -634,6 +634,52 @@ async function main() {
     psqlSuper("DELETE FROM webhook_events_inbox WHERE event_id='evt_backlog_probe';");
     psqlSuper("DELETE FROM purge_audit_log WHERE triggered_by='backlog-probe';");
 
+    // ══ RX2-1: v_onboarding_retention_backlog (view baru, pola sama) ════════
+    // Guard yang sama harus hidup di view alarm retensi PII: security_invoker +
+    // REVOKE. Baris basi disisipkan dulu supaya "kosong" berarti "tidak bocor",
+    // bukan "kebetulan tidak ada data".
+    console.log("\n── RX2-1: kunci anon vs v_onboarding_retention_backlog ──");
+    psqlSuper(
+      "INSERT INTO onboarding_progress (tenant_id, phone, steps, step_reached, created_at, updated_at) " +
+        "VALUES ('thrivin','6281200000901','{}'::jsonb,4, now() - interval '45 days', now() - interval '45 days') " +
+        "ON CONFLICT (tenant_id, phone) DO UPDATE SET updated_at = now() - interval '45 days';"
+    );
+    const anonPiiBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_onboarding_retention_backlog?select=expired_progress_rows,expired_claim_rows,last_purge_at`,
+      { headers: anonHeaders }
+    );
+    const anonPiiBody = await anonPiiBacklog.text();
+    let anonPiiRows: any[] = [];
+    try {
+      const parsed = JSON.parse(anonPiiBody);
+      if (Array.isArray(parsed)) anonPiiRows = parsed;
+    } catch {
+      /* bukan JSON (mis. pesan error PostgREST) -> tidak ada baris */
+    }
+    const anonPiiLeaked =
+      anonPiiBacklog.status === 200 &&
+      anonPiiRows.some(
+        (r: any) => Number(r?.expired_progress_rows) > 0 || Number(r?.expired_claim_rows) > 0 || r?.last_purge_at
+      );
+    assertOk(
+      anonPiiBacklog.status === 401 || anonPiiBacklog.status === 403 || !anonPiiLeaked,
+      "RX2-1: anon DITOLAK / melihat view kosong di v_onboarding_retention_backlog",
+      `status=${anonPiiBacklog.status} body=${anonPiiBody.slice(0, 120)}`
+    );
+    const svcPiiBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_onboarding_retention_backlog?select=expired_progress_rows,expired_claim_rows,last_purge_at`,
+      { headers: svcHeaders }
+    );
+    const svcPiiRows = svcPiiBacklog.status === 200 ? await svcPiiBacklog.json() : [];
+    assertOk(
+      svcPiiBacklog.status === 200 &&
+        Array.isArray(svcPiiRows) &&
+        Number(svcPiiRows[0]?.expired_progress_rows) >= 1,
+      "RX2-1: service_role tetap membaca backlog retensi PII (kontrol positif)",
+      `status=${svcPiiBacklog.status} rows=${JSON.stringify(svcPiiRows)}`
+    );
+    psqlSuper("DELETE FROM onboarding_progress WHERE phone='6281200000901';");
+
     // ══ Dry run tidak menggerus kuota ══════════════════════════════════════
     console.log("\n── Promo: dry run (tombol Terapkan) ──");
     const quote = await checkout({

@@ -54,6 +54,26 @@ function throws(sql: string): string | null {
     return String((err as { stderr?: string; message?: string }).stderr || (err as Error).message);
   }
 }
+/**
+ * Sama seperti psqlSuper, tapi SQL yang gagal (mis. kolom/view belum ada pra-fix)
+ * dilaporkan sebagai string kosong supaya suite tetap sampai ringkasan — bukti
+ * negatif harus terbaca "FAIL", bukan crash.
+ */
+function scalar(sql: string): string {
+  try {
+    return psqlSuper(sql, { csv: true });
+  } catch {
+    return "";
+  }
+}
+/** `num()` versi tahan-gagal; NaN dipakai sebagai penanda "query tidak jalan". */
+function numSafe(sql: string): number {
+  try {
+    return num(sql);
+  } catch {
+    return NaN;
+  }
+}
 
 const P = {
   order: "6281200000701",
@@ -280,11 +300,118 @@ const tieTermsClaim = rpc(
 );
 eq(tieTermsClaim.status, "consent_required", "F-S7: seri T&C (true & false di timestamp sama) ⇒ false menang, gate tolak consent_required");
 
-// F-S4: Purge data onboarding dan klaim kedaluwarsa (<= 30 hari)
+// ── 9b. F-S4/RX2-1: retensi PII — hitungan baris, jejak audit, alarm ────────
+// Asersi lama hanya membuktikan "fungsi jalan". Yang dibuktikan di sini:
+// berapa baris yang benar-benar hilang, baris yang masih dalam retensi aman,
+// klaim in_flight terbengkalai ikut dibersihkan, dan tiap run meninggalkan
+// jejak yang bisa dibaca alarm scheduler.
+console.log("── 9b. F-S4/RX2-1: retensi PII: hitungan baris + jejak audit + alarm ──");
+const P_ret_old = "6281200000801";
+const P_ret_fresh = "6281200000802";
+const P_ret_flight_dead = "6281200000803";
+const P_ret_flight_live = "6281200000804";
+const P_ret_alarm = "6281200000805";
+
+// Baris disiapkan lewat SQL superuser supaya `updated_at` bisa dipindah ke masa lalu.
+psqlSuper(
+  `insert into onboarding_progress (tenant_id, phone, steps, step_reached, created_at, updated_at) values
+     ('thrivin','${P_ret_old}','{}'::jsonb,4, now() - interval '31 days', now() - interval '31 days'),
+     ('thrivin','${P_ret_fresh}','{}'::jsonb,4, now() - interval '2 days', now() - interval '2 days');`
+);
+psqlSuper(
+  `insert into checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, created_at, updated_at) values
+     ('thrivin','${P_ret_old}','ret-created-old','quarter','created', now() - interval '31 days', now() - interval '31 days'),
+     ('thrivin','${P_ret_old}','ret-failed-old','quarter','failed', now() - interval '31 days', now() - interval '31 days'),
+     ('thrivin','${P_ret_flight_dead}','ret-flight-old','quarter','in_flight', now() - interval '31 days', now() - interval '31 days'),
+     ('thrivin','${P_ret_flight_live}','ret-flight-live','quarter','in_flight', now(), now());`
+);
+
+const auditsBefore = num(`select count(*) from purge_audit_log`);
+const webhookAuditsBefore = num(`select count(*) from purge_audit_log where deleted_inbox is not null`);
 const purgeResult = rpc(`select row_to_json(p) from purge_expired_onboarding_progress(30) p`);
+
+eq(purgeResult.deleted_progress, 1, "F-S4: hitungan progress terhapus tepat (1 baris basi)");
+eq(
+  purgeResult.deleted_claims,
+  3,
+  "F-S4/RX2-1: hitungan klaim terhapus tepat (created + failed basi + in_flight terbengkalai)"
+);
+eq(
+  num(`select count(*) from onboarding_progress where phone='${P_ret_old}'`),
+  0,
+  "F-S4: progress basi benar-benar hilang (PII terhapus, bukan cuma dihitung)"
+);
+eq(
+  num(`select count(*) from onboarding_progress where phone='${P_ret_fresh}'`),
+  1,
+  "F-S4: progress yang masih dalam retensi TIDAK dihapus"
+);
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_ret_flight_dead}'`),
+  0,
+  "RX2-1: klaim in_flight terbengkalai > TTL + retensi dibersihkan (nomor tidak disimpan selamanya)"
+);
+eq(
+  psqlSuper(`select status from checkout_claims where phone='${P_ret_flight_live}'`, { csv: true }),
+  "in_flight",
+  "RX2-1: klaim in_flight yang HIDUP tidak dilepas/dihapus"
+);
+
+// RX2-1: jejak audit — bedakan "scheduler mati" dari "tidak ada yang perlu dihapus".
+eq(
+  num(`select count(*) from purge_audit_log`),
+  auditsBefore + 1,
+  "RX2-1: tiap run purge menulis SATU baris jejak audit"
+);
+eq(
+  scalar(
+    `select deleted_progress || '|' || deleted_claims from purge_audit_log
+      where deleted_progress is not null order by ran_at desc, id desc limit 1`
+  ),
+  "1|3",
+  "RX2-1: baris audit mencatat hasil run ini"
+);
+eq(
+  scalar(
+    `select coalesce(deleted_inbox::text,'') from purge_audit_log
+      where deleted_progress is not null order by ran_at desc, id desc limit 1`
+  ),
+  "",
+  "RX2-1: run retensi PII tidak memalsukan kolom jalur webhook (NULL, bukan 0)"
+);
+eq(
+  num(`select count(*) from purge_audit_log where deleted_inbox is not null`),
+  webhookAuditsBefore,
+  "RX2-1: alarm webhook tidak membaca run retensi PII sebagai run webhook"
+);
+
+// RX2-1: alarm backlog — scheduler mati harus terlihat.
+const backlogBefore = numSafe(`select expired_progress_rows from v_onboarding_retention_backlog`);
 check(
-  purgeResult !== null && typeof purgeResult === "object" && typeof purgeResult.deleted_progress === "number",
-  "F-S4: purge_expired_onboarding_progress() berhasil dijalankan"
+  Number.isFinite(backlogBefore),
+  "RX2-1: v_onboarding_retention_backlog terbaca",
+  String(backlogBefore)
+);
+psqlSuper(
+  `insert into onboarding_progress (tenant_id, phone, steps, step_reached, created_at, updated_at) values
+     ('thrivin','${P_ret_alarm}','{}'::jsonb,4, now() - interval '45 days', now() - interval '45 days');`
+);
+eq(
+  numSafe(`select expired_progress_rows from v_onboarding_retention_backlog`),
+  backlogBefore + 1,
+  "RX2-1: alarm menghitung PII yang seharusnya sudah dihapus (backlog naik tepat 1)"
+);
+check(
+  scalar(`select last_purge_at from v_onboarding_retention_backlog`).length > 0,
+  "RX2-1: alarm membawa waktu purge terakhir (scheduler mati terlihat)"
+);
+const anonRetentionView = throws(
+  `begin; set local role anon; select count(*) from v_onboarding_retention_backlog; rollback;`
+);
+check(
+  !!anonRetentionView && /permission denied/i.test(anonRetentionView),
+  "RX2-1: anon DILARANG membaca alarm retensi PII",
+  anonRetentionView || "ternyata boleh"
 );
 
 // Percobaan gagal melepas klaim supaya nomor tidak terkunci.
