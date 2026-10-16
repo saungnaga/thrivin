@@ -313,6 +313,121 @@ const afterRelease = rpc(
 eq(afterRelease.status, "granted", "setelah klaim dilepas, percobaan ulang boleh jalan");
 check(failClaim.claim_id === undefined || true, "klaim pertama nomor uji dicatat");
 
+// ── 10. F-W4-1 (opsi a): satu nomor = satu order belum dibayar ──────────────
+console.log("── 10. F-W4-1: reuse / blokir paket beda / paid_at / TTL / gate tetap duluan ──");
+const STEPS = "ARRAY[2,3,4,5,6,7,8]";
+const TERMS = "'terms-2026-10-15-v1'";
+const P_fw1 = "6281200000710";
+const P_fw1cross = "6281200000711";
+const P_fw1gate = "6281200000712";
+
+/** Panggilan gate yang sama bentuknya dengan `src/lib/checkout-gate.ts`. */
+function claim(phone: string, plan: string, key: string): any {
+  return rpc(`select claim_checkout_order('${phone}', ${STEPS}, '${plan}', ${TERMS}, '${key}')`);
+}
+function armPhone(phone: string, consentKey: string) {
+  rpc(
+    `select record_checkout_consent('${phone}','terms-2026-10-15-v1',true,false,'reminder-optin-2026-10-15-v1','checkout_step9','${consentKey}')`
+  );
+  for (const step of [2, 3, 4, 5, 6, 7, 8]) {
+    rpc(`select save_onboarding_step('${phone}', ${step}, '{"step":${step}}'::jsonb)`);
+  }
+}
+function paidAt(claimId: string): string {
+  return psqlSuper(`select coalesce(paid_at::text,'') from checkout_claims where id='${claimId}'`, {
+    csv: true,
+  });
+}
+/**
+ * Tandai klaim jadi order. Kegagalan prasyarat dicatat sebagai FAIL (bukan
+ * exception) supaya suite tetap jalan sampai ringkasan — penting untuk bukti
+ * negatif: perilaku pra-fix harus terbaca sebagai FAIL, bukan crash.
+ */
+function complete(c: any, orderId: string, url: string): void {
+  if (!c?.claim_id) {
+    check(false, `prasyarat: klaim untuk ${orderId} tidak diberikan`, JSON.stringify(c));
+    return;
+  }
+  rpc(`select complete_checkout_claim('${c.claim_id}', '${orderId}', '${url}', 231000)`);
+}
+
+armPhone(P_fw1, "fw1-consent-1");
+const fw1 = claim(P_fw1, "quarter", "fw1-key-1");
+eq(fw1.status, "granted", "F-W4-1: klaim pertama diberikan");
+complete(fw1, "ord-FW1", "https://pay/fw1");
+
+// (1) paket SAMA + kunci baru ⇒ order/link yang sama, tanpa baris klaim kedua
+const fw1Reuse = claim(P_fw1, "quarter", "fw1-key-2");
+eq(fw1Reuse.status, "reuse_unpaid", "F-W4-1(a): paket sama + kunci baru ⇒ reuse_unpaid");
+eq(fw1Reuse.order_id, "ord-FW1", "F-W4-1(a): mengembalikan order_id yang SAMA");
+eq(fw1Reuse.payment_url, "https://pay/fw1", "F-W4-1(a): mengembalikan payment_url yang SAMA");
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_fw1}'`),
+  1,
+  "F-W4-1(a): tidak ada baris klaim kedua yang lahir"
+);
+
+// (2) paket BEDA ⇒ blokir eksplisit (route menjawab 409 UNPAID_ORDER_EXISTS)
+const fw1Conflict = claim(P_fw1, "month", "fw1-key-3");
+eq(fw1Conflict.status, "unpaid_conflict", "F-W4-1(a): paket beda ⇒ unpaid_conflict");
+eq(fw1Conflict.plan_key, "quarter", "F-W4-1(a): paket yang menahan disebut (diagnostik, bukan rahasia)");
+check(fw1Conflict.order_id === undefined, "F-W4-1(a): unpaid_conflict tidak membawa order_id");
+
+// (3) F-S1 tidak boleh regresi: kunci milik nomor lain tetap ditolak
+armPhone(P_fw1cross, "fw1-cross-consent-1");
+const fw1CrossPhone = claim(P_fw1cross, "quarter", "fw1-key-1");
+eq(fw1CrossPhone.status, "key_conflict", "F-S1 tetap: kunci milik nomor lain ⇒ key_conflict");
+
+// (4) mark_checkout_claim_paid (dipanggil webhook): idempotent + membuka pembelian ulang
+eq(paidAt(fw1.claim_id), "", "F-W4-1: pra-syarat — klaim belum lunas");
+const mark1 = rpc(`select mark_checkout_claim_paid('ord-FW1')`);
+eq(mark1.status, "marked", "F-W4-1: mark_checkout_claim_paid ⇒ marked");
+const firstPaidAt = paidAt(fw1.claim_id);
+check(firstPaidAt.length > 0, "F-W4-1: paid_at terisi");
+rpc(`select mark_checkout_claim_paid('ord-FW1', now() + interval '1 hour')`);
+eq(paidAt(fw1.claim_id), firstPaidAt, "F-W4-1: retry webhook TIDAK menggeser paid_at pertama");
+eq(
+  rpc(`select mark_checkout_claim_paid('ord-tidak-ada')`).status,
+  "not_found",
+  "F-W4-1: order di luar gate ⇒ not_found (bukan error)"
+);
+const fw1AfterPaid = claim(P_fw1, "quarter", "fw1-key-4");
+eq(fw1AfterPaid.status, "granted", "F-W4-1: setelah lunas ⇒ kunci baru mencetak order baru");
+complete(fw1AfterPaid, "ord-FW2", "https://pay/fw2");
+
+// (5) TTL: order belum dibayar yang ditinggalkan tidak menahan nomor selamanya
+// (id palsu kalau klaim tidak diberikan: pra-fix harus terbaca FAIL, bukan crash.)
+const id2 = fw1AfterPaid?.claim_id || "00000000-0000-0000-0000-000000000000";
+psqlSuper(
+  `update checkout_claims set created_at = now() - interval '61 minutes' where id='${id2}'`
+);
+const fw1Stale = claim(P_fw1, "quarter", "fw1-key-5");
+eq(fw1Stale.status, "granted", "F-W4-1(a): order belum dibayar > TTL ⇒ checkout baru boleh");
+eq(
+  psqlSuper(`select status from checkout_claims where id='${id2}'`, { csv: true }),
+  "failed",
+  "F-W4-1(a): order yang ditinggalkan ditandai failed"
+);
+
+// (6) Reuse TIDAK mendahului gate: kalau langkah wajib hilang, tetap ditolak.
+armPhone(P_fw1gate, "fw1-gate-consent-1");
+const fw1Gate = claim(P_fw1gate, "quarter", "fw1-gate-key-1");
+eq(fw1Gate.status, "granted", "F-W4-1: pra-syarat klaim untuk nomor ketiga");
+complete(fw1Gate, "ord-FW3", "https://pay/fw3");
+psqlSuper(`delete from onboarding_progress where phone='${P_fw1gate}'`);
+const fw1GateGone = claim(P_fw1gate, "quarter", "fw1-gate-key-2");
+eq(
+  fw1GateGone.status,
+  "incomplete_onboarding",
+  "F-W4-1: reuse hanya SESUDAH langkah wajib & T&C — gate tetap fail-closed"
+);
+
+// (7) `paid_at` hanya lewat jalur uang: anon/authenticated dilarang
+const anonMarkPaid = throws(
+  `begin; set local role anon; select mark_checkout_claim_paid('ord-FW1'); rollback;`
+);
+check(!!anonMarkPaid, "anon DILARANG memanggil mark_checkout_claim_paid", "ternyata boleh");
+
 // ── Ringkasan ───────────────────────────────────────────────────────────────
 console.log(`\nSQL gate consent/checkout: ${pass} PASS, ${failures.length} FAIL`);
 for (const f of failures) console.log(`  FAIL ${f}`);

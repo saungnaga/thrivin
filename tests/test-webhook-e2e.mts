@@ -357,11 +357,45 @@ async function main() {
       "H-5  no pre-order (order_id IS NULL) rows are written"
     );
 
+    // ── F-W4-1: pembayaran menandai klaim gate lunas (jalur uang) ─────────
+    // Sebelum ini `paid_at` hanya diisi tes; di sini dibuktikan WEBHOOK yang
+    // mengisinya — pembeda antara "order belum dibayar" (dipakai ulang) dan
+    // riwayat lunas (pembelian ulang sah).
+    console.log("\n── F-W4-1: webhook pembayaran -> checkout_claims.paid_at ──");
+    assertEq(
+      psqlSuper(
+        `SELECT coalesce(paid_at::text,'') FROM checkout_claims WHERE order_id = '${orderJson.orderId}';`,
+        { csv: true }
+      ),
+      "",
+      "F-W4-1  pra-syarat: klaim order ini belum lunas"
+    );
+    const paidMark = await postWebhook(
+      paymentEvent({
+        eventId: `evt_fw1_${Date.now()}`,
+        orderId: orderJson.orderId,
+        phone: phoneB2,
+        paymentStatus: "paid",
+      })
+    );
+    assertEq(paidMark.status, 200, "F-W4-1  webhook pembayaran -> 200");
+    assertOk(
+      (
+        psqlSuper(
+          `SELECT coalesce(paid_at::text,'') FROM checkout_claims WHERE order_id = '${orderJson.orderId}';`,
+          { csv: true }
+        ) || ""
+      ).length > 0,
+      "F-W4-1  webhook mengisi checkout_claims.paid_at (bukan tes yang menulis)"
+    );
+
     // Re-run the same checkout twice: upsert, not an unbounded insert.
     // (Kunci idempotensi baru per percobaan — kunci sama = replay, bukan order baru.)
+    // F-W4-1: order sebelumnya ditandai lunas dulu; kalau tidak, percobaan kedua
+    // hanya memakai ulang order itu (aturan (a)) dan upsert ini tidak teruji.
     for (let i = 0; i < 2; i++) {
       const rearm = await armCheckout({ base: BASE_URL, phone: phoneB2, cookie: cookieB2 });
-      await fetch(`${BASE_URL}/api/scalev/create-order`, {
+      const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -376,6 +410,10 @@ async function main() {
           idempotencyKey: rearm.idempotencyKey,
         }),
       });
+      const created = await res.json().catch(() => ({} as any));
+      if (created?.orderId) {
+        psqlSuper(`SELECT mark_checkout_claim_paid('${created.orderId}');`);
+      }
     }
     const perOrder = query<[string, string]>(
       `SELECT order_id, count(*) FROM onboarding_snapshots GROUP BY order_id ORDER BY order_id`

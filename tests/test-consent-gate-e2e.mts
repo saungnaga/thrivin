@@ -430,14 +430,11 @@ async function main() {
       "semua jawaban 200 menunjuk order yang sama"
     );
 
-    // Dua kunci BERBEDA, nomor sama, paralel. Yang DIJAMIN desain:
-    //   (a) satu kunci = satu order (replay) — diuji di atas;
-    //   (b) klaim in-flight menahan permintaan yang benar-benar bersamaan.
-    // Kunci BARU memang berarti percobaan beli baru (lihat "pembelian ulang"
-    // di bawah), jadi dua permintaan yang tidak benar-benar bersamaan bisa
-    // sama-sama mencetak order belum dibayar. Itu CELAH yang dicatat sebagai
-    // temuan F-W4-1 untuk Sentinel — bukan sesuatu yang bisa dijamin lewat
-    // asersi timing (versi lama asersi ini flaky: kadang 1, kadang 2 order).
+    // Dua kunci BERBEDA, nomor sama, paralel, paket sama. F-W4-1 (opsi a) mulai
+    // berlaku di sini: klik ulang / tab kedua / reload TIDAK boleh mencetak order
+    // kedua selama order belum dibayar masih hidup. Yang dijamin (bukan asumsi
+    // urutan): tepat SATU order tercetak, setiap jawaban 200 menunjuk order yang
+    // SAMA, sisanya 409 (in-flight).
     const twoKeysArm = await armCheckout({
       base: APP_URL,
       phone: P.raceTwoKeys,
@@ -451,26 +448,103 @@ async function main() {
       )
     );
     const twoKeysCreated = mockOrderCount() - beforeTwoKeys;
-    const twoKeys409 = twoKeyResults.filter((r) => r.status === 409).length;
+    const twoKeys200 = twoKeyResults.filter((r) => r.status === 200);
+    assertEq(
+      twoKeysCreated,
+      1,
+      `dua kunci berbeda paralel: tepat SATU order tercetak (pra-F-W4-1: 2 bisa tercetak, terukur ${twoKeysCreated})`
+    );
     assertOk(
-      twoKeys409 >= 1,
-      "dua kunci berbeda paralel: klaim in-flight menolak permintaan bersamaan (>=1 × 409)",
+      twoKeys200.length >= 1,
+      "dua kunci berbeda paralel: minimal satu permintaan dilayani",
       JSON.stringify(twoKeyResults.map((r) => r.status))
     );
+    assertEq(
+      new Set(twoKeys200.map((r) => r.body?.orderId)).size,
+      1,
+      "dua kunci berbeda paralel: semua jawaban 200 menunjuk order yang SAMA"
+    );
     assertOk(
-      twoKeysCreated >= 1 && twoKeysCreated < twoKeysCount,
-      `dua kunci berbeda paralel: ${twoKeysCount} permintaan tidak semuanya mencetak order`,
-      `order tercetak ${twoKeysCreated}/${twoKeysCount}`
+      twoKeyResults.every((r) => r.status === 200 || r.status === 409),
+      "dua kunci berbeda paralel: status ∈ {200 (order yang sama), 409 (in-flight)}",
+      JSON.stringify(twoKeyResults.map((r) => r.status))
     );
 
-    // Pembelian ulang setelah order pertama selesai: boleh (bukan replay).
-    // Pasangan dua kasus ini (kunci baru paralel vs. kunci baru berurutan) yang
-    // memunculkan temuan F-W4-1: kunci baru tidak pernah ditolak selama tidak
-    // ada klaim in-flight — jadi reload halaman bisa mencetak order kedua.
-    const beforeRepeat = mockOrderCount();
-    const repeat = await createOrder(P.race, newIdempotencyKey("repeat"));
-    assertEq(repeat.status, 200, "pembelian ulang dengan kunci baru ⇒ 200");
-    assertEq(mockOrderCount() - beforeRepeat, 1, "pembelian ulang membuat satu order baru");
+    // ═══ C2. F-W4-1 (keputusan owner 16/10, opsi a) ════════════════════════
+    // Aturan: paket SAMA + masih ada order belum dibayar ⇒ kunci baru
+    // DIKEMBALIKAN ke order/link yang sama; paket BEDA ⇒ diblokir eksplisit;
+    // kunci sama dari nomor beda ⇒ tetap 409 IDEMPOTENCY_KEY_CONFLICT (F-S1).
+    section("C2. F-W4-1: satu nomor = satu order belum dibayar");
+    const fw1Arm = await armCheckout({
+      base: APP_URL,
+      phone: P.repeatBuy,
+      cookie: waSessionCookie(P.repeatBuy),
+    });
+    const fw1First = await createOrder(P.repeatBuy, fw1Arm.idempotencyKey);
+    assertEq(fw1First.status, 200, "F-W4-1: order pertama (quarter) ⇒ 200");
+    const beforeReuse = mockOrderCount();
+
+    // (1) paket sama + kunci baru ⇒ link lama, bukan order kedua.
+    const reused = await createOrder(P.repeatBuy, newIdempotencyKey("fw1reuse"));
+    assertEq(reused.status, 200, "F-W4-1(a): kunci baru paket sama ⇒ 200");
+    assertEq(reused.body?.orderId, fw1First.body?.orderId, "F-W4-1(a): orderId yang SAMA");
+    assertEq(reused.body?.paymentUrl, fw1First.body?.paymentUrl, "F-W4-1(a): link bayar yang SAMA");
+    assertEq(reused.body?.unpaidOrderReused, true, "F-W4-1(a): jawaban ditandai unpaidOrderReused");
+    assertEq(mockOrderCount(), beforeReuse, "F-W4-1(a): TIDAK ada order kedua di Scalev");
+
+    // (2) paket BEDA ⇒ blokir eksplisit tanpa data order apa pun.
+    const fw1Conflict = await createOrder(P.repeatBuy, newIdempotencyKey("fw1conflict"), {
+      planId: "month",
+    });
+    assertEq(fw1Conflict.status, 409, "F-W4-1(a): paket beda ⇒ 409");
+    assertEq(fw1Conflict.body?.code, "UNPAID_ORDER_EXISTS", "F-W4-1(a): kode UNPAID_ORDER_EXISTS");
+    assertOk(
+      !fw1Conflict.body?.orderId && !fw1Conflict.body?.paymentUrl,
+      "F-W4-1(a): paket beda tidak membocorkan orderId/paymentUrl"
+    );
+    assertEq(mockOrderCount(), beforeReuse, "F-W4-1(a): paket beda juga tidak mencetak order");
+
+    // (3) order pertama DIBAYAR (webhook memanggil mark_checkout_claim_paid) ⇒
+    // pembelian ulang sah: kunci baru mencetak order baru.
+    assertEq(
+      psqlSuper(
+        `select coalesce(paid_at::text,'') from checkout_claims where order_id='${fw1First.body.orderId}'`,
+        { csv: true }
+      ),
+      "",
+      "F-W4-1: pra-syarat — order pertama belum lunas"
+    );
+    psqlSuper(`select mark_checkout_claim_paid('${fw1First.body.orderId}')`);
+    const afterPaid = await createOrder(P.repeatBuy, newIdempotencyKey("fw1paid"));
+    assertEq(afterPaid.status, 200, "F-W4-1(a): setelah dibayar, kunci baru ⇒ 200");
+    assertEq(mockOrderCount() - beforeReuse, 1, "F-W4-1(a): ... mencetak SATU order baru");
+    assertOk(
+      afterPaid.body?.orderId !== fw1First.body?.orderId,
+      "F-W4-1(a): order baru itu memang order yang berbeda"
+    );
+    assertEq(
+      mockOrderCount() - beforeReuse,
+      1,
+      "F-W4-1(a): totalnya tetap satu order baru (reuse tidak menghitung order)"
+    );
+
+    // (4) order belum dibayar yang DITINGGALKAN (> TTL 60 menit) tidak memblokir
+    // selamanya — kalau tidak, pengguna tanpa tiket CS tidak punya jalan keluar.
+    psqlSuper(
+      `update checkout_claims set created_at = now() - interval '61 minutes' where order_id='${afterPaid.body.orderId}'`
+    );
+    const beforeAbandon = mockOrderCount();
+    const abandoned = await createOrder(P.repeatBuy, newIdempotencyKey("fw1stale"));
+    assertEq(abandoned.status, 200, "F-W4-1(a): order belum dibayar > TTL ⇒ checkout baru boleh");
+    assertEq(mockOrderCount() - beforeAbandon, 1, "F-W4-1(a): ... mencetak satu order baru");
+    assertEq(
+      psqlSuper(
+        `select status from checkout_claims where order_id='${afterPaid.body.orderId}'`,
+        { csv: true }
+      ),
+      "failed",
+      "F-W4-1(a): order yang ditinggalkan ditandai failed (tidak menahan nomor)"
+    );
 
     // ═══ D. Opt-out eksplisit & retry lama ════════════════════════════════
     section("D. opt-out menang, retry lama tidak menyalakan ulang");

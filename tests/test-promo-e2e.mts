@@ -1010,7 +1010,19 @@ async function main() {
       );
       const after = await checkout({ planId: "quarter", customerPhone: phone, customerName: "Dummy Retry", promoCode: code, onboarding: sampleOnboarding });
       assertEq(after.status, 200, "V-1 r2 retry: setelah pembatalan, nomor itu bisa checkout lagi");
-      assertEq(ordersForPhone(phone) - before, 2, "V-1 r2 retry: order kedua hanya setelah pembatalan eksplisit");
+      // F-W4-1(a): nomor ini masih memegang order BELUM DIBAYAR untuk paket yang
+      // sama, jadi checkout berikutnya mengembalikan order/link YANG SAMA —
+      // membatalkan reservasi promo mengembalikan kuota, bukan membuat order kedua.
+      assertEq(
+        after.body?.orderId,
+        first.body?.orderId,
+        "V-1 r2 retry: F-W4-1(a) — dipakai ulang order yang sama, bukan order kedua"
+      );
+      assertEq(
+        ordersForPhone(phone) - before,
+        1,
+        "V-1 r2 retry: tetap SATU order (tidak ada dua link yang bisa dibayar)"
+      );
     }
 
     // ══ Reservasi dilepas kalau order Scalev gagal ═════════════════════════
