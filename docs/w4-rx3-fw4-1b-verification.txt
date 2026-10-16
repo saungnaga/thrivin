@@ -3,7 +3,8 @@ Kartu: t_8597d4a9 (forge). Severity LOW-MEDIUM, jalur uang, wajib sebelum deploy
 Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
 Branch: feat/checkout-consent-gate-2026-10-15
 
-Commit kode+test: 10f43f1  (basis: fe2cd91)
+Commit: 10f43f1 (fix) + 30ce997 (asersi retry); basis fe2cd91; dokumen ini = commit
+docs-only terakhir (tidak mengubah kode maupun test). Isi kode+test final = 30ce997.
 Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
 Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
 nol Scalev nyata, nol push/merge. Semua mutasi uji DIREVERT (lihat bagian 4).
