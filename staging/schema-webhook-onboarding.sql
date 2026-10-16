@@ -130,11 +130,14 @@ BEGIN
 END $$;
 
 -- Dead-scheduler alarm: rows that should already be gone.
+-- RX2-1: `purge_audit_log` sekarang dipakai bersama job retensi PII (deleted_progress
+-- terisi, kolom webhook NULL) ⇒ last_purge_at HANYA melihat baris job webhook,
+-- supaya run PII tidak menyamarkan scheduler webhook yang mati.
 CREATE OR REPLACE VIEW v_webhook_retention_backlog AS
   SELECT
     (SELECT count(*) FROM webhook_events_inbox WHERE expires_at < now()) AS expired_inbox_rows,
     (SELECT count(*) FROM onboarding_snapshots WHERE expires_at < now() AND status <> 'active') AS expired_snapshot_rows,
-    (SELECT max(ran_at) FROM purge_audit_log) AS last_purge_at;
+    (SELECT max(ran_at) FROM purge_audit_log WHERE deleted_inbox IS NOT NULL) AS last_purge_at;
 
 -- V-2 (pola sama, temuan Sentinel ronde 2): view Postgres default berjalan
 -- sebagai PEMILIK (role migrasi, BYPASSRLS), jadi policy RLS di tabel-tabel di

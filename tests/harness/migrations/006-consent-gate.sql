@@ -657,11 +657,23 @@ AS $function$
 $function$;
 
 -- ============================================================================
--- 10b. Retensi PII Onboarding & Purge (F-S4 / Kebijakan Privasi <= 30 hari)
+-- 10b. Retensi PII Onboarding & Purge (F-S4 / RX2-1 / Kebijakan Privasi <= 30 hari)
 -- ============================================================================
 -- Kebijakan Privasi (/privacy klausul 5) menyatakan data profil disimpan paling
 -- lama 30 hari sebelum dihapus atau dianonimkan. Fungsi ini membersihkan
 -- state onboarding yang ditinggalkan / tidak aktif serta riwayat klaim checkout lama.
+--
+-- RX2-1: `purge_audit_log` (dibuat skema webhook, H-4) dipakai bersama supaya
+-- "scheduler mati" bisa dibedakan dari "tidak ada yang perlu dihapus". Baris run
+-- ini dikenali dari `deleted_progress IS NOT NULL`; kolom jalur webhook sengaja
+-- NULL (bukan 0) supaya alarm webhook tidak salah membaca run ini sebagai runnya
+-- sendiri. Karena itu NOT NULL di kedua kolom webhook dilonggarkan.
+-- Urutan apply: skema webhook (H-4) mendahului file ini — lihat tests/harness/seed.sh.
+ALTER TABLE purge_audit_log ADD COLUMN IF NOT EXISTS deleted_progress INTEGER;
+ALTER TABLE purge_audit_log ADD COLUMN IF NOT EXISTS deleted_claims INTEGER;
+ALTER TABLE purge_audit_log ALTER COLUMN deleted_inbox DROP NOT NULL;
+ALTER TABLE purge_audit_log ALTER COLUMN deleted_snapshots DROP NOT NULL;
+
 CREATE OR REPLACE FUNCTION purge_expired_onboarding_progress(
   p_retention_days INTEGER DEFAULT 30
 )
@@ -671,10 +683,18 @@ SECURITY DEFINER
 SET search_path = public
 AS $function$
 DECLARE
+  -- ponytail: TTL in-flight (600s) disalin dari default claim_checkout_order;
+  -- naikkan keduanya bersamaan kalau TTL-nya diubah.
+  v_inflight_ttl CONSTANT INTERVAL := INTERVAL '600 seconds';
   v_progress INTEGER;
   v_claims INTEGER;
+  v_abandoned INTEGER;
   v_cutoff TIMESTAMPTZ;
 BEGIN
+  IF p_retention_days IS NULL OR p_retention_days < 1 THEN
+    RAISE EXCEPTION 'p_retention_days must be >= 1';
+  END IF;
+
   v_cutoff := now() - make_interval(days => p_retention_days);
 
   -- 1. Hapus progress onboarding yang tidak aktif / ditinggalkan lebih dari 30 hari.
@@ -686,6 +706,21 @@ BEGIN
   DELETE FROM checkout_claims
   WHERE updated_at < v_cutoff AND status IN ('created', 'failed');
   GET DIAGNOSTICS v_claims = ROW_COUNT;
+
+  -- 3. RX2-1: klaim `in_flight` yang worker-nya mati sebelum release_checkout_claim
+  -- menyimpan `phone` selamanya (filter lama hanya menyentuh created/failed).
+  -- Klaim yang MASIH hidup disegarkan dalam hitungan detik (TTL in-flight),
+  -- jadi cutoff-nya TTL + retensi: klaim hidup tidak mungkin kena, dan klaim
+  -- terbengkalai akhirnya benar-benar dibuang.
+  DELETE FROM checkout_claims
+  WHERE status = 'in_flight'
+    AND updated_at < v_cutoff - v_inflight_ttl;
+  GET DIAGNOSTICS v_abandoned = ROW_COUNT;
+  v_claims := v_claims + v_abandoned;
+
+  -- 4. RX2-1: jejak audit — tanpa baris ini, scheduler yang mati tidak terlihat.
+  INSERT INTO purge_audit_log (deleted_progress, deleted_claims, triggered_by)
+  VALUES (v_progress, v_claims, current_setting('application_name', true));
 
   RETURN QUERY SELECT now(), v_progress, v_claims;
 END;
@@ -703,6 +738,21 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- RX2-1: alarm job retensi PII, pola sama dengan v_webhook_retention_backlog:
+-- baris yang SEHARUSNYA sudah hilang tetap kelihatan kalau scheduler mati.
+-- Retensi 30 hari ditulis literal karena view tidak menerima parameter.
+CREATE OR REPLACE VIEW v_onboarding_retention_backlog AS
+  SELECT
+    (SELECT count(*) FROM onboarding_progress WHERE updated_at < now() - INTERVAL '30 days') AS expired_progress_rows,
+    (SELECT count(*) FROM checkout_claims WHERE updated_at < now() - INTERVAL '30 days') AS expired_claim_rows,
+    (SELECT max(ran_at) FROM purge_audit_log WHERE deleted_progress IS NOT NULL) AS last_purge_at;
+
+-- V-2 (pola sama): view default berjalan sebagai PEMILIK (BYPASSRLS) sehingga
+-- klien anon bisa membaca backlog + waktu purge terakhir. security_invoker + REVOKE.
+ALTER VIEW v_onboarding_retention_backlog SET (security_invoker = on);
+REVOKE ALL ON v_onboarding_retention_backlog FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON v_onboarding_retention_backlog TO service_role;
 
 -- ============================================================================
 -- 11. Grants + RLS
