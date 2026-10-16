@@ -137,11 +137,31 @@ CREATE TABLE IF NOT EXISTS checkout_claims (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_idempotency
   ON checkout_claims (tenant_id, idempotency_key);
 
--- Satu order dalam penerbangan per nomor: dua tab / dua klik paralel tidak boleh
--- sama-sama mencetak order. Ini yang menutup race "dua request bersamaan".
-CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_inflight_phone
+-- Satu order HIDUP per nomor: dua tab / dua klik paralel tidak boleh sama-sama
+-- mencetak order. "Hidup" = belum dibayar dan belum di-retire, yaitu
+-- `in_flight` (Scalev belum menjawab) ATAU `created` yang belum lunas.
+--
+-- Kenapa `created` ikut dijaga (W4RX4 T1): langkah 6 (`SELECT ... status='created'
+-- AND paid_at IS NULL`) dan langkah 7 (`INSERT`) di `claim_checkout_order` berada
+-- di snapshot READ COMMITTED yang BERBEDA. Kalau commit `complete_checkout_claim`
+-- milik request pertama menyelip di antara keduanya, langkah 6 tidak melihat baris
+-- `created` itu dan INSERT lolos — index yang hanya menjaga `in_flight` sudah
+-- kehilangan penjaganya tepat pada saat itu ⇒ DUA order belum-dibayar hidup.
+-- Dengan `created` ikut dijaga, INSERT request kedua ditahan index sampai commit
+-- itu selesai, lalu ditolak (unique_violation ⇒ `in_flight` ⇒ route 409).
+--
+-- `paid_at IS NULL` wajib ada di predikat: pembelian ULANG setelah lunas (dan
+-- setelah retire TTL 3b menandai baris 'failed') harus tetap boleh.
+--
+-- Nama index DIGANTI (bukan `IF NOT EXISTS` dengan nama lama): seed.sh/apply
+-- mengulang file ini ke DB yang sudah ada, dan `CREATE ... IF NOT EXISTS` bernama
+-- sama akan DIAM-DIAM mempertahankan index lama yang lebih sempit = lubang tetap
+-- terbuka. Karena itu index lama di-DROP dulu, dan penjaganya diverifikasi lewat
+-- `pg_indexes` di dokumen bukti.
+DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
   ON checkout_claims (tenant_id, phone)
-  WHERE status = 'in_flight';
+  WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
 
 -- ============================================================================
 -- 5. RPC primitif: catat SATU event consent (+ aturan urutan)
@@ -532,8 +552,11 @@ BEGIN
     );
   END IF;
 
-  -- 7. Klaim. Kalau nomor ini sudah punya order in-flight (tab lain), unique index
-  -- parsial yang menolak — bukan pengecekan "baca dulu" yang bisa balapan.
+  -- 7. Klaim. Kalau nomor ini sudah punya order HIDUP (in-flight, atau order belum
+  -- dibayar yang baru saja dicetak request lain), unique index parsial
+  -- `uq_checkout_claims_live_phone` yang menolak — bukan pengecekan "baca dulu"
+  -- yang bisa balapan (W4RX4 T1: langkah 6 di atas bisa saja snapshot-nya lebih
+  -- tua dari commit `complete` milik request lain).
   BEGIN
     INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status)
     VALUES (p_tenant_id, p_phone, p_idempotency_key, p_plan_key, 'in_flight')
