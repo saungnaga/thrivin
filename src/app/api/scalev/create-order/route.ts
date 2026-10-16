@@ -310,6 +310,29 @@ export async function POST(req: Request) {
         replay: true,
       });
     }
+    if (claim.status === "reuse_unpaid") {
+      // F-W4-1(a): nomor ini masih punya order BELUM DIBAYAR untuk paket yang
+      // sama. Kunci baru dikembalikan ke order/link itu — tidak ada order kedua
+      // yang bisa dibayar. Tidak ada panggilan Scalev.
+      return NextResponse.json({
+        orderId: claim.orderId,
+        paymentUrl: claim.paymentUrl,
+        replay: true,
+        unpaidOrderReused: true,
+      });
+    }
+    if (claim.status === "unpaid_conflict") {
+      // F-W4-1(a): paket BEDA dari order yang masih belum dibayar ⇒ blokir
+      // eksplisit. Tanpa orderId/paymentUrl: tidak ada data order yang dibocorkan.
+      return NextResponse.json(
+        {
+          error:
+            "Masih ada pesanan yang belum dibayar untuk paket lain. Selesaikan atau bayar pesanan itu dulu sebelum ganti paket.",
+          code: "UNPAID_ORDER_EXISTS",
+        },
+        { status: 409 }
+      );
+    }
     if (claim.status === "in_flight") {
       return NextResponse.json(
         {

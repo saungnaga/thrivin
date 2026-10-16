@@ -107,6 +107,8 @@ export async function getOnboardingProgress(phone: string): Promise<OnboardingPr
 export type ClaimOutcome =
   | { status: "granted"; claimId: string }
   | { status: "already_created"; claimId: string; orderId: string; paymentUrl: string }
+  | { status: "reuse_unpaid"; claimId: string; orderId: string; paymentUrl: string }
+  | { status: "unpaid_conflict"; activePlanKey: string }
   | { status: "in_flight" }
   | { status: "incomplete_onboarding"; missingSteps: number[] }
   | { status: "consent_required" }
@@ -141,6 +143,17 @@ export async function claimCheckoutOrder(input: {
         orderId: String(row.order_id || ""),
         paymentUrl: String(row.payment_url || ""),
       };
+    case "reuse_unpaid":
+      // F-W4-1(a): nomor ini masih punya order belum dibayar untuk paket yang
+      // sama — kunci baru dikembalikan ke order/link itu, bukan order kedua.
+      return {
+        status: "reuse_unpaid",
+        claimId: String(row.claim_id),
+        orderId: String(row.order_id || ""),
+        paymentUrl: String(row.payment_url || ""),
+      };
+    case "unpaid_conflict":
+      return { status: "unpaid_conflict", activePlanKey: String(row.plan_key || "") };
     case "in_flight":
       return { status: "in_flight" };
     case "incomplete_onboarding":
@@ -174,6 +187,23 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
     await callRpc("release_checkout_claim", { p_claim_id: claimId });
   } catch (err) {
     console.error("[CheckoutGate] gagal melepas klaim:", redactError(err));
+  }
+}
+
+/**
+ * F-W4-1: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran, kunci
+ * `order_id`). Setelah ini nomor boleh membeli lagi; tanpa ini, order belum
+ * dibayar dipakai ulang / memblokir paket lain.
+ * Best effort: pembayaran yang sudah masuk tidak boleh gagal gara-gara ini.
+ */
+export async function markCheckoutClaimPaid(orderId: string, paidAt?: string): Promise<void> {
+  try {
+    await callRpc("mark_checkout_claim_paid", {
+      p_order_id: String(orderId),
+      p_paid_at: paidAt || null,
+    });
+  } catch (err) {
+    console.error("[CheckoutGate] gagal menandai klaim dibayar:", redactError(err));
   }
 }
 

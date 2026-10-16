@@ -121,6 +121,10 @@ CREATE TABLE IF NOT EXISTS checkout_claims (
   order_id TEXT,
   payment_url TEXT,
   amount INTEGER,
+  -- F-W4-1: diisi webhook pembayaran (mark_checkout_claim_paid). Dipakai untuk
+  -- membedakan "order belum dibayar yang masih hidup" (dipakai ulang / memblokir
+  -- paket lain) dari riwayat order yang sudah lunas (pembelian ulang sah).
+  paid_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT checkout_claims_status_check
@@ -368,12 +372,16 @@ $function$;
 --   1. kunci per nomor (advisory) supaya dua request paralel tidak sama-sama lolos;
 --   2. replay: idempotency key yang sudah `created` -> kembalikan order yang SAMA
 --      (tidak ada panggilan Scalev kedua);
---   3. klaim in-flight yang basi (worker mati) di-expire;
+--   3. klaim in-flight yang basi (worker mati) di-expire; klaim 'created' yang
+--      belum dibayar & sudah lewat TTL juga dianggap ditinggalkan (status failed);
 --   4. langkah wajib: semua harus ADA di `onboarding_progress.steps` (isi datanya
 --      divalidasi ulang di TS sebelum order dibuat);
 --   5. T&C: harus ada event `terms` dengan value true untuk versi yang diminta;
---   6. baru: klaim `in_flight`.
--- Return: {status, missing_steps, claim_id, order_id, payment_url}
+--   6. F-W4-1 (keputusan owner 16/10, opsi a): kalau nomor ini MASIH punya order
+--      belum dibayar yang hidup → paket SAMA: kembalikan order itu (`reuse_unpaid`,
+--      tanpa order kedua); paket BEDA: `unpaid_conflict` (route balas 409);
+--   7. baru: klaim `in_flight`.
+-- Return: {status, missing_steps, claim_id, order_id, payment_url, plan_key}
 CREATE OR REPLACE FUNCTION claim_checkout_order(
   p_phone TEXT,
   p_required_steps INTEGER[],
@@ -392,7 +400,11 @@ DECLARE
   v_missing INTEGER[];
   v_terms BOOLEAN;
   v_existing RECORD;
+  v_unpaid RECORD;
   v_claim_id UUID;
+  -- F-W4-1: umur maksimum order BELUM DIBAYAR yang masih dianggap hidup.
+  -- ponytail: konstanta tetap (60 menit); jadi parameter kalau ops butuh tuning.
+  v_unpaid_ttl CONSTANT INTERVAL := INTERVAL '60 minutes';
 BEGIN
   IF p_phone !~ '^62[0-9]{8,13}$' THEN
     RETURN json_build_object('status', 'invalid_phone');
@@ -439,6 +451,15 @@ BEGIN
     WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'in_flight'
       AND created_at < now() - make_interval(secs => p_inflight_ttl_seconds);
 
+  -- 3b. F-W4-1: order belum dibayar yang sudah lewat TTL dianggap ditinggalkan.
+  -- Tanpa ini, link Scalev yang ditinggalkan akan memblokir/menahan nomor ini
+  -- selamanya (dan pengguna tidak punya jalan keluar selain tiket CS).
+  UPDATE checkout_claims
+    SET status = 'failed', updated_at = now()
+    WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'created'
+      AND paid_at IS NULL
+      AND created_at < now() - v_unpaid_ttl;
+
   -- 4. Langkah wajib.
   SELECT steps INTO v_steps
   FROM onboarding_progress
@@ -468,7 +489,33 @@ BEGIN
     RETURN json_build_object('status', 'consent_required');
   END IF;
 
-  -- 6. Klaim. Kalau nomor ini sudah punya order in-flight (tab lain), unique index
+  -- 6. F-W4-1 (opsi a): satu nomor tidak boleh mencetak order BELUM DIBAYAR kedua.
+  SELECT id, plan_key, order_id, payment_url INTO v_unpaid
+  FROM checkout_claims
+  WHERE tenant_id = p_tenant_id AND phone = p_phone
+    AND status = 'created' AND paid_at IS NULL
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF FOUND THEN
+    IF v_unpaid.plan_key = p_plan_key THEN
+      -- Paket SAMA → kembalikan order/link yang sama (tidak ada order kedua).
+      RETURN json_build_object(
+        'status', 'reuse_unpaid',
+        'claim_id', v_unpaid.id,
+        'order_id', v_unpaid.order_id,
+        'payment_url', v_unpaid.payment_url
+      );
+    END IF;
+    -- Paket BEDA → blokir eksplisit; route menjawab 409 tanpa data order apa pun.
+    RETURN json_build_object(
+      'status', 'unpaid_conflict',
+      'claim_id', v_unpaid.id,
+      'plan_key', v_unpaid.plan_key
+    );
+  END IF;
+
+  -- 7. Klaim. Kalau nomor ini sudah punya order in-flight (tab lain), unique index
   -- parsial yang menolak — bukan pengecekan "baca dulu" yang bisa balapan.
   BEGIN
     INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status)
@@ -527,6 +574,44 @@ BEGIN
     RETURN json_build_object('status', 'not_found');
   END IF;
   RETURN json_build_object('status', 'released');
+END;
+$function$;
+
+-- ============================================================================
+-- 9b. RPC: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran)
+-- ============================================================================
+-- F-W4-1: `paid_at` adalah satu-satunya pembeda antara "punya order belum
+-- dibayar" (dipakai ulang / memblokir paket lain) dan riwayat lunas yang boleh
+-- dibeli ulang. Di-set dari jalur uang (webhook `payment.received`/`order.paid`)
+-- dengan kunci `order_id` — sama seperti consume_promo_for_order.
+-- Idempotent: retry webhook tidak mengubah timestamp pertama.
+CREATE OR REPLACE FUNCTION mark_checkout_claim_paid(
+  p_order_id TEXT,
+  p_paid_at TIMESTAMPTZ DEFAULT NULL,
+  p_tenant_id VARCHAR DEFAULT 'thrivin'
+) RETURNS JSON
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_id UUID;
+BEGIN
+  IF p_order_id IS NULL OR length(p_order_id) = 0 THEN
+    RETURN json_build_object('status', 'invalid_order');
+  END IF;
+
+  UPDATE checkout_claims
+    SET paid_at = COALESCE(paid_at, LEAST(COALESCE(p_paid_at, now()), now())),
+        updated_at = now()
+    WHERE tenant_id = p_tenant_id AND order_id = p_order_id
+    RETURNING id INTO v_id;
+
+  IF v_id IS NULL THEN
+    -- Order yang tidak lewat gate (mis. dibuat manual di dashboard Scalev).
+    RETURN json_build_object('status', 'not_found');
+  END IF;
+  RETURN json_build_object('status', 'marked', 'claim_id', v_id);
 END;
 $function$;
 
@@ -630,6 +715,7 @@ REVOKE ALL ON FUNCTION save_onboarding_step(TEXT, INTEGER, JSONB, VARCHAR) FROM 
 REVOKE ALL ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_checkout_claim(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION purge_expired_onboarding_progress(INTEGER) FROM PUBLIC, anon, authenticated;
 
@@ -639,6 +725,7 @@ GRANT EXECUTE ON FUNCTION save_onboarding_step(TEXT, INTEGER, JSONB, VARCHAR) TO
 GRANT EXECUTE ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION release_checkout_claim(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION purge_expired_onboarding_progress(INTEGER) TO service_role;
 

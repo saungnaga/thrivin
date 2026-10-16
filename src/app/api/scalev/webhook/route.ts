@@ -19,6 +19,7 @@ import {
   sendWelcomeMessage,
 } from "@/lib/welcome-message";
 import { consumePromoForOrder } from "@/lib/promo";
+import { markCheckoutClaimPaid } from "@/lib/checkout-gate";
 
 /**
  * Scalev signs with HMAC-SHA256 and transmits base64 (L-1). The previous
@@ -206,6 +207,11 @@ export async function POST(req: Request) {
         const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
         const plan = resolveSubscriptionPlan(snapshot?.plan_key);
         const activation = await activateUserSubscription(cleanPhone, customerName, snapshot);
+        // F-W4-1: pembayaran masuk → klaim gate nomor ini ditandai lunas, jadi
+        // kunci checkout BARU dari nomor yang sama mencetak order baru (pembelian
+        // ulang sah), bukan memakai ulang / diblokir oleh order yang sudah dibayar.
+        // Best effort: tidak pernah melempar ke jalur webhook.
+        await markCheckoutClaimPaid(String(orderUniqueId));
         // Pembayaran diterima -> reservasi promo jadi 'consumed' (mengunci 1x
         // per nomor). Best effort: tidak pernah melempar ke jalur webhook.
         await consumePromoForOrder(String(orderUniqueId));
