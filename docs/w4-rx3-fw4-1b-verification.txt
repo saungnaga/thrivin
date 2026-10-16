@@ -1,0 +1,137 @@
+F-W4-1b (temuan delta-review 3 W4, Sentinel t_91a898d7 @ c2bd78b).
+Kartu: t_8597d4a9 (forge). Severity LOW-MEDIUM, jalur uang, wajib sebelum deploy produksi.
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15
+
+Commit kode+test: 10f43f1  (basis: fe2cd91)
+Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
+nol Scalev nyata, nol push/merge. Semua mutasi uji DIREVERT (lihat bagian 4).
+
+==============================================================================
+1. Bug + fix (opsi i yang disarankan kartu)
+==============================================================================
+Akar masalah: cabang replay (langkah 2 di claim_checkout_order) menyamakan
+status='failed' dengan "percobaan sebelumnya gagal sebelum order tercetak".
+Padahal 'failed' lahir dari DUA jalur:
+  (a) release_checkout_claim (order_id NULL — aman di-grant ulang), dan
+  (b) retire 3b: baris 'created' belum dibayar > TTL 60 menit → 'failed',
+      order_id/payment_url TETAP terisi dan link Scalev-nya masih bisa dibayar.
+Jalur (b) di-replay → di-grant ulang → route mencetak order KEDUA.
+
+Fix (staging/schema-consent.sql, langkah 2):
+  +  IF v_existing.order_id IS NOT NULL THEN
+  +    RETURN json_build_object('status','already_created',
+  +      'claim_id', v_existing.id,
+  +      'order_id', v_existing.order_id,
+  +      'payment_url', v_existing.payment_url);
+  +  END IF;
+  (baris 'failed' TANPA order tetap dipakai ulang seperti sebelumnya)
+Signature claim_checkout_order TIDAK berubah (hindari overload PostgREST, RX2-2).
+3b sengaja TIDAK mengosongkan order_id (opsi ii ditolak: mengosongkan di situ justru
+membuka jalur grant ulang — bertabrakan dengan keputusan owner "kunci sama = order sama").
+Route `create-order` sudah menangani `already_created` (balas order/link yang sama,
+`replay: true`, tanpa panggilan Scalev) — nol perubahan src/, jadi nol perubahan build.
+tests/harness/migrations/006-consent-gate.sql = salinan otomatis dari staging/ oleh
+seed.sh; ikut di-commit dan diverifikasi byte-identik (`diff` bersih).
+
+==============================================================================
+2. Bukti bahwa asersi baru BERGIGI (bukti negatif / mutasi pembalik)
+==============================================================================
+Mutasi (file draf dibalik ke versi pra-fix, yaitu induk commit fix ini):
+  `git show HEAD~1:staging/schema-consent.sql > staging/schema-consent.sql`
+  + `bash tests/harness/seed.sh`
+  → `grep -c "F-W4-1b" staging/schema-consent.sql` = 0 dan pada
+    `tests/harness/migrations/006-consent-gate.sql` = 0.
+  (Catatan metode: `git checkout -- staging/schema-consent.sql` TIDAK lagi sah sebagai
+   pembalik setelah fix di-commit — ia memulihkan versi ber-fix. Sempat kepakai dan
+   menghasilkan 88 PASS/0 FAIL yang menyesatkan; angka di bawah dari `git show HEAD~1`.)
+
+(a) SQL suite (tests/test-consent-gate-sql.mts) — /tmp/fw41b-neg-sql2.log, EXIT=1
+    SQL gate consent/checkout: 84 PASS, 4 FAIL
+      FAIL F-W4-1b: replay kunci lama setelah retire ⇒ already_created (bukan granted)
+            — expected "already_created", got "granted"
+      FAIL F-W4-1b: ... mengembalikan order yang MEMANG milik kunci itu
+            — expected "ord-FW1b-A", got undefined
+      FAIL F-W4-1b: baris kunci lama tidak dibangkitkan jadi in_flight (tidak ada kursi kedua)
+            — expected "failed", got "in_flight"
+      FAIL F-W4-1b: tepat SATU order belum-dibayar hidup sesudah replay kunci lama
+            — expected 1, got 2
+    (3 asersi lain — baris 'failed' TANPA order masih boleh diklaim ulang dengan kunci
+     sama — HIJAU pra-fix: itu penjaga regresi, bukan asersi fix. Lihat bagian 3e.)
+
+(b) e2e lewat HTTP (tests/test-consent-gate-e2e.mts) — /tmp/fw41b-neg-e2e.log, EXIT=1
+    e2e gate consent/checkout: 133 PASS, 4 FAIL
+      FAIL F-W4-1b: ... mengembalikan order milik kunci itu (bukan order ketiga)
+            — expected "test_8_mvb9zz06", got "test_10_mvb9zz30"   <- order KETIGA dicetak
+      FAIL F-W4-1b: ... ditandai replay ⇒ tidak ada panggilan Scalev — expected true, got undefined
+      FAIL F-W4-1b: TIDAK ada order ketiga dicetak di Scalev — expected 1, got 2
+      FAIL F-W4-1b: tepat SATU order belum-dibayar hidup untuk nomor itu — expected "1", got "2"
+
+    ⇒ reproduksi bebas dari laporan Sentinel: 2 order belum dibayar bernomor berbeda
+      untuk satu nomor+paket (dan order ketiga benar-benar dicetak di mock Scalev).
+
+Sesudah `cp /tmp/fw41b-schema-fixed.sql staging/schema-consent.sql` + seed ulang,
+`git status` hanya memuat 4 file yang memang di-commit (nol sisa mutasi).
+
+==============================================================================
+3. Bukti positif (pasca-fix, HEAD 10f43f1)
+==============================================================================
+3a. SQL gate consent/checkout: 88 PASS, 0 FAIL        (/tmp/fw41b-post-sql3.log, EXIT=0)
+    (84 PASS pra-fix — termasuk 3 penjaga regresi retry yang memang sudah hijau —
+     + 4 asersi yang semula FAIL. Asersi "count(*) = 2" juga sudah hijau pra-fix:
+     jumlah baris klaim tidak berubah, yang berubah status & order kunci lama.)
+3b. e2e gate consent/checkout: 137 PASS, 0 FAIL       (/tmp/fw41b-post-e2e.log, EXIT=0)
+    (128 PASS pra-kartu + 9 asersi baru.)
+3c. run-all penuh: `bash tests/run-all.sh`           (/tmp/fw41b-runall-3.log)
+      step 5/9 SQL gate consent/checkout: 88 PASS, 0 FAIL
+      step 9/9 e2e gate consent/checkout: 137 PASS, 0 FAIL
+      ALL SUITES PASSED
+      SUITE_EXIT=0
+    (Isi kode = 10f43f1; asersi retry di tests/ ditambahkan SESUDAH 10f43f1 — run 3 di atas
+     dijalankan pada working tree final yang identik dengan commit bukti ini.)
+    env terisolasi milik worktree ini: db thrivin_test_w4_consent_gate_e92cbc, port base 48180
+    (tanpa override: isolate.mts). Ada run-agent lain berjalan paralel di VPS dengan DB/port
+    sendiri (/tmp/r1b-sentinel, HARNESS_PG_DB=thrivin_r1b_s) — nol saling timpa.
+3d. `npx tsc --noEmit` → TSC_EXIT=0                (/tmp/fw41b-tsc.log)
+3e. Fix SEMPIT (penjaga regresi, 3 asersi, SQL suite §5b):
+      - klaim 'failed' TANPA order (release_checkout_claim / Scalev gagal) masih boleh
+        diklaim ulang dengan kunci SAMA ⇒ granted                           PASS
+      - baris klaim yang sama dipakai ulang (bukan baris baru)             PASS
+      - ketiganya juga HIJAU pra-fix (lihat bagian 2a) ⇒ memang penjaga regresi.
+
+Regresi yang diminta kartu (semua di dalam SQL suite yang 88/0 di atas):
+  - F-S1 key_conflict (kunci milik nomor lain)                       PASS
+  - reuse_unpaid paket sama + tidak ada baris klaim kedua            PASS
+  - unpaid_conflict paket beda (409, tanpa order_id)                 PASS
+  - TTL > 61 menit ⇒ checkout baru boleh + baris lama 'failed'       PASS
+  - gate onboarding/T&C tetap duluan (reuse tidak mendahului gate)    PASS
+  - anon ditolak mark_checkout_claim_paid / claim / tabel            PASS
+  - jalur 'failed' TANPA order (release_checkout_claim) masih boleh
+    dipakai ulang — dibuktikan suite lama §"setelah klaim dilepas,
+    percobaan ulang boleh jalan"                                     PASS
+
+==============================================================================
+4. Batasan & catatan jujur
+==============================================================================
+- Flaky PRA-ADA (bukan akibat kartu ini): 1 dari 3 run penuh di ronde ini merah di
+  step 9 dengan 2 FAIL "dua kunci berbeda paralel: tepat SATU order tercetak /
+  semua jawaban 200 menunjuk order yang SAMA" (/tmp/fw41b-runall-1.log) — kelas yang
+  sudah didokumentasikan di docs/w4-rx2-2-3-verification.txt bagian 6. Bukti tidak
+  terkait F-W4-1b: (i) jalur itu tidak pernah menyentuh baris 'failed' (nomor baru,
+  nol klaim sebelumnya); (ii) run pra-fix (mutasi) memakai suite yang sama dan dua
+  asersi itu HIJAU (/tmp/fw41b-neg-e2e.log); (iii) 2 run berdiri sendiri pasca-fix
+  137 PASS / 0 FAIL (/tmp/fw41b-cge-{1,2}.log). Penyebab belum diklaim; di luar
+  lingkup kartu ini.
+- Yang BELUM dijamin kartu ini (tetap milik kartu lain): TTL tidak membatalkan link
+  Scalev ⇒ satu nomor masih bisa punya >1 link hidup sesaat (F-W4-1c, kartu atlas
+  t_16dd8537). Kunci idempotensi klien hidup selama halaman ter-mount
+  (checkoutKeyRef di page.tsx) — pemicu realistis tetap ada, tapi replay-nya kini
+  tidak lagi melahirkan order baru; jalan keluar UX tetap keputusan ops.
+- Baris 'failed' ber-order yang di-replay membalas order/link LAMA milik kunci itu
+  (sesuai keputusan owner 16/10 "kunci sama ⇒ order/link sama"), bukan order baru.
+  Kalau link tuanya sudah mati di Scalev, pembeli melihat error Scalev dan bisa
+  checkout lagi dengan KUNCI BARU (jalur baku) — nol order ganda.
+- Nol apply ke staging/produksi di ronde ini. `staging/schema-consent.sql` berubah =
+  DRAFT yang wajib di-apply ulang ke staging (staging masih memuat badan fungsi versi
+  pra-fix). Jalur uang ⇒ wajib delta-review ulang sebelum merge/deploy.
