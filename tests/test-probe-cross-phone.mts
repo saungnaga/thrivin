@@ -18,9 +18,11 @@ import path from "path";
 import { spawn, execFileSync } from "child_process";
 import {
   POSTGREST_URL,
+  PORTS,
   SERVICE_KEY,
   startPostgrest,
   psqlSuper,
+  tmpPath,
 } from "./harness/stack.mts";
 import {
   DEFAULT_WA_SESSION_SECRET,
@@ -30,12 +32,13 @@ import {
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.join(HERE, "..");
-const APP_PORT = 3995;
-const MOCK_PORT = 4135;
+const APP_PORT = Number(process.env.HARNESS_PROBE_APP_PORT || PORTS.probeApp);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.probeMock);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
-const ORDERS_FILE = "/tmp/probe-cross-phone-orders.json";
-const LOG = "/tmp/probe-cross-phone.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const ORDERS_FILE = tmpPath("probe-orders.json");
+const LOG = tmpPath("probe.log");
 
 const A = "6281290000901";
 const B = "6281290000902";
@@ -129,8 +132,14 @@ async function main() {
     if (passed409 && passedCode && noLeak) {
       console.log(">>> [PROBE F-S1 PASS] Kunci lintas nomor berhasil ditolak 409 IDEMPOTENCY_KEY_CONFLICT (0 data bocor)");
     } else {
-      console.error(">>> [PROBE F-S1 FAIL] Terjadi kegagalan:", { passed409, passedCode, noLeak });
-      process.exit(1);
+      // JANGAN process.exit() di dalam try (RX2-3): exit melewati `finally`,
+      // jadi `next start` + mock tetap LISTEN dan mencemari run berikutnya.
+      // Lempar ke main().catch supaya finally tetap mematikan anak proses.
+      throw new Error(
+        `PROBE F-S1 FAIL: order lintas nomor TIDAK ditolak dengan benar ` +
+          `(409=${passed409} code=${passedCode} tanpa-bocor=${noLeak}) ` +
+          `— status ${orderB.status} body ${JSON.stringify(orderB.body)}`
+      );
     }
 
     // ── 3. Kontrol: Nomor B dengan kunci miliknya sendiri ──
@@ -154,5 +163,7 @@ async function main() {
 
 main().catch((err) => {
   console.error("Probe error:", err);
-  process.exit(1);
+  // exitCode, bukan process.exit(): biarkan stdio flush dan jangan lompati
+  // teardown. Anak proses sudah dimatikan di `finally` (RX2-3).
+  process.exitCode = 1;
 });
