@@ -620,6 +620,78 @@ eq(
   "F-W4-1b: tidak ada baris klaim kedua yang lahir karena replay"
 );
 
+// (5c) W4RX4 T2 (temuan Sentinel t_3f91103d, LOW jalur uang): baris yang ordernya
+// KEMUDIAN LUNAS tidak boleh membalas link bayar order lunas. `mark_checkout_claim_paid`
+// mencocokkan hanya `order_id` (tanpa syarat status), jadi baris hasil retire 3b
+// tetap `failed` + `paid_at` terisi; replay kunci itu dulu `already_created` +
+// `payment_url` ⇒ UI (`window.location.href = resData.paymentUrl`) melempar pembeli
+// ke halaman pembayaran order yang sudah dibayar.
+const P_fw1bPaid = "6281200000716";
+armPhone(P_fw1bPaid, "fw1b-paid-consent-1");
+const fw1bPaidA = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-old");
+eq(fw1bPaidA.status, "granted", "T2: pra-syarat — klaim pertama diberikan");
+complete(fw1bPaidA, "ord-T2-A", "https://pay/t2-a");
+psqlSuper(
+  `update checkout_claims set created_at = now() - interval '61 minutes' where id='${fw1bPaidA.claim_id}'`
+);
+const fw1bPaidB = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-new");
+eq(fw1bPaidB.status, "granted", "T2: pra-syarat — retire TTL membebaskan nomor");
+complete(fw1bPaidB, "ord-T2-B", "https://pay/t2-b");
+eq(
+  psqlSuper(`select status from checkout_claims where id='${fw1bPaidA.claim_id}'`, { csv: true }),
+  "failed",
+  "T2: pra-syarat — baris kunci lama sudah di-retire (failed)"
+);
+// Webhook pembayaran: order kunci lama lunas SESUDAH barisnya di-retire.
+eq(
+  rpc(`select mark_checkout_claim_paid('ord-T2-A')`).status,
+  "marked",
+  "T2: pra-syarat — order kunci lama ditandai dibayar"
+);
+check(
+  paidAt(fw1bPaidA.claim_id).length > 0,
+  "T2: pra-syarat — paid_at terisi meski status barisnya masih failed"
+);
+
+const fw1bPaidReplay = claim(P_fw1bPaid, "quarter", "fw1b-paid-key-old");
+eq(
+  fw1bPaidReplay.status,
+  "already_paid",
+  "T2: replay kunci yang ordernya SUDAH LUNAS ⇒ already_paid (bukan already_created)"
+);
+check(
+  fw1bPaidReplay.payment_url === undefined,
+  "T2: ... TIDAK membawa payment_url order lunas (UI tidak boleh redirect ke sana)",
+  JSON.stringify(fw1bPaidReplay)
+);
+check(
+  fw1bPaidReplay.order_id === undefined,
+  "T2: ... TIDAK membawa order_id order lunas",
+  JSON.stringify(fw1bPaidReplay)
+);
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_fw1bPaid}'`),
+  2,
+  "T2: tidak ada baris klaim KETIGA lahir karena replay"
+);
+
+// Baris `created` yang dibayar webhook pun sama: link bayarnya tidak boleh
+// dikembalikan lagi. `ord-FW1` dibayar di blok (4) di atas dengan kunci `fw1-key-1`.
+const fw1PaidReplay = claim(P_fw1, "quarter", "fw1-key-1");
+eq(
+  fw1PaidReplay.status,
+  "already_paid",
+  "T2: replay kunci baris `created` yang sudah dibayar ⇒ already_paid"
+);
+check(
+  fw1PaidReplay.payment_url === undefined && fw1PaidReplay.order_id === undefined,
+  "T2: ... tanpa order_id/payment_url",
+  JSON.stringify(fw1PaidReplay)
+);
+
+// Kontrak LAMA tidak berubah: baris `failed` ber-order yang BELUM dibayar tetap
+// `already_created` dengan link yang sama — asersi (5b) di atas yang menjaganya.
+
 // F-W4-1b sengaja SEMPIT: 'failed' TANPA order (Scalev gagal di tengah, klaim
 // dilepas) tetap boleh diklaim ulang dengan kunci yang SAMA — retry tidak dikunci.
 const P_fw1bRetry = "6281200000714";

@@ -65,6 +65,7 @@ const P = {
   neg: "6281200000816",
   mismatchBody: "6281200000817",
   replayAfterTtl: "6281200000818",
+  paidReplay: "6281200000819",
 };
 
 const results: Array<[string, string]> = [];
@@ -597,6 +598,53 @@ async function main() {
       psqlSuper(`select count(*) from checkout_claims where phone='${P.replayAfterTtl}'`, { csv: true }),
       "2",
       "F-W4-1b: tidak ada baris klaim kedua lahir karena replay"
+    );
+
+    // (6) W4RX4 T2 (temuan Sentinel t_3f91103d, LOW jalur uang): replay kunci lama
+    // ketika order KUNCI ITU sudah LUNAS tidak boleh mengembalikan link bayarnya.
+    // `mark_checkout_claim_paid` mencocokkan hanya `order_id`, jadi baris hasil
+    // retire 3b tetap `failed` + `paid_at` terisi. UI (`onboarding/[step]/page.tsx`)
+    // langsung `window.location.href = resData.paymentUrl` ⇒ pembeli dilempar ke
+    // halaman pembayaran order yang sudah dibayar. Route harus 409 ALREADY_PAID
+    // tanpa orderId/paymentUrl.
+    const t2Arm = await armCheckout({
+      base: APP_URL,
+      phone: P.paidReplay,
+      cookie: waSessionCookie(P.paidReplay),
+    });
+    const t2A = await createOrder(P.paidReplay, t2Arm.idempotencyKey);
+    assertEq(t2A.status, 200, "T2: pra-syarat — order pertama (kunci lama) ⇒ 200");
+    assertOk(!!t2A.body?.orderId, "T2: pra-syarat — order pertama punya orderId");
+    psqlSuper(
+      `update checkout_claims set created_at = now() - interval '61 minutes' where order_id='${t2A.body.orderId}'`
+    );
+    const t2B = await createOrder(P.paidReplay, newIdempotencyKey("t2retire"));
+    assertEq(t2B.status, 200, "T2: pra-syarat — retire TTL membebaskan nomor ⇒ 200");
+    // Webhook pembayaran menandai order KUNCI LAMA lunas (cocok lewat order_id).
+    psqlSuper(`select mark_checkout_claim_paid('${t2A.body.orderId}')`);
+    assertOk(
+      psqlSuper(
+        `select (paid_at is not null) from checkout_claims where order_id='${t2A.body.orderId}'`,
+        { csv: true }
+      ) === "t",
+      "T2: pra-syarat — order kunci lama tercatat lunas"
+    );
+
+    const t2Before = mockOrderCount();
+    const t2Replay = await createOrder(P.paidReplay, t2Arm.idempotencyKey);
+    assertEq(t2Replay.status, 409, "T2: replay kunci order yang sudah lunas ⇒ 409");
+    assertEq(t2Replay.body?.code, "ALREADY_PAID", "T2: kode ALREADY_PAID");
+    assertOk(
+      !t2Replay.body?.paymentUrl,
+      "T2: jawaban TIDAK membawa paymentUrl order lunas (UI tidak redirect)",
+      JSON.stringify(t2Replay.body)
+    );
+    assertOk(!t2Replay.body?.orderId, "T2: jawaban TIDAK membawa orderId order lunas");
+    assertEq(mockOrderCount(), t2Before, "T2: tidak ada order baru dicetak di Scalev");
+    assertEq(
+      psqlSuper(`select count(*) from checkout_claims where phone='${P.paidReplay}'`, { csv: true }),
+      "2",
+      "T2: tidak ada baris klaim ketiga lahir karena replay"
     );
 
     // ═══ D. Opt-out eksplisit & retry lama ════════════════════════════════
