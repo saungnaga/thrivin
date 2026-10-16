@@ -348,7 +348,8 @@ lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
 
 **Temuan RX2-2 (MEDIUM, infra verifikasi)** + **RX2-3 (LOW, hygiene)** dari delta-review 2 Sentinel
 (`t_7f3a1042`, laporan `security/review-w4-rx2-2026-10-16.md`). Kartu `t_c85c2678`.
-**Nol apply** ke Supabase/staging/produksi, nol data pelanggan, nol push/merge. Commit `4c89ff0` + `2ad67bf`.
+**Nol apply** ke Supabase/staging/produksi, nol data pelanggan, nol push/merge. Commit `4c89ff0` +
+`4b5412f` (RX2-2) dan `2ad67bf` (RX2-3), plus bukti `0e246d1`.
 
 ### Masalah yang ditutup
 
