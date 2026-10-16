@@ -279,6 +279,71 @@ Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED*
 - RX2-2 (harness berbagi DB/port) & RX2-3 (proses yatim saat probe gagal) sudah punya kartu
   follow-up sendiri (`t_c85c2678`); run ronde 3 memakai env terisolasi sehingga tidak terdampak.
 
+## 6d. Ronde 4 — RX2-1: jejak audit retensi PII + bersihkan `in_flight` terbengkalai (2026-10-17)
+
+**Temuan RX2-1 (LOW, compliance)** dari delta-review 2 Sentinel (`t_7f3a1042`, laporan
+`security/review-w4-rx2-2026-10-16.md`). Kartu `t_383959b7`. **Nol apply** (Supabase/staging/produksi),
+nol data pelanggan, nol kredensial produksi — semua uji di harness lokal dengan DB + port terisolasi.
+
+### Masalah yang ditutup
+
+1. `purge_expired_onboarding_progress()` menghapus PII dengan benar tapi **tidak menulis jejak apa pun**
+   ⇒ "scheduler mati" tidak bisa dibedakan dari "tidak ada yang perlu dihapus" (padahal saudaranya
+   `purge_expired_webhook_data`, pola H-4, menulis `purge_audit_log` tiap run).
+2. Filter purge hanya `status IN ('created','failed')` ⇒ klaim `checkout_claims` ber-status `in_flight`
+   milik nomor yang ditinggalkan (worker mati sebelum `release_checkout_claim`) menyimpan `phone`
+   **selamanya** — melampaui janji Kebijakan Privasi ≤30 hari.
+
+### Perubahan DB (draft, BELUM di-apply)
+
+`staging/schema-consent.sql` (§10b):
+
+- `purge_audit_log` (+ kolom `deleted_progress`, `deleted_claims`; `deleted_inbox`/
+  `deleted_snapshots` dilonggarkan jadi NULL-able) — run retensi PII dikenali dari
+  `deleted_progress IS NOT NULL`, kolom jalur webhook dibiarkan **NULL, bukan 0**.
+- `purge_expired_onboarding_progress(p_retention_days)`: signature + bentuk return **tidak berubah**
+  (3 kolom, `purge-cron.sh` tetap kompatibel). Tambahan: `DELETE` ketiga untuk klaim `in_flight`
+  terbengkalai (`updated_at < cutoff - TTL in-flight 600s`, bukan `created` — klaim hidup
+  disegarkan dalam hitungan detik, jadi mustahil kena), `INSERT INTO purge_audit_log`, dan guard
+  `p_retention_days >= 1`.
+- View alarm baru `v_onboarding_retention_backlog` (`expired_progress_rows`, `expired_claim_rows`,
+  `last_purge_at`) + `security_invoker = on` + `REVOKE` dari `PUBLIC, anon, authenticated`
+  (pola V-2, sama seperti `v_webhook_retention_backlog`).
+
+`staging/schema-webhook-onboarding.sql`: `v_webhook_retention_backlog.last_purge_at` diberi filter
+`deleted_inbox IS NOT NULL` supaya run retensi PII tidak menyamarkan scheduler webhook yang mati.
+
+`staging/purge-cron.sh` tidak berubah (sudah memanggil kedua purge dan mencetak hitungannya).
+
+### Suite yang berubah
+
+| Suite | Tambahan |
+|---|---|
+| `test-consent-gate-sql.mts` | §9b: asersi hitungan baris **tepat** (`deleted_progress=1`, `deleted_claims=3`), baris basi benar-benar hilang, baris dalam retensi aman, klaim `in_flight` terbengkalai dibersihkan vs klaim hidup tidak dilepas, **satu baris audit per run** + isinya, kolom jalur webhook tetap NULL, alarm backlog naik tepat 1 saat baris basi disisipkan, `last_purge_at` terisi, anon ditolak view. Helper `scalar()`/`numSafe()` baru supaya pra-fix terbaca **FAIL**, bukan crash |
+| `test-promo-e2e.mts` | jalur HTTP PostgREST: anon ditolak / view kosong di `v_onboarding_retention_backlog` (baris basi disisipkan dulu) + kontrol positif `service_role` (`118/118`, dari `116/116`) |
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Kondisi | Suite | Hasil | Log |
+|---|---|---|---|
+| schema pra-fix (kolom audit + view belum ada, filter `in_flight` lama) | consent/checkout SQL | **70 PASS / 7 FAIL** — klaim terbengkalai tidak dibersihkan, `purge_audit_log` tetap 0 baris, view tidak ada, anon bukan "ditolak" | `/tmp/rx21-red.log` (disalin ke `docs/w4-rx2-1-verification.txt`) |
+
+Pasca-fix: SQL **77/77** (dari 64/64) · e2e consent 128/128 · promo e2e 118/118 · webhook 61/61 ·
+WA 136/136 · `run-all.sh` **3× ALL SUITES PASSED (exit 0)** di DB + port terisolasi
+(`HARNESS_PG_DB=thrivin_rx21_forge`, postgrest 54431/54432, promo DB sendiri).
+
+**Catatan env (bukan bug kode):** percobaan pertama `run-all` gagal di step 6 dengan
+`Timed out waiting for http://127.0.0.1:4190/…: fetch failed` padahal `next start` sudah `Ready`
+dan `curl` balas 200. Sebabnya: **4190 ada di daftar "bad port" WHATWG** yang ditolak `fetch`
+(undici) — `cause: bad port`. Diganti ke 4210/4211 ⇒ hijau. Berguna untuk RX2-2 (harness) saat
+memilih port.
+
+### Status apply
+
+Iterasi ini **bukan** penghalang apply migrasi W4 (`0c61425` sudah SIAP APPLY). Perubahan §6d
+adalah **draft lanjutan** yang harus di-apply **sebelum** purge benar-benar dijadwalkan di
+lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
+
 ## 7. Temuan untuk Sentinel / keputusan pemilik
 
 - **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
@@ -287,7 +352,8 @@ Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED*
   satu-satunya: TTL 60 menit (order lama dianggap ditinggalkan) — dicatat di §6c.
 - **F-W4-2** — `checkout_claims` + `onboarding_progress` tumbuh tanpa purge; retensi 30 hari
   sudah ada fungsinya, **belum terjadwal di staging** (pg_cron tidak terpasang) — lihat §6c.
-  Audit log purge = follow-up RX2-1 `t_383959b7`.
+  Audit log purge + klaim `in_flight` terbengkalai = RX2-1 `t_383959b7`, **dikerjakan di §6d**
+  (draft, belum di-apply, menunggu review Sentinel).
 - **F-W4-3** — sesi WA berumur 60 menit. Kalau token kedaluwarsa setelah consent tersimpan
   tapi sebelum gate: 401 dan pengguna diminta verifikasi ulang (fail-closed, tidak ada order).
 - **F-W4-4** — `terms` masih memuat satu placeholder: alamat entitas
@@ -303,7 +369,8 @@ Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED*
    tetap gagal-tertutup (503/400) — perilaku yang diinginkan, bukan bug.
 3. `whatsapp_channel_bindings` (S0 B-3) tetap belum ada DDL; jalur pengingat outbound belum
    boleh hidup. `opt_in=true` **tidak** memicu pesan apa pun dari kartu ini.
-4. Purge retensi belum terjadwal di staging (pg_cron tidak ada) + audit log purge (RX2-1).
+4. Purge retensi belum terjadwal di staging (pg_cron tidak ada) + audit log purge (RX2-1):
+   kode draft-nya sudah ada (§6d), tinggal review Sentinel + apply sebelum penjadwalan.
 5. Jalur uang (`create-order`, `webhook`) → **setiap diff wajib review**; kartu ini berhenti di
    `review-required`.
 6. Tidak ada merge/push ke `main`, tidak ada deploy produksi, tidak ada aktivasi promo,
