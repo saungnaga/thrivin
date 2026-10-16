@@ -111,6 +111,9 @@ export type ClaimOutcome =
   | { status: "unpaid_conflict"; activePlanKey: string }
   | { status: "already_paid"; claimId: string }
   | { status: "in_flight" }
+  | { status: "cancel_pending"; claimId: string }
+  | { status: "cancel_failed"; claimId: string }
+  | { status: "checkout_reconciliation"; claimId: string }
   | { status: "incomplete_onboarding"; missingSteps: number[] }
   | { status: "consent_required" }
   | { status: "key_conflict" }
@@ -162,6 +165,14 @@ export async function claimCheckoutOrder(input: {
       return { status: "already_paid", claimId: String(row.claim_id || "") };
     case "in_flight":
       return { status: "in_flight" };
+    case "cancel_pending":
+      return { status: "cancel_pending", claimId: String(row.claim_id || "") };
+    case "cancel_failed":
+      return { status: "cancel_failed", claimId: String(row.claim_id || "") };
+    case "checkout_reconciliation":
+      // M-2: baris `created` yang order/link-nya tidak lengkap. Jangan karang
+      // link; tahan sampai ops menyelesaikan rekonsiliasi.
+      return { status: "checkout_reconciliation", claimId: String(row.claim_id || "") };
     case "incomplete_onboarding":
       return { status: "incomplete_onboarding", missingSteps: (row.missing_steps || []) as number[] };
     case "consent_required":
@@ -177,13 +188,17 @@ export async function completeCheckoutClaim(
   claimId: string,
   orderId: string,
   paymentUrl: string,
-  amount?: number
+  amount?: number,
+  scalevOrderUuid?: string | null
 ): Promise<void> {
   await callRpc("complete_checkout_claim", {
     p_claim_id: claimId,
     p_order_id: orderId,
     p_payment_url: paymentUrl,
     p_amount: amount ?? null,
+    // F-W4-1c: canonical UUID (`orderData.id`) — SATU-SATUNYA nilai yang diterima
+    // endpoint cancel. Nomor bisnis (`orderId`) tetap dipakai join webhook.
+    p_scalev_order_uuid: scalevOrderUuid ?? null,
   });
 }
 
@@ -200,17 +215,96 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
  * F-W4-1: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran, kunci
  * `order_id`). Setelah ini nomor boleh membeli lagi; tanpa ini, order belum
  * dibayar dipakai ulang / memblokir paket lain.
+ * F-W4-1c: kalau order itu sudah `retired` / sedang-gagal dicancel, pembayaran
+ * ini TELAT — akses tetap diberikan (dedup `fulfillment_key` yang menentukan),
+ * tapi hasilnya ditandai `latePayment` supaya pemanggil bisa mengangkat alert.
  * Best effort: pembayaran yang sudah masuk tidak boleh gagal gara-gara ini.
  */
-export async function markCheckoutClaimPaid(orderId: string, paidAt?: string): Promise<void> {
+export async function markCheckoutClaimPaid(
+  orderId: string,
+  paidAt?: string
+): Promise<{ latePayment: boolean; state: string }> {
   try {
-    await callRpc("mark_checkout_claim_paid", {
+    const row = await callRpc("mark_checkout_claim_paid", {
       p_order_id: String(orderId),
       p_paid_at: paidAt || null,
     });
+    return { latePayment: row?.late_payment === true, state: String(row?.state || "") };
   } catch (err) {
     console.error("[CheckoutGate] gagal menandai klaim dibayar:", redactError(err));
+    return { latePayment: false, state: "" };
   }
+}
+
+export interface CancelClaim {
+  claimId: string;
+  scalevOrderUuid: string | null;
+  orderId?: string | null;
+  cancelAttempts?: number;
+}
+
+/**
+ * Klaim attempt cancel (M-3): atomik + lease + `paid_at IS NULL`. `not_claimed`
+ * berarti jangan kirim HTTP cancel (sudah dipegang worker lain, sudah dibayar,
+ * atau status barisnya berubah).
+ */
+export async function claimCheckoutCancel(claimId: string): Promise<
+  ({ status: "claimed" } & CancelClaim) | { status: "not_claimed" }
+> {
+  const row = await callRpc("claim_checkout_cancel", { p_claim_id: claimId });
+  if (row?.status !== "claimed") return { status: "not_claimed" };
+  return {
+    status: "claimed",
+    claimId: String(row.claim_id),
+    scalevOrderUuid: row.scalev_order_uuid ? String(row.scalev_order_uuid) : null,
+    orderId: row.order_id ? String(row.order_id) : null,
+    cancelAttempts: Number(row.cancel_attempts ?? 0),
+  };
+}
+
+/** Catat hasil cancel (`retired` | `cancel_pending` | `cancel_failed`). Non-throwing. */
+export async function recordCheckoutCancelResult(
+  claimId: string,
+  result: "retired" | "cancel_pending" | "cancel_failed",
+  error?: string
+): Promise<{ status: string }> {
+  try {
+    const row = await callRpc("record_checkout_cancel_result", {
+      p_claim_id: claimId,
+      p_result: result,
+      p_error: error ? error.slice(0, 200) : null,
+    });
+    return { status: String(row?.status || "") };
+  } catch (err) {
+    console.error("[CheckoutGate] gagal mencatat hasil cancel:", redactError(err));
+    return { status: "error" };
+  }
+}
+
+/**
+ * Baris yang menunggu cancel untuk satu nomor (atau semua nomor kalau `phone`
+ * kosong — dipakai sweep terjadwal). Hanya id + canonical UUID: tidak ada PII.
+ */
+export async function listPendingCancels(phone: string): Promise<CancelClaim[]> {
+  const { url, key } = rpcEndpoint();
+  const tenant = encodeURIComponent(process.env.THRIVIN_TENANT_ID || "thrivin");
+  const filter = phone ? `&phone=eq.${encodeURIComponent(phone)}` : "";
+  const res = await fetch(
+    `${url}/rest/v1/checkout_claims?tenant_id=eq.${tenant}${filter}` +
+      `&status=eq.cancel_pending&paid_at=is.null&select=id,scalev_order_uuid&order=created_at.asc&limit=200`,
+    {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: "application/json" },
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) {
+    throw new CheckoutGateError(`[CheckoutGate] baca antrean cancel gagal (${res.status})`);
+  }
+  const rows = (await res.json().catch(() => [])) as Array<Record<string, unknown>>;
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    claimId: String(row.id),
+    scalevOrderUuid: row.scalev_order_uuid ? String(row.scalev_order_uuid) : null,
+  }));
 }
 
 /**

@@ -25,7 +25,9 @@ import {
   completeCheckoutClaim,
   getOnboardingProgress,
   releaseCheckoutClaim,
+  type ClaimOutcome,
 } from "@/lib/checkout-gate";
+import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
 import { TERMS_VERSION } from "@/lib/consent";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
@@ -110,6 +112,13 @@ export async function POST(req: Request) {
   // Klaim single-flight milik percobaan ini; dilepas kalau order eksternal gagal
   // (atau exception) supaya nomor tidak terkunci oleh percobaan yang mati.
   let activeClaimId: string | null = null;
+  /** Lepas klaim percobaan ini (kalau ada). Satu jalur, satu null-check. */
+  const releaseActiveClaim = async () => {
+    if (activeClaimId) {
+      await releaseCheckoutClaim(activeClaimId);
+      activeClaimId = null;
+    }
+  };
   try {
     const body = await req.json();
     const {
@@ -287,20 +296,35 @@ export async function POST(req: Request) {
     // sudah tersimpan, dan klaim single-flight per idempotency key didapat.
     // Urutan ini SENGAJA sebelum Scalev: gate gagal = tidak ada order, tidak ada
     // kursi promo yang diklaim, tidak ada sukses palsu.
-    const claim = await (async () => {
-      try {
-        return await claimCheckoutOrder({
-          phone: sessionPhone,
-          planKey,
-          idempotencyKey: cleanIdempotencyKey,
-          termsVersion: TERMS_VERSION,
-        });
-      } catch (err) {
-        // Gate tidak bisa dipercaya ⇒ TIDAK ada order. Bukan "lanjut saja".
-        console.error("[checkout-gate] gagal memverifikasi gate:", redactError(err));
-        return { status: "error" as const, detail: String(err) };
+    const claimOnce = () =>
+      claimCheckoutOrder({
+        phone: sessionPhone,
+        planKey,
+        idempotencyKey: cleanIdempotencyKey,
+        termsVersion: TERMS_VERSION,
+      });
+
+    // F-W4-1c: kalau gate menjawab nomor ini punya order basi yang cancel-nya
+    // BELUM terbukti, worker cancel dijalankan lebih dulu. Gate diulang SEKALI
+    // hanya jika seluruh baris yang perlu dicancel sudah terverifikasi `canceled`
+    // — bukan karena status code upstream enak dilihat.
+    let claim: ClaimOutcome;
+    let cancelBlocked: "breaker" | "unconfigured" | null = null;
+    let cancelRun: CancelRunResult | null = null;
+    try {
+      claim = await claimOnce();
+      if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
+        const run = await cancelStaleOrders({ phone: sessionPhone });
+        cancelRun = run;
+        if (run.circuitOpen) cancelBlocked = "breaker";
+        else if (run.unconfigured) cancelBlocked = "unconfigured";
+        else if (claim.status === "cancel_pending" && run.resolvedAll) claim = await claimOnce();
       }
-    })();
+    } catch (err) {
+      // Gate tidak bisa dipercaya ⇒ TIDAK ada order. Bukan "lanjut saja".
+      console.error("[checkout-gate] gagal memverifikasi gate:", redactError(err));
+      claim = { status: "error", detail: String(err) };
+    }
 
     if (claim.status === "already_created") {
       // Replay: kembalikan order yang SAMA. Tidak ada panggilan Scalev kedua.
@@ -357,6 +381,58 @@ export async function POST(req: Request) {
         { status: 409 }
       );
     }
+    // F-W4-1c: nomor ini punya order basi yang cancel-nya BELUM tuntas. Worker
+    // sudah dijalankan di atas; kalau masih di sini, cancel tidak (belum) bisa
+    // dipercaya ⇒ JANGAN cetak order kedua. 423 untuk yang terminal (butuh owner),
+    // 409 untuk yang masih pending (boleh dicoba lagi nanti).
+    if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
+      if (cancelBlocked) {
+        // Credential cancel hilang / breaker 401: masalah KONFIGURASI, bukan nomor
+        // pelanggan. Fail-closed + alarm; jangan mengunci nomor satu per satu.
+        console.error(
+          `[checkout-gate] cancel tidak tersedia (${cancelBlocked}) — checkout ditahan (fail-closed)`
+        );
+        return NextResponse.json(
+          {
+            error: "Verifikasi pesanan sebelumnya belum bisa diselesaikan. Coba lagi sebentar lagi.",
+            code: "CANCEL_UNAVAILABLE",
+          },
+          { status: 503 }
+        );
+      }
+      if (claim.status === "cancel_failed" || (cancelRun?.failed ?? 0) > 0) {
+        // Terminal: worker sudah mencatat `cancel_failed` untuk baris ini (atau
+        // barisnya memang sudah terminal sebelum request ini). Butuh owner.
+        return NextResponse.json(
+          {
+            error:
+              "Pesanan lama kamu perlu diselesaikan manual dulu sebelum bisa membuat pesanan baru. Hubungi CS Thrivin.",
+            code: "ORDER_CANCEL_FAILED",
+          },
+          { status: 423 }
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "Pesanan lama kamu sedang dibatalkan. Tunggu sebentar lalu muat ulang halaman.",
+          code: "ORDER_CANCEL_PENDING",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "checkout_reconciliation") {
+      // M-2: order lama tercatat tanpa link/ID lengkap. Jangan mengarang link baru
+      // (bisa mencetak order kedua) — tahan sampai ops menyelesaikan barisnya.
+      console.warn("[checkout-gate] baris klaim tidak lengkap — tahan untuk rekonsiliasi:", claim.claimId);
+      return NextResponse.json(
+        {
+          error: "Pesanan sebelumnya perlu diverifikasi tim kami. Hubungi CS Thrivin.",
+          code: "CHECKOUT_RECONCILIATION",
+        },
+        { status: 409 }
+      );
+    }
     if (claim.status === "key_conflict") {
       // F-S1: Kunci idempotensi pernah dipakai nomor lain — tolak tanpa mengembalikan
       // data apa pun (orderId / paymentUrl).
@@ -402,8 +478,7 @@ export async function POST(req: Request) {
     try {
       progress = await getOnboardingProgress(sessionPhone);
     } catch (err) {
-      await releaseCheckoutClaim(activeClaimId);
-      activeClaimId = null;
+      await releaseActiveClaim();
       console.error("[checkout-gate] gagal membaca progress:", redactError(err));
       return NextResponse.json(
         { error: "Profil tidak bisa diverifikasi sekarang.", code: "GATE_UNAVAILABLE" },
@@ -412,8 +487,7 @@ export async function POST(req: Request) {
     }
     const authoritative = authoritativeProfile(progress.steps, sessionPhone);
     if (!authoritative.ok) {
-      await releaseCheckoutClaim(activeClaimId);
-      activeClaimId = null;
+      await releaseActiveClaim();
       return NextResponse.json(
         {
           error: "Profil onboarding tidak valid. Ulangi langkah yang belum benar.",
@@ -441,8 +515,7 @@ export async function POST(req: Request) {
         // penolakan promo (kuota habis / kode sudah dipakai / nomor sudah pakai)
         // mengunci nomor pelanggan selama TTL in-flight (10 menit) — checkout
         // ulang dijawab 409 ORDER_IN_FLIGHT padahal tidak ada order apa pun.
-        await releaseCheckoutClaim(activeClaimId);
-        activeClaimId = null;
+        await releaseActiveClaim();
         return NextResponse.json(
           {
             error: promo.message || "Kode promo tidak bisa dipakai.",
@@ -507,10 +580,7 @@ export async function POST(req: Request) {
       // Kuota sudah diklaim tapi ordernya gagal -> slotnya dikembalikan.
       if (promo?.redemptionId) await releasePromo(promo.redemptionId);
       // Klaim gate juga dilepas: percobaan berikutnya boleh jalan lagi.
-      if (activeClaimId) {
-        await releaseCheckoutClaim(activeClaimId);
-        activeClaimId = null;
-      }
+      await releaseActiveClaim();
       return NextResponse.json(
         {
           error:
@@ -587,7 +657,10 @@ export async function POST(req: Request) {
           activeClaimId,
           String(createdOrderId),
           paymentUrl,
-          Number(orderData.gross_revenue ?? targetAmount)
+          Number(orderData.gross_revenue ?? targetAmount),
+          // F-W4-1c: canonical UUID disimpan terpisah dari nomor bisnis. Endpoint
+          // cancel hanya menerima yang ini; webhook tetap join ke `order_id`.
+          orderData.id ? String(orderData.id) : null
         );
       } else {
         console.error("[checkout-gate] Scalev 200 tanpa order_id — klaim dilepas");
@@ -606,7 +679,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("Scalev API exception:", redactError(error));
     // Exception setelah klaim: lepas supaya tidak mengunci nomor ini.
-    if (activeClaimId) await releaseCheckoutClaim(activeClaimId);
+    await releaseActiveClaim();
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -210,8 +210,16 @@ export async function POST(req: Request) {
         // F-W4-1: pembayaran masuk → klaim gate nomor ini ditandai lunas, jadi
         // kunci checkout BARU dari nomor yang sama mencetak order baru (pembelian
         // ulang sah), bukan memakai ulang / diblokir oleh order yang sudah dibayar.
-        // Best effort: tidak pernah melempar ke jalur webhook.
-        await markCheckoutClaimPaid(String(orderUniqueId));
+        // F-W4-1c: kalau order itu sudah `retired` / sedang-gagal dicancel, event
+        // ini TELAT — akses TETAP diberikan (dedup `fulfillment_key` tetap penentu),
+        // tapi ops diangkat alert-nya (refund manual hanya kalau duplikat nyata).
+        // Best effort: tidak pernah melempar ke jalur webhook. Tanpa PII.
+        const paid = await markCheckoutClaimPaid(String(orderUniqueId));
+        if (paid.latePayment) {
+          console.error(
+            `[webhook][ALERT] pembayaran TELAT untuk order ${orderUniqueId} (state=${paid.state}) — cek refund/duplikat, akses sudah diberikan`
+          );
+        }
         // Pembayaran diterima -> reservasi promo jadi 'consumed' (mengunci 1x
         // per nomor). Best effort: tidak pernah melempar ke jalur webhook.
         await consumePromoForOrder(String(orderUniqueId));
