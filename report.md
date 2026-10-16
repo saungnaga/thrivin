@@ -394,6 +394,10 @@ Tidak diubah dengan sengaja: asersi H-3 `!/tmp/thrivin-onboarding` (memeriksa ja
   Diulang di HEAD `dd6fd6c` (worktree kedua di-detach ke SHA yang sama, `src/` nol perubahan):
   **A_EXIT=0, B_EXIT=0**, step 9 kedua sisi 128/128, sesudahnya nol port tersisa
   (`/tmp/rx22-r3-A.log`, `/tmp/rx22-r3-B.log`).
+- Ulangan terakhir di **HEAD final `8033ef6`** (isolate + drop-stale + prefix-proxy tanpa default):
+  **A_EXIT=0, B_EXIT=0**, keduanya `ALL SUITES PASSED`, step 9 128/128, nol port tersisa
+  (`/tmp/rx22-r4-A.log`, `/tmp/rx22-r4-B.log`). Worktree `--detach` sementara itu sudah dihapus
+  (`git worktree list` bersih); cara reproduksi ada di `docs/w4-rx2-2-3-verification.txt` §3b-ter.
 - `prefix-proxy.mjs` tanpa argumen → usage + exit 2; suite yang lewat proxy
   (`test-webhook-e2e.mts`) **61/61 PASS, exit 0** (`/tmp/rx22-r3-prefixproxy-smoke.log`).
 - `drop-stale.sql` bergigi: DB tercemar overload → `seed.sh` → promo e2e **118/118**

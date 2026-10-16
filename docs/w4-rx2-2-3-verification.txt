@@ -7,8 +7,9 @@ Branch: feat/checkout-consent-gate-2026-10-15
 Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
 Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi, nol push/merge.
 
-Commit: 4c89ff0 + 4b5412f (RX2-2), 2ad67bf (RX2-3), dd6fd6c (dokumentasi), 2 commit sesudahnya =
-prefix-proxy tanpa default port + bukti ulangan. Semua mutasi uji (schema guard F-S1) DIREVERT;
+Commit: 4c89ff0 + 4b5412f (RX2-2), 2ad67bf (RX2-3), `a6a98d9` (prefix-proxy wajib argumen), lalu
+commit-commit dokumentasi bukti (docs-only, tidak mengubah kode: isi kode = `8033ef6`).
+Semua mutasi uji (schema guard F-S1) DIREVERT;
 `git status` bersih sesudahnya (hanya `?? graphify-out/` yang bukan milik iterasi ini).
 
 ==============================================================================
@@ -90,11 +91,25 @@ selama DB masih bersama: run 1 PASS, run berikutnya FAIL karena ulah worktree la
       step 9 kedua sisi: "e2e gate consent/checkout: 128 PASS, 0 FAIL"
       sesudah selesai: `ss -ltn | grep -cE ":4[0-9]{4}"` -> 0 (nol port tersisa)
 
-    Catatan jujur: perubahan `prefix-proxy.mjs` (default port dibuang) masuk SESUDAH run ini,
-    jadi langkah 3b/3b-bis membuktikan isolasi DB/port/prefix tanpa perubahan itu. Untuk perubahan
-    itu buktinya lebih kecil dan cukup: `node tests/harness/prefix-proxy.mjs` -> usage + exit 2,
-    lalu `node --experimental-strip-types tests/test-webhook-e2e.mts` (satu-satunya suite yang
-    lewat proxy) -> lihat log /tmp/rx22-r3-prefixproxy-smoke.log.
+    Catatan: langkah 3b/3b-bis membuktikan isolasi DB/port/prefix tanpa perubahan `prefix-proxy.mjs`
+    (masuk SESUDAH kedua run itu). Lihat 3b-ter untuk run di HEAD final.
+
+3b-ter. Ulangan kriteria terima di HEAD FINAL `8033ef6` (isolate + drop-stale + prefix-proxy tanpa
+    default + dokumentasi). Worktree kedua di-detach ke `8033ef6`; `src/` masih nol perubahan
+    (`git diff --name-only dd6fd6c..8033ef6` = docs + tests/harness/prefix-proxy.mjs) ⇒ SKIP_BUILD=1.
+      A (w4-consent-gate) -> ALL SUITES PASSED, A_EXIT=0   (log /tmp/rx22-r4-A.log)
+      B (/tmp/wt-brx2)    -> ALL SUITES PASSED, B_EXIT=0   (log /tmp/rx22-r4-B.log)
+      step 9 kedua sisi: "e2e gate consent/checkout: 128 PASS, 0 FAIL"
+      sesudah selesai: `ss -ltn | grep -cE ":4[0-9]{4}"` -> 0 (nol port tersisa)
+    ⇒ kriteria terima kartu ("dua run-all bersamaan dari dua worktree sama-sama hijau") terpenuhi di
+    HEAD yang di-review. (Commit dokumen sesudahnya docs-only dan tidak mengubah kode: isi kode = `8033ef6`.)
+    Cara reproduksi: `git worktree add --detach /tmp/wt-brx2 8033ef6` + symlink
+    `node_modules` + `npm run build`, lalu `bash /tmp/rx22-parallel-4.sh` (dua `SKIP_BUILD=1 bash
+    tests/run-all.sh` paralel). Worktree `--detach` itu SUDAH DIHAPUS sesudah run (hindari drift);
+    `/tmp/rx22-r4-*.log` yang disimpan.
+
+    `prefix-proxy.mjs` tanpa argumen -> usage + exit 2; suite yang lewat proxy
+    (`test-webhook-e2e.mts`) 61/61 PASS, exit 0 (`/tmp/rx22-r3-prefixproxy-smoke.log`).
 
 3c. drop-stale.sql punya gigi (memulihkan DB yang SUDAH tercemar overload, tanpa drop DB):
     DB yang sama + overload asing -> `bash tests/harness/seed.sh` -> hanya 1 signature tersisa ->
