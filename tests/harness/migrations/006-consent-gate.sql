@@ -448,6 +448,21 @@ BEGIN
       RETURN json_build_object('status', 'key_conflict');
     END IF;
 
+    -- W4RX4 T3: `order_id = ''` BUKAN order. Kolomnya mengizinkan string kosong
+    -- (hanya RPC langsung yang bisa menulisnya — route selalu mengisi hasil
+    -- Scalev), dan `'' IS NOT NULL` MEMUASKAN pemeriksaan "sudah punya order" di
+    -- bawah: kunci ini menjawab `already_created` dengan order_id kosong
+    -- SEKALIGUS tidak bisa dipakai ulang ⇒ nyangkut permanen. Dinormalisasi satu
+    -- kali di sini, di titik masuk jalur replay — sama seperti
+    -- `mark_checkout_claim_paid` yang memperlakukan order_id kosong sebagai bukan
+    -- order. Nol perubahan signature.
+    -- ponytail: menutup JALUR BACA saja, dan sengaja HANYA di sini. `created`
+    -- tanpa order_id TIDAK digrant ulang di bawah (status itu MENGAKU ada order —
+    -- melepasnya berarti mencetak order kedua). Kalau nanti butuh invariant keras,
+    -- tutup di tulis (CHECK order_id <> '') — itu keputusan ops kalau baris ''
+    -- sudah telanjur ada di DB.
+    v_existing.order_id := NULLIF(v_existing.order_id, '');
+
     -- W4RX4 T2: order yang SUDAH LUNAS tidak pernah boleh menerima link bayarnya
     -- kembali. UI langsung `window.location.href = paymentUrl`, jadi replay kunci
     -- lama pada baris yang ordernya sudah dibayar (mis. baris `failed` hasil retire
