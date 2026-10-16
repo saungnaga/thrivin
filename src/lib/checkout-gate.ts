@@ -109,6 +109,7 @@ export type ClaimOutcome =
   | { status: "already_created"; claimId: string; orderId: string; paymentUrl: string }
   | { status: "reuse_unpaid"; claimId: string; orderId: string; paymentUrl: string }
   | { status: "unpaid_conflict"; activePlanKey: string }
+  | { status: "already_paid"; claimId: string }
   | { status: "in_flight" }
   | { status: "incomplete_onboarding"; missingSteps: number[] }
   | { status: "consent_required" }
@@ -154,6 +155,11 @@ export async function claimCheckoutOrder(input: {
       };
     case "unpaid_conflict":
       return { status: "unpaid_conflict", activePlanKey: String(row.plan_key || "") };
+    case "already_paid":
+      // W4RX4 T2: order di balik kunci ini sudah LUNAS. Tidak ada orderId /
+      // paymentUrl yang dikembalikan — link bayar order lunas tidak boleh
+      // sampai ke UI (UI langsung redirect ke `paymentUrl`).
+      return { status: "already_paid", claimId: String(row.claim_id || "") };
     case "in_flight":
       return { status: "in_flight" };
     case "incomplete_onboarding":

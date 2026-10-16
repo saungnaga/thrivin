@@ -392,7 +392,8 @@ $function$;
 --   1. kunci per nomor (advisory) supaya dua request paralel tidak sama-sama lolos;
 --   2. replay: idempotency key yang sudah PERNAH mencetak order -> kembalikan order
 --      yang SAMA (termasuk baris `failed` yang order-nya masih tersimpan, mis.
---      hasil retire TTL 3b — kunci sama = order sama, lihat F-W4-1b);
+--      hasil retire TTL 3b — kunci sama = order sama, lihat F-W4-1b); order yang
+--      SUDAH DIBAYAR dibalas `already_paid` tanpa link (W4RX4 T2);
 --   3. klaim in-flight yang basi (worker mati) di-expire; klaim 'created' yang
 --      belum dibayar & sudah lewat TTL juga dianggap ditinggalkan (status failed);
 --   4. langkah wajib: semua harus ADA di `onboarding_progress.steps` (isi datanya
@@ -437,7 +438,7 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(p_tenant_id || ':checkout:' || p_phone));
 
   -- 2. Replay idempotent: order yang sudah tercetak dikembalikan apa adanya.
-  SELECT id, phone, status, order_id, payment_url INTO v_existing
+  SELECT id, phone, status, order_id, payment_url, paid_at INTO v_existing
   FROM checkout_claims
   WHERE tenant_id = p_tenant_id AND idempotency_key = p_idempotency_key;
 
@@ -445,6 +446,16 @@ BEGIN
     -- F-S1: Kunci terikat ke nomor pembuat pertama. Replay lintas-nomor ditolak fail-closed.
     IF v_existing.phone <> p_phone THEN
       RETURN json_build_object('status', 'key_conflict');
+    END IF;
+
+    -- W4RX4 T2: order yang SUDAH LUNAS tidak pernah boleh menerima link bayarnya
+    -- kembali. UI langsung `window.location.href = paymentUrl`, jadi replay kunci
+    -- lama pada baris yang ordernya sudah dibayar (mis. baris `failed` hasil retire
+    -- 3b yang kemudian dibayar, atau baris `created` yang dibayar webhook) akan
+    -- melempar pembeli ke halaman pembayaran order yang sudah dibayar. Dibalas
+    -- `already_paid` TANPA order_id/payment_url; route menjawab 409.
+    IF v_existing.paid_at IS NOT NULL THEN
+      RETURN json_build_object('status', 'already_paid', 'claim_id', v_existing.id);
     END IF;
 
     IF v_existing.status = 'created' THEN

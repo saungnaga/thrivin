@@ -333,6 +333,21 @@ export async function POST(req: Request) {
         { status: 409 }
       );
     }
+    if (claim.status === "already_paid") {
+      // W4RX4 T2: kunci ini milik order yang SUDAH LUNAS. Tidak ada
+      // orderId/paymentUrl di jawaban — kalau ada, UI akan melempar pembeli ke
+      // halaman pembayaran order yang sudah dibayar. 409 (bukan 200) supaya UI
+      // yang sudah ada berhenti di jalur error, bukan redirect.
+      console.warn("[checkout-gate] replay kunci order yang sudah lunas:", claim.claimId);
+      return NextResponse.json(
+        {
+          error:
+            "Langganan kamu sudah aktif untuk pesanan ini — tidak perlu bayar lagi. Cek WhatsApp kamu untuk akses Nina.",
+          code: "ALREADY_PAID",
+        },
+        { status: 409 }
+      );
+    }
     if (claim.status === "in_flight") {
       return NextResponse.json(
         {
