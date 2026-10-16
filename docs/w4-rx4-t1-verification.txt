@@ -6,6 +6,8 @@ Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-c
 Branch: feat/checkout-consent-gate-2026-10-15
 
 Commit: 7d8389d (fix) + 9318dbb (asersi + bukti negatif); basis d0928b4.
+Follow-up F-1 (kartu t_3139e05f): c100096 (fix §4) + 70cc18e (bukti), kepala 57a1c4b —
+lihat bagian 6 di bawah.
 Semua uji di harness LOKAL (Postgres lokal + PostgREST lokal + mock Scalev lokal).
 Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
 nol Scalev nyata, nol push/merge. Mutasi uji DIREVERT (bagian 3).
@@ -30,11 +32,14 @@ antara langkah 6 dan langkah 7 milik request kedua:
 => request kedua `granted` => route mencetak order kedua yang juga bisa dibayar.
 
 Fix yang dipilih: **unique partial index yang juga menjaga baris hidup 'created'**
-(staging/schema-consent.sql, blok §4):
-  DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+(staging/schema-consent.sql, blok §4), dipasang dalam SATU transaksi dengan urutan
+CREATE dulu / DROP belakangan (follow-up F-1, bagian 6):
+  BEGIN;
   CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
     ON checkout_claims (tenant_id, phone)
     WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+  DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+  COMMIT;
 
 Alasan memilih index (bukan re-check + INSERT di bawah kunci yang sama):
 - Penjaganya jadi sifat DB, bukan urutan baca-tulis di plpgsql: tidak ada lagi
@@ -150,6 +155,15 @@ kartu terpisah (bukan diselundupkan ke diff fix index yang sempit ini):
   untuk satu nomor. Kalau pernah terjadi di staging/produksi, CREATE INDEX akan gagal
   (by design: lebih baik gagal keras daripada index-nya diam-diam tidak ada). Deteksi
   + pembersihan data = keputusan ops.
+  LANGKAH OPS WAJIB SEBELUM APPLY (pre-check duplikat, F-1 poin 4) — jalankan dulu ke
+  DB target; ADA baris keluaran = CREATE-nya memang akan gagal, jangan dipaksa:
+    SELECT tenant_id, phone, count(*) FROM checkout_claims
+     WHERE status IN ('in_flight','created') AND paid_at IS NULL
+     GROUP BY 1,2 HAVING count(*) > 1;
+  Kalau ada hasil, bersihkan/retire barisnya dulu (keputusan ops, lihat
+  data-cleanup-plan) lalu apply ulang. `CREATE INDEX` non-concurrent memegang
+  ACCESS EXCLUSIVE sebentar -> apply saat trafik rendah (aturan baris apply ada di
+  §4 file skema, blok BEGIN/COMMIT).
 - `staging/schema-consent.sql` masih DRAFT dan staging masih memuat badan fungsi
   pra-fix; apply ke staging/produksi adalah keputusan ops terpisah (dan wajib
   delta-review ulang Sentinel untuk jalur uang ini sebelum merge/deploy).
@@ -162,3 +176,61 @@ kartu terpisah (bukan diselundupkan ke diff fix index yang sempit ini):
   kini punya penjaga deterministik di level DB + 5 run e2e hijau berturut-turut.
   Klaim yang jujur: yang dibuktikan adalah celah snapshot-nya tertutup; flaky HISTORIS
   itu sendiri tidak pernah diklaim sebagai satu-satunya penyebab merah.
+
+==============================================================================
+6. Follow-up F-1 — §4 apply fail-OPEN (kartu t_3139e05f, temuan Sentinel)
+==============================================================================
+Temuan (delta-review Sentinel t_19cf9c8f): §4 file ini diapply PER-STATEMENT
+(`psql -v ON_ERROR_STOP=1 -f -`, autocommit lewat seed.sh). Urutan lama (DROP dulu,
+CREATE belakangan) karena itu COMMIT-kan DROP lebih dulu; CREATE lalu GAGAL di DB yang
+sudah memuat >=2 baris hidup untuk satu nomor -> DB tertinggal TANPA penjaga per-nomor
+sama sekali, dan apply utuh berhenti sebelum §5 (semua RPC + grant). Kegagalan apply
+justru meninggalkan DB LEBIH LEMAH dari sebelum apply — "gagal keras" != fail-safe.
+
+Fix (c100096): urutan dibalik + satu transaksi di `staging/schema-consent.sql` §4
+(salinan `tests/harness/migrations/006-consent-gate.sql` byte-identik, disalin seed.sh):
+  BEGIN;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
+    ON checkout_claims (tenant_id, phone)
+    WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+  DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+  COMMIT;
+Postgres DDL transaksional => CREATE gagal = SELURUH blok batal = index lama masih
+berdiri, tidak ada keadaan separuh-apply. Nol perubahan `src/`, nol perubahan kontrak
+status, nol perubahan predikat index (bentuk ber-fix T1 tidak disentuh).
+
+Bukti negatif dua arah, satu perintah: `bash tests/harness/w4t1-apply-order.sh`
+(keluaran: /tmp/w4t1-apply-order.log; log mentah apply: /tmp/w4t1-apply-order-{pre,post}.log)
+Skrip: DB throwaway `thrivin_test_w4_consent_gate_e92cbc_f1order` (`seed.sh --fresh`,
+auto-DROP di akhir, nol staging/produksi), lalu disiapkan persis skenario dokumen §5
+ini — hanya index sempit pra-fix yang berdiri + DUA baris hidup satu nomor
+(`created`, `paid_at IS NULL`, phone 6281234567890) — lalu file skema penuh diapply
+dengan ON_ERROR_STOP=1. Arah pra-fix diperoleh dengan MUTASI satu hal (blok §4
+dikembalikan ke DROP-dulu tanpa BEGIN/COMMIT), bukan revert commit.
+  (a) pra-fix  : sebelum apply penjaga=[uq_checkout_claims_inflight_phone], baris hidup=2
+                 apply EXIT=3  `psql:<stdin>:176: ERROR: could not create unique index
+                 "uq_checkout_claims_live_phone"` / DETAIL: duplikat (thrivin, 6281234567890)
+                 SESUDAH apply: penjaga=[(kosong)] => FAIL-OPEN tereproduksi
+  (b) pasca-fix: sebelum apply penjaga=[uq_checkout_claims_inflight_phone], baris hidup=2
+                 apply EXIT=3  (error yang sama — CREATE memang HARUS gagal di data kotor)
+                 SESUDAH apply: penjaga=[uq_checkout_claims_inflight_phone] => penjaga lama
+                 BERTAHAN; `uq_checkout_claims_live_phone` TIDAK setengah terpasang
+  (c) penjaga urutan statis di skrip yang sama: BEGIN < CREATE < DROP < COMMIT wajib,
+      jadi pembalikan urutan di masa depan menabrak tes, bukan cuma direview.
+EXIT=0 skrip hanya kalau (a) mereproduksi fail-open DAN (b) mempertahankan penjaga —
+pra-fix yang gagal mereproduksi juga membuat skrip merah (bukti tidak boleh vakum).
+`tests/harness/w4t1-mutation.sh` (mutasi predikat T1) ikut disesuaikan ke blok baru
+(70cc18e) dan tetap berjalan: 110/3 exit 1 pra-fix, 113/0 pasca-fix.
+Batas yang tetap jujur: apply utuh ke DB ber-duplikat TETAP exit 3 dan §5 ke atas tetap
+tidak ter-apply (perilaku sengaja: gagal keras, tapi kali ini tanpa merusak penjaga).
+Karena itu pre-check duplikat di §5 + apply saat trafik rendah = langkah ops wajib.
+
+Bukti positif sesudah perubahan (kepala 57a1c4b + perubahan ini):
+  - SQL gate consent/checkout : 113 PASS, 0 FAIL, EXIT=0   (/tmp/w4f1-runall.log)
+  - e2e  gate consent/checkout : 158 PASS, 0 FAIL, EXIT=0
+  - `bash tests/run-all.sh` penuh: ALL SUITES PASSED, SUITE_EXIT=0
+  - `npx tsc --noEmit` EXIT=0 + `npm run lint` EXIT=0
+  Catatan angka: kartu menyebut "95/0 dan 138/0" — itu angka di kepala T1 (`eda4966`).
+  Di cabang ini asersi T2 (`bd37533`) dan T3 (`57a1c4b`) sudah merge, jadi baseline
+  sekarang 113/0 dan 158/0; yang penting tidak ada regresi (sama dengan kepala 57a1c4b).
+  Salinan harness byte-identik dengan draft (dicek `diff`, nol beda).
