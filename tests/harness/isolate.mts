@@ -75,6 +75,10 @@ export const PORTS = {
   w4Mock: slot(14),
   probeApp: slot(15),
   probeMock: slot(16),
+  // F-W4-1c (cancel TTL): app normal, app tanpa key cancel, dan mock-nya.
+  cancelApp: slot(17),
+  cancelBroken: slot(18),
+  cancelMock: slot(19),
 } as const;
 
 /** Artefak /tmp: di-prefix SLUG supaya worktree paralel tak pernah satu file. */

@@ -43,6 +43,10 @@ cp "$REPO/staging/schema-webhook-onboarding.sql" "$HERE/migrations/002-webhook-o
 cp "$REPO/staging/schema-promo-codes.sql" "$HERE/migrations/004-promo-codes.sql"
 cp "$REPO/staging/schema-wa-identity.sql" "$HERE/migrations/005-wa-identity.sql"
 cp "$REPO/staging/schema-consent.sql" "$HERE/migrations/006-consent-gate.sql"
+# F-W4-1c: migrasi cancel (aditif). Diapply SESUDAH schema-consent di sini karena
+# file 006 sudah memuat state/kolom/index baru; file 007 tetap ikut dijalankan
+# supaya jalur apply-untuk-DB-lama (007 lalu 006) ikut diuji oleh harness.
+cp "$REPO/staging/migration-fw41c-cancel.sql" "$HERE/migrations/007-fw41c-cancel.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"

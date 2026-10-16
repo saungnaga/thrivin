@@ -118,24 +118,55 @@ CREATE TABLE IF NOT EXISTS checkout_claims (
   idempotency_key TEXT NOT NULL,
   plan_key TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'in_flight',
+  -- F-W4-1c: DUA id, dan keduanya dipakai untuk hal berbeda.
+  --   `order_id`          = nomor order BISNIS (mis. 250130JQHFZG) — yang di-join webhook.
+  --   `scalev_order_uuid` = canonical UUIDv7 (`orderData.id`) — SATU-SATUNYA nilai yang
+  --                         diterima `POST /v3/orders/change-status` (schema `ids` =
+  --                         `OrderPrimaryKeyInput`: UUIDv7 atau legacy numerik; nomor
+  --                         bisnis BUKAN keduanya ⇒ mengirim `order_id` selalu ditolak).
   order_id TEXT,
+  scalev_order_uuid TEXT,
   payment_url TEXT,
   amount INTEGER,
   -- F-W4-1: diisi webhook pembayaran (mark_checkout_claim_paid). Dipakai untuk
   -- membedakan "order belum dibayar yang masih hidup" (dipakai ulang / memblokir
   -- paket lain) dari riwayat order yang sudah lunas (pembelian ulang sah).
   paid_at TIMESTAMPTZ,
+  -- F-W4-1c audit cancel. Semuanya NON-PII: hitungan, error ter-redact (<=200 char),
+  -- jadwal retry, lease attempt, dan jejak pembayaran telat. Nomor WhatsApp, nama,
+  -- email, token, dan raw payload upstream TIDAK PERNAH masuk kolom-kolom ini.
+  cancel_attempts INTEGER NOT NULL DEFAULT 0,
+  cancel_last_error TEXT,
+  cancel_next_retry_at TIMESTAMPTZ,
+  cancel_claimed_at TIMESTAMPTZ,
+  cancel_claimed_until TIMESTAMPTZ,
+  canceled_at TIMESTAMPTZ,
+  late_payment_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- F-W4-1c lifecycle. Migrasi aditif (staging/migration-fw41c-cancel.sql) yang
+  -- memperluas constraint di DB yang sudah memuat versi lama file ini.
   CONSTRAINT checkout_claims_status_check
-    CHECK (status IN ('in_flight', 'created', 'failed')),
+    CHECK (status IN ('in_flight', 'created', 'cancel_pending', 'retired', 'cancel_failed', 'failed')),
   CONSTRAINT checkout_claims_phone_check CHECK (phone ~ '^62[0-9]{8,13}$'),
   CONSTRAINT checkout_claims_idem_check CHECK (length(idempotency_key) BETWEEN 8 AND 200),
-  CONSTRAINT checkout_claims_plan_check CHECK (plan_key IN ('month', 'quarter', 'half', 'year'))
+  CONSTRAINT checkout_claims_plan_check CHECK (plan_key IN ('month', 'quarter', 'half', 'year')),
+  CONSTRAINT checkout_claims_cancel_error_check
+    CHECK (cancel_last_error IS NULL OR length(cancel_last_error) <= 200)
 );
 
+-- F-W4-1c: kunci idempotensi kini PARTIAL — hanya state AKTIF yang dijaga.
+-- Baris `retired`/`failed` tidak ikut, supaya kunci yang ordernya sudah
+-- dibatalkan/dilepas boleh dipakai ulang (M-2) tanpa menghapus bukti baris lama
+-- (yang masih diperlukan join webhook order lama). Satu transaksi + DROP
+-- mendahului CREATE (nama index sama): tanpa DROP, `IF NOT EXISTS` diam-diam
+-- mempertahankan index lama yang menjepit SEMUA state = replay `retired` 500.
+BEGIN;
+DROP INDEX IF EXISTS uq_checkout_claims_idempotency;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_idempotency
-  ON checkout_claims (tenant_id, idempotency_key);
+  ON checkout_claims (tenant_id, idempotency_key)
+  WHERE status IN ('in_flight', 'created', 'cancel_pending', 'cancel_failed');
+COMMIT;
 
 -- Satu order HIDUP per nomor: dua tab / dua klik paralel tidak boleh sama-sama
 -- mencetak order. "Hidup" = belum dibayar dan belum di-retire, yaitu
@@ -170,10 +201,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_idempotency
 -- trafik rendah, dan jalankan pre-check duplikat (lihat dokumen bukti §5) SEBELUM
 -- apply — kalau ada duplikat, CREATE memang harus gagal; bersihkan datanya dulu,
 -- jangan tempel index-nya.
+-- F-W4-1c: state cancel IKUT menahan. Baris `cancel_pending`/`cancel_failed`
+-- berarti order Scalev-nya BELUM terbukti mati ⇒ mencetak order kedua untuk
+-- nomor itu persis lubang yang ditutup kartu ini. `retired` sengaja TIDAK ikut
+-- (semua ID sudah terverifikasi canceled ⇒ replacement sah), begitu pula
+-- `failed` tanpa order.
+--
+-- Nama index SAMA seperti versi lama ⇒ DROP wajib mendahului CREATE di dalam
+-- SATU transaksi. Transaksi tunggal membuat DDL-nya atomik: kalau CREATE gagal
+-- (mis. DB masih memuat >=2 baris hidup untuk satu nomor), DROP-nya ikut
+-- di-rollback dan index lama tetap berdiri — tidak pernah ada keadaan separuh.
 BEGIN;
+DROP INDEX IF EXISTS uq_checkout_claims_live_phone;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
   ON checkout_claims (tenant_id, phone)
-  WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+  WHERE status IN ('in_flight', 'created', 'cancel_pending', 'cancel_failed')
+    AND paid_at IS NULL;
 DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
 COMMIT;
 
@@ -418,6 +461,29 @@ $function$;
 --      tanpa order kedua); paket BEDA: `unpaid_conflict` (route balas 409);
 --   7. baru: klaim `in_flight`.
 -- Return: {status, missing_steps, claim_id, order_id, payment_url, plan_key}
+--
+-- F-W4-1c: helper kecil untuk jalur `unique_violation` penjaga per-nomor. Kalau
+-- yang menahan nomor ini ternyata baris cancel (bukan `in_flight`), jawabannya
+-- harus sejujurnya begitu — kalau tidak, pelanggan melihat "ORDER_IN_FLIGHT"
+-- padahal ordernya sedang/gagal dicancel dan butuh jalur lain.
+CREATE OR REPLACE FUNCTION blocked_live_status(
+  p_tenant_id VARCHAR,
+  p_phone TEXT
+) RETURNS TEXT
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+  SELECT COALESCE((
+    SELECT c.status FROM checkout_claims c
+    WHERE c.tenant_id = p_tenant_id AND c.phone = p_phone
+      AND c.status IN ('cancel_pending', 'cancel_failed') AND c.paid_at IS NULL
+    ORDER BY c.created_at DESC
+    LIMIT 1
+  ), 'in_flight');
+$function$;
+
 CREATE OR REPLACE FUNCTION claim_checkout_order(
   p_phone TEXT,
   p_required_steps INTEGER[],
@@ -437,6 +503,8 @@ DECLARE
   v_terms BOOLEAN;
   v_existing RECORD;
   v_unpaid RECORD;
+  v_blocked RECORD;
+  v_blocked_status TEXT;
   v_claim_id UUID;
   -- F-W4-1: umur maksimum order BELUM DIBAYAR yang masih dianggap hidup.
   -- ponytail: konstanta tetap (60 menit); jadi parameter kalau ops butuh tuning.
@@ -452,9 +520,16 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(p_tenant_id || ':checkout:' || p_phone));
 
   -- 2. Replay idempotent: order yang sudah tercetak dikembalikan apa adanya.
-  SELECT id, phone, status, order_id, payment_url, paid_at INTO v_existing
+  -- F-W4-1c (M-2): sejak `uq_checkout_claims_idempotency` jadi PARTIAL, satu kunci
+  -- bisa punya >1 baris (mis. `retired` + klaim `in_flight` baru). Yang dibaca
+  -- replay WAJIB baris AKTIF lebih dulu; baris terminal hanya sisa bukti + join
+  -- webhook order lama dan tidak boleh menentukan jawaban.
+  SELECT id, phone, status, order_id, scalev_order_uuid, payment_url, paid_at INTO v_existing
   FROM checkout_claims
-  WHERE tenant_id = p_tenant_id AND idempotency_key = p_idempotency_key;
+  WHERE tenant_id = p_tenant_id AND idempotency_key = p_idempotency_key
+  ORDER BY (status IN ('in_flight', 'created', 'cancel_pending', 'cancel_failed')) DESC,
+           created_at DESC
+  LIMIT 1;
 
   IF FOUND THEN
     -- F-S1: Kunci terikat ke nomor pembuat pertama. Replay lintas-nomor ditolak fail-closed.
@@ -488,6 +563,12 @@ BEGIN
     END IF;
 
     IF v_existing.status = 'created' THEN
+      -- F-W4-1c (M-2): `created` yang order/link-nya tidak lengkap BUKAN order yang
+      -- bisa dipakai ulang (link kosong = UI redirect ke halaman kosong, dan kunci
+      -- nyangkut). Barisnya dipertahankan untuk rekonsiliasi ops, bukan dikarang.
+      IF v_existing.order_id IS NULL OR COALESCE(v_existing.payment_url, '') = '' THEN
+        RETURN json_build_object('status', 'checkout_reconciliation', 'claim_id', v_existing.id);
+      END IF;
       RETURN json_build_object(
         'status', 'already_created',
         'claim_id', v_existing.id,
@@ -498,10 +579,50 @@ BEGIN
     IF v_existing.status = 'in_flight' THEN
       RETURN json_build_object('status', 'in_flight', 'claim_id', v_existing.id);
     END IF;
-    -- F-W4-1b: 'failed' itu DUA keadaan berbeda yang tidak boleh disamakan.
-    -- Kalau barisnya sudah PERNAH dapat order (order_id terisi — mis. di-retire 3b
-    -- sesudah TTL, link Scalev-nya masih bisa dibayar), kunci ini tetap milik order
-    -- itu: balas `already_created`. Grant ulang di sini akan mencetak order KEDUA
+    -- F-W4-1c (M-2): order yang cancel-nya belum tuntas MENAHAN nomor ini. Router
+    -- memakai state ini untuk memicukan worker cancel (fail-closed sampai sukses).
+    IF v_existing.status IN ('cancel_pending', 'cancel_failed') THEN
+      RETURN json_build_object('status', v_existing.status, 'claim_id', v_existing.id);
+    END IF;
+    -- F-W4-1c: `retired` = cancel sudah diverifikasi upstream, jadi link lama MATI.
+    -- Kunci ini dipakai ulang untuk klaim BARU, bukan mengembalikan link mati itu.
+    -- `uq_checkout_claims_idempotency` sudah partial ⇒ baris terminal tidak menjepit.
+    IF v_existing.status = 'retired' THEN
+      -- Tapi kalau nomor ini SUDAH punya order hidup (mis. tab lain sudah dapat
+      -- pengganti), jawab dengan order itu — jangan mencetak order ketiga.
+      SELECT id, plan_key, order_id, payment_url INTO v_unpaid
+      FROM checkout_claims
+      WHERE tenant_id = p_tenant_id AND phone = p_phone
+        AND status = 'created' AND paid_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1;
+      IF FOUND THEN
+        IF v_unpaid.plan_key = p_plan_key THEN
+          RETURN json_build_object(
+            'status', 'reuse_unpaid',
+            'claim_id', v_unpaid.id,
+            'order_id', v_unpaid.order_id,
+            'payment_url', v_unpaid.payment_url
+          );
+        END IF;
+        RETURN json_build_object(
+          'status', 'unpaid_conflict',
+          'claim_id', v_unpaid.id,
+          'plan_key', v_unpaid.plan_key
+        );
+      END IF;
+      BEGIN
+        INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status)
+        VALUES (p_tenant_id, p_phone, p_idempotency_key, p_plan_key, 'in_flight')
+        RETURNING id INTO v_claim_id;
+      EXCEPTION WHEN unique_violation THEN
+        -- Nomor ini masih punya order HIDUP dari kunci lain ⇒ jawab seperti biasa.
+        RETURN json_build_object('status', blocked_live_status(p_tenant_id, p_phone));
+      END;
+      RETURN json_build_object('status', 'granted', 'claim_id', v_claim_id);
+    END IF;
+    -- F-W4-1b (baris `failed` dari retire versi LAMA, sebelum state cancel ada):
+    -- kunci ini tetap milik order itu — grant ulang akan mencetak order KEDUA
     -- untuk kunci yang sama padahal order pertama belum dibayar.
     IF v_existing.order_id IS NOT NULL THEN
       RETURN json_build_object(
@@ -510,6 +631,11 @@ BEGIN
         'order_id', v_existing.order_id,
         'payment_url', v_existing.payment_url
       );
+    END IF;
+    -- Punya canonical ID tapi tanpa nomor bisnis: bukan order yang bisa
+    -- dipertanggungjawabkan ke pelanggan ⇒ tahan untuk rekonsiliasi, jangan karang.
+    IF COALESCE(v_existing.scalev_order_uuid, '') <> '' THEN
+      RETURN json_build_object('status', 'checkout_reconciliation', 'claim_id', v_existing.id);
     END IF;
     -- 'failed' TANPA order: percobaan sebelumnya gagal sebelum order tercetak
     -- (release_checkout_claim) ⇒ aman dipakai ulang (hanya untuk nomor sama).
@@ -525,7 +651,7 @@ BEGIN
         WHERE id = v_existing.id
         RETURNING id INTO v_claim_id;
     EXCEPTION WHEN unique_violation THEN
-      RETURN json_build_object('status', 'in_flight');
+      RETURN json_build_object('status', blocked_live_status(p_tenant_id, p_phone));
     END;
     RETURN json_build_object('status', 'granted', 'claim_id', v_claim_id);
   END IF;
@@ -536,15 +662,33 @@ BEGIN
     WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'in_flight'
       AND created_at < now() - make_interval(secs => p_inflight_ttl_seconds);
 
-  -- 3b. F-W4-1: order belum dibayar yang sudah lewat TTL dianggap ditinggalkan.
-  -- Tanpa ini, link Scalev yang ditinggalkan akan memblokir/menahan nomor ini
-  -- selamanya (dan pengguna tidak punya jalan keluar selain tiket CS).
-  -- `order_id`/`payment_url` SENGAJA dibiarkan terisi: kunci lama yang di-replay
-  -- harus tetap dijawab dengan order itu (langkah 2), bukan order baru.
+  -- 3b. F-W4-1c: order belum dibayar yang lewat TTL harus DIBATALKAN sebelum
+  -- nomor ini boleh mendapat order baru. RPC ini TIDAK memanggil Scalev (tidak
+  -- ada pg_net/http dari SQL) — ia hanya memindahkan state; worker/route yang
+  -- melakukan HTTP cancel. `order_id`/`payment_url` sengaja dibiarkan: kunci lama
+  -- yang di-replay tetap dijawab dengan order itu (langkah 2), bukan order baru.
   UPDATE checkout_claims
-    SET status = 'failed', updated_at = now()
+    SET status = 'cancel_pending',
+        cancel_next_retry_at = now(),
+        cancel_last_error = NULL,
+        updated_at = now()
     WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'created'
       AND paid_at IS NULL
+      AND scalev_order_uuid IS NOT NULL AND scalev_order_uuid <> ''
+      AND created_at < now() - v_unpaid_ttl;
+
+  -- 3c. Order TTL TANPA canonical ID (baris pra-F-W4-1c) tidak boleh dicancel
+  -- dengan ID tebakan — `order_id` bisnis ditolak schema `ids` — dan tidak boleh
+  -- dilepas diam-diam: antrean backfill/rekonsiliasi owner. State
+  -- `cancel_failed` tetap MENAHAN nomor (penjaga per-nomor), jadi tidak ada
+  -- order kedua yang lahir di belakang link yang masih hidup.
+  UPDATE checkout_claims
+    SET status = 'cancel_failed',
+        cancel_last_error = COALESCE(cancel_last_error, 'missing_canonical_order_id'),
+        updated_at = now()
+    WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'created'
+      AND paid_at IS NULL
+      AND (scalev_order_uuid IS NULL OR scalev_order_uuid = '')
       AND created_at < now() - v_unpaid_ttl;
 
   -- 4. Langkah wajib.
@@ -576,7 +720,22 @@ BEGIN
     RETURN json_build_object('status', 'consent_required');
   END IF;
 
-  -- 6. F-W4-1 (opsi a): satu nomor tidak boleh mencetak order BELUM DIBAYAR kedua.
+  -- 6. F-W4-1c: order yang cancel-nya BELUM terbukti (cancel_pending) atau gagal
+  -- terminal (cancel_failed) menahan checkout. Route memetakan ini ke 409/423
+  -- TANPA order_id/payment_url dan tanpa INSERT order baru. `retired` sengaja
+  -- tidak ikut: link lamanya sudah mati ⇒ replacement sah.
+  SELECT id, status INTO v_blocked
+  FROM checkout_claims
+  WHERE tenant_id = p_tenant_id AND phone = p_phone
+    AND status IN ('cancel_pending', 'cancel_failed') AND paid_at IS NULL
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN json_build_object('status', v_blocked.status, 'claim_id', v_blocked.id);
+  END IF;
+
+  -- 6b. F-W4-1 (opsi a): satu nomor tidak boleh mencetak order BELUM DIBAYAR kedua.
   SELECT id, plan_key, order_id, payment_url INTO v_unpaid
   FROM checkout_claims
   WHERE tenant_id = p_tenant_id AND phone = p_phone
@@ -612,7 +771,7 @@ BEGIN
     VALUES (p_tenant_id, p_phone, p_idempotency_key, p_plan_key, 'in_flight')
     RETURNING id INTO v_claim_id;
   EXCEPTION WHEN unique_violation THEN
-    RETURN json_build_object('status', 'in_flight');
+    RETURN json_build_object('status', blocked_live_status(p_tenant_id, p_phone));
   END;
 
   RETURN json_build_object('status', 'granted', 'claim_id', v_claim_id);
@@ -626,16 +785,21 @@ CREATE OR REPLACE FUNCTION complete_checkout_claim(
   p_claim_id UUID,
   p_order_id TEXT,
   p_payment_url TEXT,
-  p_amount INTEGER DEFAULT NULL
+  p_amount INTEGER DEFAULT NULL,
+  p_scalev_order_uuid TEXT DEFAULT NULL
 ) RETURNS JSON
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = public
 AS $function$
 BEGIN
+  -- F-W4-1c: canonical UUID (`orderData.id`) disimpan di kolom SENDIRI. Nomor
+  -- bisnis `p_order_id` tetap dipakai webhook untuk join; endpoint cancel hanya
+  -- menerima canonical ID, jadi keduanya wajib ada.
   UPDATE checkout_claims
     SET status = 'created',
         order_id = p_order_id,
+        scalev_order_uuid = NULLIF(p_scalev_order_uuid, ''),
         payment_url = p_payment_url,
         amount = p_amount,
         updated_at = now()
@@ -686,22 +850,161 @@ SET search_path = public
 AS $function$
 DECLARE
   v_id UUID;
+  v_state TEXT;
+  v_late BOOLEAN := false;
 BEGIN
   IF p_order_id IS NULL OR length(p_order_id) = 0 THEN
     RETURN json_build_object('status', 'invalid_order');
   END IF;
 
+  -- F-W4-1c: pembayaran yang masuk SETELAH order di-retire / sedang-gagal
+  -- dicancel = pembayaran TELAT. Kebijakan owner: akses TETAP diberikan (dedup
+  -- `fulfillment_key` di webhook yang menentukan grant), tapi event-nya ditandai
+  -- duplikat di sini supaya ops bisa cek refund manual. Retry cancel otomatis
+  -- dihentikan oleh worker karena `paid_at` sudah terisi.
   UPDATE checkout_claims
     SET paid_at = COALESCE(paid_at, LEAST(COALESCE(p_paid_at, now()), now())),
+        late_payment_at = CASE
+          WHEN status IN ('cancel_pending', 'cancel_failed', 'retired')
+            THEN COALESCE(late_payment_at, now())
+          ELSE late_payment_at
+        END,
         updated_at = now()
     WHERE tenant_id = p_tenant_id AND order_id = p_order_id
-    RETURNING id INTO v_id;
+    RETURNING id, status, (late_payment_at IS NOT NULL) INTO v_id, v_state, v_late;
 
   IF v_id IS NULL THEN
     -- Order yang tidak lewat gate (mis. dibuat manual di dashboard Scalev).
     RETURN json_build_object('status', 'not_found');
   END IF;
-  RETURN json_build_object('status', 'marked', 'claim_id', v_id);
+  RETURN json_build_object(
+    'status', 'marked',
+    'claim_id', v_id,
+    'state', v_state,
+    'late_payment', COALESCE(v_late, false)
+  );
+END;
+$function$;
+
+-- ============================================================================
+-- 9c. RPC cancel F-W4-1c: klaim attempt + catat hasilnya (tanpa PII)
+-- ============================================================================
+-- Pembagian tugas: RPC hanya memindahkan STATE (atomik, dengan lease), worker HTTP
+-- di route/sweep yang memanggil Scalev. Tidak ada pg_net/http dari SQL.
+--
+-- `claim_checkout_cancel` = klaim attempt: satu baris hanya boleh dipegang satu
+-- worker pada satu waktu (`cancel_claimed_until`), dan HANYA kalau belum dibayar
+-- (M-3). Pembayaran yang muncul setelah klaim ini diambil = late payment.
+CREATE OR REPLACE FUNCTION claim_checkout_cancel(
+  p_claim_id UUID
+) RETURNS JSON
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_row RECORD;
+BEGIN
+  UPDATE checkout_claims
+    SET cancel_attempts = cancel_attempts + 1,
+        cancel_claimed_at = now(),
+        cancel_claimed_until = now() + INTERVAL '15 seconds',
+        updated_at = now()
+    WHERE id = p_claim_id
+      AND status = 'cancel_pending'
+      AND paid_at IS NULL
+      AND (cancel_claimed_until IS NULL OR cancel_claimed_until <= now())
+    RETURNING id, scalev_order_uuid, order_id, cancel_attempts INTO v_row;
+
+  IF NOT FOUND THEN
+    -- Sudah dipegang worker lain, sudah dibayar, atau statusnya berubah:
+    -- jangan kirim HTTP cancel (M-3: nol baris = jangan retry).
+    RETURN json_build_object('status', 'not_claimed');
+  END IF;
+
+  RETURN json_build_object(
+    'status', 'claimed',
+    'claim_id', v_row.id,
+    'scalev_order_uuid', v_row.scalev_order_uuid,
+    'order_id', v_row.order_id,
+    'cancel_attempts', v_row.cancel_attempts
+  );
+END;
+$function$;
+
+-- `record_checkout_cancel_result` = satu-satunya pintu keluar state cancel.
+-- p_result: 'retired' (semua ID terverifikasi canceled) · 'cancel_pending'
+-- (transient/tak terklasifikasi ⇒ TAHAN + retry) · 'cancel_failed' (terminal).
+-- p_error WAJIB sudah di-redact pemanggil; panjang dipotong 200 char (CHECK).
+CREATE OR REPLACE FUNCTION record_checkout_cancel_result(
+  p_claim_id UUID,
+  p_result TEXT,
+  p_error TEXT DEFAULT NULL
+) RETURNS JSON
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_state TEXT;
+BEGIN
+  IF p_result NOT IN ('retired', 'cancel_pending', 'cancel_failed') THEN
+    RETURN json_build_object('status', 'invalid_result');
+  END IF;
+
+  -- M-3: pembayaran yang masuk SETELAH attempt cancel diklaim. Aktivasinya
+  -- urusan webhook; di sini: tandai duplikat, lepas lease, hentikan retry.
+  IF EXISTS (SELECT 1 FROM checkout_claims WHERE id = p_claim_id AND paid_at IS NOT NULL) THEN
+    UPDATE checkout_claims
+      SET cancel_claimed_at = NULL,
+          cancel_claimed_until = NULL,
+          cancel_next_retry_at = NULL,
+          cancel_last_error = NULL,
+          late_payment_at = COALESCE(late_payment_at, now()),
+          updated_at = now()
+      WHERE id = p_claim_id;
+    RETURN json_build_object('status', 'late_payment', 'claim_id', p_claim_id);
+  END IF;
+
+  IF p_result = 'retired' THEN
+    UPDATE checkout_claims
+      SET status = 'retired',
+          canceled_at = COALESCE(canceled_at, now()),
+          payment_url = NULL,
+          cancel_last_error = NULL,
+          cancel_next_retry_at = NULL,
+          cancel_claimed_at = NULL,
+          cancel_claimed_until = NULL,
+          updated_at = now()
+      WHERE id = p_claim_id AND status = 'cancel_pending'
+      RETURNING status INTO v_state;
+  ELSIF p_result = 'cancel_failed' THEN
+    UPDATE checkout_claims
+      SET status = 'cancel_failed',
+          cancel_last_error = left(COALESCE(p_error, 'terminal'), 200),
+          payment_url = NULL,
+          cancel_next_retry_at = NULL,
+          cancel_claimed_at = NULL,
+          cancel_claimed_until = NULL,
+          updated_at = now()
+      WHERE id = p_claim_id AND status = 'cancel_pending'
+      RETURNING status INTO v_state;
+  ELSE
+    UPDATE checkout_claims
+      SET cancel_last_error = left(COALESCE(p_error, 'transient'), 200),
+          -- ponytail: 30 detik tetap; jadikan parameter kalau ops butuh tuning.
+          cancel_next_retry_at = now() + INTERVAL '30 seconds',
+          cancel_claimed_at = NULL,
+          cancel_claimed_until = NULL,
+          updated_at = now()
+      WHERE id = p_claim_id AND status = 'cancel_pending'
+      RETURNING status INTO v_state;
+  END IF;
+
+  IF v_state IS NULL THEN
+    RETURN json_build_object('status', 'not_found');
+  END IF;
+  RETURN json_build_object('status', 'recorded', 'claim_id', p_claim_id, 'state', v_state);
 END;
 $function$;
 
@@ -802,8 +1105,12 @@ BEGIN
   GET DIAGNOSTICS v_progress = ROW_COUNT;
 
   -- 2. Hapus klaim checkout lama (> 30 hari) agar tabel klaim tetap ramping.
+  -- F-W4-1c (M-4): state terminal baru (`retired`, `cancel_failed`) ikut dibuang —
+  -- tanpa itu jejak `phone` di baris hasil cancel tinggal SELAMANYA, melanggar
+  -- retensi 30 hari. `cancel_pending` SENGAJA tidak ikut: metadata retry/
+  -- rekonsiliasinya masih diperlukan sampai selesai.
   DELETE FROM checkout_claims
-  WHERE updated_at < v_cutoff AND status IN ('created', 'failed');
+  WHERE updated_at < v_cutoff AND status IN ('created', 'failed', 'retired', 'cancel_failed');
   GET DIAGNOSTICS v_claims = ROW_COUNT;
 
   -- 3. RX2-1: klaim `in_flight` yang worker-nya mati sebelum release_checkout_claim
@@ -861,20 +1168,29 @@ GRANT SELECT ON v_onboarding_retention_backlog TO service_role;
 REVOKE ALL ON FUNCTION record_consent_event(TEXT, TEXT, BOOLEAN, TEXT, TEXT, TEXT, TIMESTAMPTZ, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION record_checkout_consent(TEXT, TEXT, BOOLEAN, BOOLEAN, TEXT, TEXT, TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION save_onboarding_step(TEXT, INTEGER, JSONB, VARCHAR) FROM PUBLIC, anon, authenticated;
+-- F-W4-1c: signature `complete_checkout_claim` berubah (tambah p_scalev_order_uuid)
+-- ⇒ daftar REVOKE/GRANT di bawah WAJIB memakai signature BARU; signature lama
+-- dibuang di tests/harness/drop-stale.sql supaya tidak tertinggal sebagai overload.
+REVOKE ALL ON FUNCTION blocked_live_status(VARCHAR, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_checkout_claim(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION claim_checkout_cancel(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION purge_expired_onboarding_progress(INTEGER) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION record_consent_event(TEXT, TEXT, BOOLEAN, TEXT, TEXT, TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION record_checkout_consent(TEXT, TEXT, BOOLEAN, BOOLEAN, TEXT, TEXT, TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION save_onboarding_step(TEXT, INTEGER, JSONB, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION blocked_live_status(VARCHAR, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) TO service_role;
-GRANT EXECUTE ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION release_checkout_claim(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION claim_checkout_cancel(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION purge_expired_onboarding_progress(INTEGER) TO service_role;
 
