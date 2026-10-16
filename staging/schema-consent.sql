@@ -370,8 +370,9 @@ $function$;
 -- ============================================================================
 -- Urutan di dalam satu transaksi:
 --   1. kunci per nomor (advisory) supaya dua request paralel tidak sama-sama lolos;
---   2. replay: idempotency key yang sudah `created` -> kembalikan order yang SAMA
---      (tidak ada panggilan Scalev kedua);
+--   2. replay: idempotency key yang sudah PERNAH mencetak order -> kembalikan order
+--      yang SAMA (termasuk baris `failed` yang order-nya masih tersimpan, mis.
+--      hasil retire TTL 3b — kunci sama = order sama, lihat F-W4-1b);
 --   3. klaim in-flight yang basi (worker mati) di-expire; klaim 'created' yang
 --      belum dibayar & sudah lewat TTL juga dianggap ditinggalkan (status failed);
 --   4. langkah wajib: semua harus ADA di `onboarding_progress.steps` (isi datanya
@@ -437,7 +438,21 @@ BEGIN
     IF v_existing.status = 'in_flight' THEN
       RETURN json_build_object('status', 'in_flight', 'claim_id', v_existing.id);
     END IF;
-    -- 'failed': percobaan sebelumnya gagal; barisnya dipakai ulang (hanya untuk nomor sama).
+    -- F-W4-1b: 'failed' itu DUA keadaan berbeda yang tidak boleh disamakan.
+    -- Kalau barisnya sudah PERNAH dapat order (order_id terisi — mis. di-retire 3b
+    -- sesudah TTL, link Scalev-nya masih bisa dibayar), kunci ini tetap milik order
+    -- itu: balas `already_created`. Grant ulang di sini akan mencetak order KEDUA
+    -- untuk kunci yang sama padahal order pertama belum dibayar.
+    IF v_existing.order_id IS NOT NULL THEN
+      RETURN json_build_object(
+        'status', 'already_created',
+        'claim_id', v_existing.id,
+        'order_id', v_existing.order_id,
+        'payment_url', v_existing.payment_url
+      );
+    END IF;
+    -- 'failed' TANPA order: percobaan sebelumnya gagal sebelum order tercetak
+    -- (release_checkout_claim) ⇒ aman dipakai ulang (hanya untuk nomor sama).
     UPDATE checkout_claims
       SET status = 'in_flight', plan_key = p_plan_key, updated_at = now()
       WHERE id = v_existing.id
@@ -454,6 +469,8 @@ BEGIN
   -- 3b. F-W4-1: order belum dibayar yang sudah lewat TTL dianggap ditinggalkan.
   -- Tanpa ini, link Scalev yang ditinggalkan akan memblokir/menahan nomor ini
   -- selamanya (dan pengguna tidak punya jalan keluar selain tiket CS).
+  -- `order_id`/`payment_url` SENGAJA dibiarkan terisi: kunci lama yang di-replay
+  -- harus tetap dijawab dengan order itu (langkah 2), bukan order baru.
   UPDATE checkout_claims
     SET status = 'failed', updated_at = now()
     WHERE tenant_id = p_tenant_id AND phone = p_phone AND status = 'created'

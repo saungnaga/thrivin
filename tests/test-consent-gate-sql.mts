@@ -536,6 +536,50 @@ eq(
   "F-W4-1(a): order yang ditinggalkan ditandai failed"
 );
 
+// (5b) F-W4-1b: kunci LAMA yang barisnya sudah di-retire 3b (`failed`, tapi
+// `order_id` masih tersimpan & link Scalev-nya masih bisa dibayar) TIDAK boleh
+// di-grant ulang ⇒ order kedua. Kunci sama tetap order/link yang sama.
+const P_fw1b = "6281200000713";
+armPhone(P_fw1b, "fw1b-consent-1");
+const fw1bA = claim(P_fw1b, "quarter", "fw1b-key-old");
+eq(fw1bA.status, "granted", "F-W4-1b: pra-syarat — klaim pertama diberikan");
+complete(fw1bA, "ord-FW1b-A", "https://pay/fw1b-a");
+psqlSuper(
+  `update checkout_claims set created_at = now() - interval '61 minutes' where id='${fw1bA.claim_id}'`
+);
+const fw1bB = claim(P_fw1b, "quarter", "fw1b-key-new");
+eq(fw1bB.status, "granted", "F-W4-1b: pra-syarat — retire TTL membebaskan nomor (kunci baru dapat order)");
+complete(fw1bB, "ord-FW1b-B", "https://pay/fw1b-b");
+eq(
+  psqlSuper(`select status from checkout_claims where id='${fw1bA.claim_id}'`, { csv: true }),
+  "failed",
+  "F-W4-1b: pra-syarat — baris kunci lama sudah di-retire (failed)"
+);
+
+const fw1bReplay = claim(P_fw1b, "quarter", "fw1b-key-old");
+eq(fw1bReplay.status, "already_created", "F-W4-1b: replay kunci lama setelah retire ⇒ already_created (bukan granted)");
+eq(fw1bReplay.order_id, "ord-FW1b-A", "F-W4-1b: ... mengembalikan order yang MEMANG milik kunci itu");
+eq(
+  psqlSuper(`select status from checkout_claims where id='${fw1bA.claim_id}'`, { csv: true }),
+  "failed",
+  "F-W4-1b: baris kunci lama tidak dibangkitkan jadi in_flight (tidak ada kursi kedua)"
+);
+// Route mencetak order ketiga HANYA kalau gate masih memberi `granted` (pra-fix).
+// Ini yang membuat asersi hitungan di bawah bergigi — persis jalur `create-order`.
+if (fw1bReplay.status === "granted") complete(fw1bReplay, "ord-FW1b-C", "https://pay/fw1b-c");
+eq(
+  num(
+    `select count(distinct order_id) from checkout_claims where phone='${P_fw1b}' and status='created' and paid_at is null`
+  ),
+  1,
+  "F-W4-1b: tepat SATU order belum-dibayar hidup sesudah replay kunci lama"
+);
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_fw1b}'`),
+  2,
+  "F-W4-1b: tidak ada baris klaim kedua yang lahir karena replay"
+);
+
 // (6) Reuse TIDAK mendahului gate: kalau langkah wajib hilang, tetap ditolak.
 armPhone(P_fw1gate, "fw1-gate-consent-1");
 const fw1Gate = claim(P_fw1gate, "quarter", "fw1-gate-key-1");

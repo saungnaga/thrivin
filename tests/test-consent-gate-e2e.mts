@@ -64,6 +64,7 @@ const P = {
   repeatBuy: "6281200000815",
   neg: "6281200000816",
   mismatchBody: "6281200000817",
+  replayAfterTtl: "6281200000818",
 };
 
 const results: Array<[string, string]> = [];
@@ -547,6 +548,48 @@ async function main() {
       ),
       "failed",
       "F-W4-1(a): order yang ditinggalkan ditandai failed (tidak menahan nomor)"
+    );
+
+    // (5) F-W4-1b: kunci LAMA yang barisnya sudah di-retire TTL (>60 menit, `failed`
+    // tapi `order_id` masih tersimpan) TIDAK boleh mencetak order ketiga — kunci sama
+    // tetap order/link yang sama. Pemicu realistis: tab checkout terbuka > 60 menit,
+    // direload, lalu request lama (kunci lama) terkirim.
+    const c2bArm = await armCheckout({
+      base: APP_URL,
+      phone: P.replayAfterTtl,
+      cookie: waSessionCookie(P.replayAfterTtl),
+    });
+    const c2bA = await createOrder(P.replayAfterTtl, c2bArm.idempotencyKey);
+    assertEq(c2bA.status, 200, "F-W4-1b: pra-syarat — order pertama (kunci lama) ⇒ 200");
+    psqlSuper(
+      `update checkout_claims set created_at = now() - interval '61 minutes' where order_id='${c2bA.body.orderId}'`
+    );
+    const c2bBefore = mockOrderCount();
+    const c2bB = await createOrder(P.replayAfterTtl, newIdempotencyKey("fw1bretire"));
+    assertEq(c2bB.status, 200, "F-W4-1b: pra-syarat — retire TTL membebaskan nomor ⇒ 200");
+    assertEq(mockOrderCount() - c2bBefore, 1, "F-W4-1b: pra-syarat — retire memicu SATU order kedua");
+
+    const c2bReplay = await createOrder(P.replayAfterTtl, c2bArm.idempotencyKey);
+    assertEq(c2bReplay.status, 200, "F-W4-1b: replay kunci lama ⇒ 200");
+    assertEq(
+      c2bReplay.body?.orderId,
+      c2bA.body.orderId,
+      "F-W4-1b: ... mengembalikan order milik kunci itu (bukan order ketiga)"
+    );
+    assertEq(c2bReplay.body?.replay, true, "F-W4-1b: ... ditandai replay ⇒ tidak ada panggilan Scalev");
+    assertEq(mockOrderCount() - c2bBefore, 1, "F-W4-1b: TIDAK ada order ketiga dicetak di Scalev");
+    assertEq(
+      psqlSuper(
+        `select count(distinct order_id) from checkout_claims where phone='${P.replayAfterTtl}' and status='created' and paid_at is null`,
+        { csv: true }
+      ),
+      "1",
+      "F-W4-1b: tepat SATU order belum-dibayar hidup untuk nomor itu"
+    );
+    assertEq(
+      psqlSuper(`select count(*) from checkout_claims where phone='${P.replayAfterTtl}'`, { csv: true }),
+      "2",
+      "F-W4-1b: tidak ada baris klaim kedua lahir karena replay"
     );
 
     // ═══ D. Opt-out eksplisit & retry lama ════════════════════════════════
