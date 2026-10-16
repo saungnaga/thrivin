@@ -619,7 +619,11 @@ async function main() {
     assertOk(/deleted_inbox=[2-9]/.test(purgeOut), "H-4  purge deleted the expired inbox rows");
     assertOk(/deleted_snapshots=[1-9]/.test(purgeOut), "H-4  purge deleted the expired snapshot row");
     const auditRows = psqlSuper(
-      "SELECT count(*) FROM purge_audit_log WHERE ran_at > now() - interval '1 minute';",
+      // deleted_inbox IS NOT NULL: sejak RX2-1, purge_expired_onboarding_progress()
+      // juga menulis ke purge_audit_log (baris retensi PII). Tanpa filter ini asersi
+      // "H-4 every run leaves a row" puas walau job webhook tidak menulis apa pun.
+      // Filter yang sama dipakai v_webhook_retention_backlog.
+      "SELECT count(*) FROM purge_audit_log WHERE ran_at > now() - interval '1 minute' AND deleted_inbox IS NOT NULL;",
       { csv: true }
     );
     assertEq(Number(auditRows) >= 1, true, "H-4  every run leaves a purge_audit_log row");
