@@ -35,6 +35,12 @@ import {
   query,
   psqlSuper,
 } from "./harness/stack.mts";
+import {
+  DEFAULT_WA_SESSION_SECRET,
+  armCheckout,
+  newIdempotencyKey,
+  waSessionCookie,
+} from "./helpers/checkout-arm.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
@@ -123,6 +129,10 @@ async function startApp(env: Record<string, string | undefined>): Promise<Stack>
       SCALEV_API_BASE_URL: MOCK_URL,
       SCALEV_STORE_ID: "store_test",
       SCALEV_API_KEY: "sk_test_key",
+      // Sesi pelanggan (kontrak W4 §2): `create-order` menuntut identitas
+      // terverifikasi; suite ini membuat cookie HMAC sendiri lewat helper.
+      WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
+      WA_SESSION_EPOCH: "0",
       ...env,
     },
     stdio: ["ignore", logFd, logFd],
@@ -272,9 +282,13 @@ async function main() {
     // ── B-2: client amount ignored ────────────────────────────────────────
     console.log("\n── B-2: server-side pricing, validation, no PII in notes ──");
     const phoneB2 = "6281299900001";
+    // Kontrak W4: identitas terverifikasi (cookie sesi) + langkah onboarding di
+    // server + persetujuan T&C. Tanpa tiga itu `create-order` menolak.
+    const cookieB2 = waSessionCookie(phoneB2);
+    const armB2 = await armCheckout({ base: BASE_URL, phone: phoneB2, cookie: cookieB2 });
     const orderRes = await fetch(`${BASE_URL}/api/scalev/create-order`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.2" },
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.2", cookie: cookieB2 },
       body: JSON.stringify({
         planId: "quarter",
         planName: "Nina 3 Bulan",
@@ -282,6 +296,7 @@ async function main() {
         customerName: "Raihan Test User",
         customerPhone: phoneB2,
         onboarding: sampleProfile,
+        idempotencyKey: armB2.idempotencyKey,
       }),
     });
     const orderJson = await orderRes.json();
@@ -303,16 +318,31 @@ async function main() {
     );
 
     // ── B-2: onboarding validation ───────────────────────────────────────
+    // Kontrak W4: profil dari body TIDAK lagi dibaca. Yang menentukan adalah
+    // langkah yang tersimpan di server, jadi nomor tanpa langkah ditolak —
+    // bukan "lolos dengan nilai aneh".
+    const phoneBad = "6281299900002";
     const badProfile = await fetch(`${BASE_URL}/api/scalev/create-order`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.3" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "10.9.9.3",
+        cookie: waSessionCookie(phoneBad),
+      },
       body: JSON.stringify({
         planId: "quarter",
-        customerPhone: "6281299900002",
+        customerPhone: phoneBad,
         onboarding: { ...sampleProfile, weight: 900, age: 4, gender: "Robot" },
+        idempotencyKey: newIdempotencyKey("badprofile"),
       }),
     });
-    assertEq(badProfile.status, 400, "B-2  out-of-range/enum-invalid onboarding -> 400");
+    const badProfileBody = await badProfile.json();
+    assertEq(badProfile.status, 400, "B-2  tanpa langkah server -> 400 (profil body diabaikan)");
+    assertEq(
+      badProfileBody.code,
+      "INCOMPLETE_ONBOARDING",
+      "B-2  kode INCOMPLETE_ONBOARDING (bukan nilai onboarding dari klien)"
+    );
 
     // ── H-5: snapshot written AFTER the order, keyed by order_id ─────────
     console.log("\n── H-5: snapshot timing + keying ──");
@@ -328,15 +358,22 @@ async function main() {
     );
 
     // Re-run the same checkout twice: upsert, not an unbounded insert.
+    // (Kunci idempotensi baru per percobaan — kunci sama = replay, bukan order baru.)
     for (let i = 0; i < 2; i++) {
+      const rearm = await armCheckout({ base: BASE_URL, phone: phoneB2, cookie: cookieB2 });
       await fetch(`${BASE_URL}/api/scalev/create-order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Forwarded-For": `10.9.9.${10 + i}` },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": `10.9.9.${10 + i}`,
+          cookie: cookieB2,
+        },
         body: JSON.stringify({
           planId: "quarter",
           customerPhone: phoneB2,
           customerName: "Raihan Test User",
           onboarding: sampleProfile,
+          idempotencyKey: rearm.idempotencyKey,
         }),
       });
     }

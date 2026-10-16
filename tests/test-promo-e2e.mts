@@ -43,9 +43,18 @@ import {
   truncateAll,
   psqlSuper,
 } from "./harness/stack.mts";
+import { normalizePhone } from "../src/lib/phone.ts";
+import {
+  DEFAULT_WA_SESSION_SECRET,
+  armCheckout,
+  fullStepPayloads,
+  waSessionCookie,
+} from "./helpers/checkout-arm.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
+// Sesi pelanggan untuk `create-order` (kontrak W4 §2).
+const WA_SESSION_SECRET = DEFAULT_WA_SESSION_SECRET;
 
 const APP_PORT = Number(process.env.HARNESS_PROMO_APP_PORT || 3988);
 const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4111);
@@ -140,6 +149,8 @@ async function startApp(
       ADMIN_USERNAME: ADMIN_USER,
       ADMIN_PASSWORD: ADMIN_PASS,
       ADMIN_SESSION_SECRET: ADMIN_SECRET,
+      WA_SESSION_SECRET,
+      WA_SESSION_EPOCH: "0",
       ...env,
     },
     stdio: ["ignore", logFd, logFd],
@@ -193,13 +204,29 @@ function nextPhone(): string {
 }
 
 async function checkout(body: Record<string, unknown>) {
+  // Kontrak W4: `create-order` butuh identitas terverifikasi + langkah
+  // onboarding di server + persetujuan T&C. Helper menyiapkannya lewat HTTP
+  // (jalur yang sama dengan UI), lalu permintaan uji dikirim dengan cookie itu.
+  const cleanPhone = normalizePhone(String(body.customerPhone ?? ""));
+  let cookie: string | undefined;
+  let idempotencyKey: string | undefined;
+  if (cleanPhone) {
+    cookie = waSessionCookie(cleanPhone, { secret: WA_SESSION_SECRET });
+    // Nama order diambil server dari profil tersimpan, jadi `customerName` uji
+    // harus masuk ke langkah 2 — mock Scalev menolak order bernama FAILORDER.
+    const steps = fullStepPayloads(cleanPhone);
+    if (body.customerName) steps[2] = { name: String(body.customerName) };
+    const armed = await armCheckout({ base: BASE_URL, phone: cleanPhone, cookie, steps });
+    idempotencyKey = armed.idempotencyKey;
+  }
   const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Forwarded-For": `10.20.${phoneCounter % 200}.${(Date.now() % 250) + 1}`,
+      ...(cookie ? { cookie } : {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, ...(idempotencyKey ? { idempotencyKey } : {}) }),
   });
   return { status: res.status, body: await res.json() };
 }
@@ -801,9 +828,13 @@ async function main() {
         "PARALEL: kuota terpakai 1 dari 2 (tidak dilampaui)"
       );
       assertEq(losers.length, 3, "PARALEL: 3 checkout ditolak");
+      // Sejak W4 (kontrak §2) gate single-flight per nomor memutuskan lebih dulu:
+      // 3 request paralel dari nomor yang sama tidak pernah sampai ke klaim kuota
+      // promo, jadi kode penolaknya ORDER_IN_FLIGHT (409), bukan PROMO_PENDING_ORDER.
+      // Lomba kuota lintas-nomor tetap diuji di blok "PARALEL2" di bawah.
       assertOk(
-        losers.every((r) => r.body?.code === "PROMO_PENDING_ORDER"),
-        "PARALEL: yang ditolak dapat PROMO_PENDING_ORDER",
+        losers.every((r) => r.body?.code === "ORDER_IN_FLIGHT" && r.status === 409),
+        "PARALEL: yang ditolak dapat ORDER_IN_FLIGHT 409 (gate single-flight)",
         JSON.stringify(losers.map(label))
       );
       // Yang ditolak tidak menerima order id / link pembayaran: tidak ada order
@@ -1007,9 +1038,11 @@ async function main() {
     // ══ RACE: kuota sisa 1, dua checkout paralel ═══════════════════════════
     console.log("\n── RACE: kuota=1, dua checkout paralel ──");
     await seedPromo({ code: "RACE1", type: "percentage", amount: 40, quota: 1, plans: ["quarter"] });
+    const racePhoneA = nextPhone();
+    const racePhoneB = nextPhone();
     const [raceA, raceB] = await Promise.all([
-      checkout({ planId: "quarter", customerPhone: nextPhone(), customerName: "Dummy Race A", promoCode: "RACE1", onboarding: sampleOnboarding }),
-      checkout({ planId: "quarter", customerPhone: nextPhone(), customerName: "Dummy Race B", promoCode: "RACE1", onboarding: sampleOnboarding }),
+      checkout({ planId: "quarter", customerPhone: racePhoneA, customerName: "Dummy Race A", promoCode: "RACE1", onboarding: sampleOnboarding }),
+      checkout({ planId: "quarter", customerPhone: racePhoneB, customerName: "Dummy Race B", promoCode: "RACE1", onboarding: sampleOnboarding }),
     ]);
     const statuses = [raceA.status, raceB.status].sort((a, b) => a - b);
     console.log(`   checkout x2 → ${JSON.stringify(statuses)} (${raceA.body?.code ?? "ok"}, ${raceB.body?.code ?? "ok"})`);
@@ -1028,6 +1061,28 @@ async function main() {
       ),
       1,
       "RACE: ledger punya tepat 1 baris aktif"
+    );
+
+    // Regresi W4: penolakan promo TIDAK boleh meninggalkan klaim gate in-flight.
+    // Kalau klaim tertinggal, nomor yang promo-nya ditolak terkunci 10 menit:
+    // checkout ulang (bahkan tanpa promo) dijawab 409 ORDER_IN_FLIGHT padahal
+    // tidak ada order apa pun yang tercetak.
+    const loserPhone = loser === raceA ? racePhoneA : racePhoneB;
+    const loserRetry = await checkout({
+      planId: "quarter",
+      customerPhone: loserPhone,
+      customerName: "Dummy Race",
+      onboarding: sampleOnboarding,
+    });
+    assertEq(
+      loserRetry.status,
+      200,
+      "RACE: nomor yang promo-nya ditolak tetap bisa checkout tanpa promo (klaim dilepas)"
+    );
+    assertEq(
+      countRows("checkout_claims", "phone=" + `'${loserPhone}'` + " AND status='in_flight'"),
+      0,
+      "RACE: nol klaim in-flight tertinggal untuk nomor yang ditolak"
     );
 
     // ══ Webhook: pembayaran -> consumed (mengunci 1x per nomor) ════════════
