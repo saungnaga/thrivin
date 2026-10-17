@@ -190,8 +190,11 @@ export async function completeCheckoutClaim(
   paymentUrl: string,
   amount?: number,
   scalevOrderUuid?: string | null
-): Promise<void> {
-  await callRpc("complete_checkout_claim", {
+): Promise<{ status: string } | null> {
+  // C-4 (kartu t_bd4781a6): RPC menolak nomor order kosong dengan `invalid_order`
+  // (tidak ada yang ditulis) — pemanggil harus tahu, kalau tidak klaimnya tinggal
+  // `in_flight` dan nomor ini terkunci sampai TTL.
+  return callRpc("complete_checkout_claim", {
     p_claim_id: claimId,
     p_order_id: orderId,
     p_payment_url: paymentUrl,

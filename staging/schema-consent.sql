@@ -538,18 +538,21 @@ BEGIN
     END IF;
 
     -- W4RX4 T3: `order_id = ''` BUKAN order. Kolomnya mengizinkan string kosong
-    -- (hanya RPC langsung yang bisa menulisnya — route selalu mengisi hasil
-    -- Scalev), dan `'' IS NOT NULL` MEMUASKAN pemeriksaan "sudah punya order" di
-    -- bawah: kunci ini menjawab `already_created` dengan order_id kosong
-    -- SEKALIGUS tidak bisa dipakai ulang ⇒ nyangkut permanen. Dinormalisasi satu
-    -- kali di sini, di titik masuk jalur replay — sama seperti
-    -- `mark_checkout_claim_paid` yang memperlakukan order_id kosong sebagai bukan
-    -- order. Nol perubahan signature.
-    -- ponytail: menutup JALUR BACA saja, dan sengaja HANYA di sini. `created`
-    -- tanpa order_id TIDAK digrant ulang di bawah (status itu MENGAKU ada order —
-    -- melepasnya berarti mencetak order kedua). Kalau nanti butuh invariant keras,
-    -- tutup di tulis (CHECK order_id <> '') — itu keputusan ops kalau baris ''
-    -- sudah telanjur ada di DB.
+    -- (dulu hanya RPC langsung yang bisa menulisnya — sekarang jalur tulisnya
+    -- menolak: lihat penjaga `invalid_order` di `complete_checkout_claim`), dan
+    -- `'' IS NOT NULL` MEMUASKAN pemeriksaan "sudah punya order" di bawah: kunci
+    -- ini menjawab `already_created` dengan order_id kosong SEKALIGUS tidak bisa
+    -- dipakai ulang ⇒ nyangkut permanen. Dinormalisasi satu kali di sini, di titik
+    -- masuk jalur replay — sama seperti `mark_checkout_claim_paid` yang
+    -- memperlakukan order_id kosong sebagai bukan order. Nol perubahan signature.
+    -- ponytail: `created` tanpa order_id TIDAK digrant ulang di bawah (status itu
+    -- MENGAKU ada order — melepasnya berarti mencetak order kedua). Kalau nanti
+    -- butuh invariant keras, tutup di tulis (CHECK order_id <> '') — itu keputusan
+    -- ops kalau baris '' sudah telanjur ada di DB.
+    -- Whitespace TIDAK dinormalisasi di sini dengan sengaja: baris warisan
+    -- ber-`order_id` `'   '` yang link-nya masih hidup harus tetap dianggap
+    -- "punya order" (normalisasi justru MELEPAS kunci di belakang link hidup).
+    -- Normalisasi whitespace ada di jalur TULIS, tempat baris itu lahir.
     v_existing.order_id := NULLIF(v_existing.order_id, '');
 
     -- W4RX4 T2: order yang SUDAH LUNAS tidak pernah boleh menerima link bayarnya
@@ -624,7 +627,14 @@ BEGIN
     -- F-W4-1b (baris `failed` dari retire versi LAMA, sebelum state cancel ada):
     -- kunci ini tetap milik order itu — grant ulang akan mencetak order KEDUA
     -- untuk kunci yang sama padahal order pertama belum dibayar.
-    IF v_existing.order_id IS NOT NULL THEN
+    -- C-3 (kartu t_bd4781a6): "punya order" = nomor bisnis ATAU `payment_url`. Link
+    -- Scalev yang masih hidup juga order yang masih bisa dibayar: melepas baris
+    -- ber-order_id kosong tapi ber-link hidup = kedua kalinya pelanggan ditawari
+    -- bayar (link lama hidup + order baru) ⇒ kerja refund. Baris seperti itu bisa
+    -- datang dari RPC langsung / baris warisan (jalur tulisnya kini menolak
+    -- order_id kosong), jadi penjaganya ada di BACA, di satu-satunya tempat yang
+    -- menjawab replay.
+    IF v_existing.order_id IS NOT NULL OR COALESCE(v_existing.payment_url, '') <> '' THEN
       RETURN json_build_object(
         'status', 'already_created',
         'claim_id', v_existing.id,
@@ -793,6 +803,17 @@ SECURITY INVOKER
 SET search_path = public
 AS $function$
 BEGIN
+  -- C-4 (kartu t_bd4781a6): nomor order kosong / whitespace-only BUKAN order.
+  -- Menerimanya (dulu mungkin: RPC langsung) melahirkan baris `created`/`failed`
+  -- ber-order_id kosong — sumber kebuntuan kunci (C-2), penipuan penjaga "punya
+  -- order" (C-3), dan order yang tak bisa dijodohkan webhook (join pakai
+  -- `order_id`). Preseden di file ini: `mark_checkout_claim_paid` menjawab
+  -- `invalid_order` untuk bentuk yang sama. Nol perubahan signature; pemanggil
+  -- (route) memperlakukan `invalid_order` = klaim tidak tersimpan ⇒ dilepas.
+  IF p_order_id IS NULL OR btrim(p_order_id) = '' THEN
+    RETURN json_build_object('status', 'invalid_order');
+  END IF;
+
   -- F-W4-1c: canonical UUID (`orderData.id`) disimpan di kolom SENDIRI. Nomor
   -- bisnis `p_order_id` tetap dipakai webhook untuk join; endpoint cancel hanya
   -- menerima canonical ID, jadi keduanya wajib ada.

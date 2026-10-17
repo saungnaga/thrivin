@@ -1,0 +1,195 @@
+BUKTI W4RX4 T3 FOLLOW-UP (C-3 + C-4) — kartu t_bd4781a6
+==============================================================================
+Kartu   : t_bd4781a6 (lanjutan t_ab1a3363 / delta-review Sentinel atas T3)
+Basis   : 0c2650a (feat/checkout-consent-gate-2026-10-15)
+Branch  : fix/w4rx4-t3c3-order-id-kosong
+Sumber  : ~/obsidian/kantor-ai/projects/thrivin/security/review-w4rx4-t3-delta-2026-10-17.md
+          (C-3 halaman S6, C-4 halaman S7/ATK-3, C-1 koreksi dokumen)
+Isolasi : worktree sendiri (node_modules symlink) — bukan worktree bersama
+          DB   thrivin_test_forge_t_bd4781a6_86326f
+          port base 41940 · tmp /tmp/thrivin-forge_t_bd4781a6_86326f
+          Nol staging, nol produksi, nol data pelanggan, nol kredensial.
+
+==============================================================================
+1. Masalah & pilihan desain (Opsi A + B; C ditolak)
+==============================================================================
+C-3: fix T3 (`NULLIF(order_id,'')`) menutup jalur baca di cabang `failed`, TAPI
+ikut melepas baris yang ORDER LAMANYA MASIH BISA DIBAYAR (`payment_url` hidup,
+sisa retire versi lama). Pra-fix `already_created`, pasca-T3 `granted` ⇒ route
+mencetak order KEDUA di belakang link lama (kelas T2/T5: bayar dobel + refund).
+C-4: `order_id='   '` (whitespace) tidak dinormalisasi (`NULLIF` hanya `''`).
+
+Dipakai DUA penjaga sekaligus, karena masing-masing menutup hal yang lain tidak:
+
+(1) Opsi B — BACA (`claim_checkout_order`, satu baris): "punya order" di cabang
+    `failed` jadi  `order_id IS NOT NULL OR COALESCE(payment_url,'') <> ''`.
+    Ini satu-satunya tempat yang bisa menutup C-3 untuk BARIS WARISAN (baris
+    yang sudah telanjur ada di DB). Wajib ada: bukti (i) di kartu ("failed +
+    payment_url hidup ⇒ tidak boleh cetak order kedua") tidak bisa dipenuhi
+    Opsi A sendirian — Opsi A mencegah baris BARU, bukan baris lama.
+
+(2) Opsi A — TULIS (`complete_checkout_claim`): `p_order_id` NULL / `''` /
+    whitespace-only ⇒ balas `invalid_order`, TIDAK menulis apa pun (preseden:
+    `mark_checkout_claim_paid`). Menutup C-2 (kunci buntu), C-4 (whitespace),
+    dan mencegah baris `''` lahir lagi di masa depan. Signature tetap
+    (`CREATE OR REPLACE`, argumen sama) ⇒ nol ALTER TABLE, nol keputusan ops.
+
+(3) Opsi C (CHECK `order_id <> ''`) DITOLAK, alasan sama seperti kartu T3:
+    butuh pembersihan data lama dulu = keputusan ops. Dengan (2), kelas baris
+    itu tidak lahir lagi; yang tersisa cukup dijaga di (1).
+
+Jalur app ikut disesuaikan (konsekuensi (2), bukan fitur baru):
+- `create-order`: `createdOrderId`/`canonicalOrderId` kini pakai `.trim()`, jadi
+  `order_id` whitespace diperlakukan seperti kosong → memakai pengenal kanonik
+  `id` (preseden fallback `order_id || id` yang sudah ada untuk `""`/null, C-5).
+  Tanpa ini, jawaban whitespace dari Scalev akan ditolak RPC dan nomor pelanggan
+  terkunci 10 menit (klaim `in_flight`) padahal ordernya sudah dicetak.
+- Backstop: kalau RPC tetap menjawab `invalid_order`, klaim DILEPAS (tidak
+  mengunci nomor) + dicatat di log. Setelah normalisasi di atas jalur ini tidak
+  bisa dijangkau lewat route — dinyatakan apa adanya, bukan diklaim sebagai
+  bukti serangan.
+
+SENGAJA TIDAK dinormalisasi di jalur BACA: `order_id` whitespace pada baris
+warisan tetap dianggap "punya order". Normalisasi whitespace di sana justru akan
+MELEPAS kunci di belakang link yang masih hidup (bentuk ATK-3) — yaitu
+memindahkan risiko uang, bukan menutupnya. Normalisasi whitespace ada di jalur
+TULIS, satu-satunya tempat baris itu bisa lahir.
+
+==============================================================================
+2. Yang berubah
+==============================================================================
+SQL (draf + salinan harness, byte-identik):
+  staging/schema-consent.sql                        (2 penjaga + komentar)
+  tests/harness/migrations/006-consent-gate.sql     (salinan; `diff` kosong)
+src:
+  src/lib/checkout-gate.ts                          `completeCheckoutClaim`
+                                                    mengembalikan status RPC
+  src/app/api/scalev/create-order/route.ts          trim pengenal + lepas klaim
+                                                    kalau RPC menolak
+tests:
+  tests/test-consent-gate-sql.mts                   +15 asersi (C-3/C-4/kontrol)
+  tests/test-consent-gate-e2e.mts                   +12 asersi (jalur app) +
+                                                    fixture T3 diperbaiki (§5)
+  tests/mock-scalev.mjs                             mode jawaban `ws_order_id`
+  tests/harness/w4t3c3-mutation.sh                  BARU (bukti negatif 2 leg,
+                                                    path per-worktree — C-7)
+docs:
+  docs/w4-rx4-t3-verification.txt                   koreksi C-1 (atribusi bukti)
+  docs/w4rx4-t3c3-verification.txt                  dokumen ini
+
+Nol perubahan: tabel/kolom/index, GRANT/REVOKE, signature fungsi, `.env`,
+kredensial, skema DB lain.
+
+==============================================================================
+3. Bukti positif (semua dijalankan sendiri, log di bawah)
+==============================================================================
+(a) Pohon pra-fix APA ADANYA (basis 0c2650a, SEBELUM asersi baru ditulis):
+    build 0 · lint 0 · SQL 155 PASS/0 FAIL · e2e 166 PASS/0 FAIL
+    ⇒ angka dasar sebelum kartu ini menyentuh apa pun.
+(b) RED (asersi baru masuk, src BELUM diubah): SQL 159 PASS/10 FAIL exit 1,
+    e2e 173 PASS/5 FAIL exit 1. Jawaban mentah yang membuktikan masalahnya:
+      SQL  C-3 granted  → {"status":"granted","claim_id":"…"}
+      e2e  C-3 mockOrderCount +1  (ORDER KEDUA benar-benar dicetak di Scalev)
+           → link baru https://thrivin.myscalev.com/pay/test_15_… padahal link
+             lama test_14_… masih bisa dibayar
+      SQL  C-4 `complete_checkout_claim(id,'',url)` → "completed" (menulis '')
+    Semua pra-syarat + asersi kontrol HIJAU di run ini ⇒ yang berubah hanya
+    jawaban untuk bentuk kosong, bukan urutan/efek samping.
+(c) GREEN pasca-fix: lint 0 · build FRESH (`.next` dihapus dulu) 0 ·
+    SQL 170 PASS/0 FAIL exit 0 · e2e 178 PASS/0 FAIL exit 0.
+(d) `tests/run-all.sh` penuh (build penuh, tanpa SKIP_BUILD): lihat §6.
+(e) `staging/schema-consent.sql` vs `tests/harness/migrations/006-consent-gate.sql`
+    byte-identik (diff kosong).
+(f) pg_proc pra vs pasca (diukur di DB harness ini, bukan dibaca dari diff):
+      claim_checkout_order(text,integer[],text,text,text,integer,varchar)
+        pronargs=7  acl=postgres=X/postgres;service_role=X/postgres   (pra & pasca)
+      complete_checkout_claim(uuid,text,text,integer,text)
+        pronargs=5  acl=postgres=X/postgres;service_role=X/postgres   (pra & pasca)
+      mark_checkout_claim_paid / release_checkout_claim: identik pra & pasca
+    Satu-satunya perbedaan = `md5(prosrc)` dua fungsi yang memang diubah.
+    Nol `anon`, nol `authenticated`, nol `PUBLIC` di ACL mana pun (fungsi lain
+    di file itu juga tidak berubah). Log: pgproc-pre.txt / pgproc-post.txt.
+
+==============================================================================
+4. Bukti negatif (mutasi satu hal; bukan revert commit)
+==============================================================================
+Reproduksi: `bash tests/harness/w4t3c3-mutation.sh`  (log: mutation.log)
+Leg 1 = penjaga BACA C-3 dibuang (satu klausa OR). Leg 2 = penjaga TULIS C-4
+dibuang (satu blok IF). Tiap leg: seed ulang + suite dijalankan; sesudahnya file
+dipulihkan (trap EXIT) dan hijau dibuktikan ulang.
+
+Leg 1 (baca C-3 hilang):
+  SQL 167 PASS / 3 FAIL exit 1 — C-3 granted (bukan already_created) + link
+  lama tidak dikembalikan.
+  e2e 175 PASS / 3 FAIL exit 1 — nol order kedua expected, dapat 1 (mock Scalev
+  menerima order BARU), jawaban bukan replay, link yang dikembalikan link baru.
+Leg 2 (tulis C-4 hilang):
+  SQL 165 PASS / 5 FAIL exit 1 — '' ⇒ "completed" (bukan invalid_order),
+  whitespace/NULL ⇒ not_found (baris sudah telanjur 'created' dengan ''),
+  baris menyimpan '' bukan NULL, status 'created' bukan 'in_flight'.
+  Asersi "order_id sah tetap completed" TETAP HIJAU di leg ini ⇒ penjaga tidak
+  menyentuh jalur normal (bukan efek urutan).
+Pulih: SQL 170 PASS/0 FAIL, e2e 178 PASS/0 FAIL; `git status` file SQL bersih
+dari sisa mutasi (hanya berisi perubahan ber-fix kartu ini).
+
+==============================================================================
+5. Fixture T3 e2e yang diperbaiki (disclosure)
+==============================================================================
+Fixture T3 di `tests/test-consent-gate-e2e.mts` menyemai baris "order yang TIDAK
+pernah ada" dengan `status='failed', order_id='', scalev_order_uuid=NULL` —
+TAPI `payment_url` dibiarkan terisi (order pertama memang benar-benar dicetak
+sebelum baris itu disemai). Bentuk itu persis baris C-3 (S6), bukan premisnya
+sendiri, dan dulu ia lulus karena T3 melepas baris ber-link hidup.
+Fixture-nya sekarang mengosongkan `payment_url` juga (sesuai premis "Scalev balas
+tanpa order_id ⇒ tidak ada order"), dan bentuk ber-link-hidup pindah ke asersi
+C-3 (§3b) yang memang mengujinya. Ini bukan pelonggaran: satu bentuk baris, satu
+asersi — dan `payment_url` yang tertinggal itu justru yang membuat C-3 ketemu.
+
+==============================================================================
+6. run-all.sh penuh (pasca-fix, build tanpa SKIP_BUILD)
+==============================================================================
+`bash tests/run-all.sh` exit 0 — **ALL SUITES PASSED**:
+  unit gate 44/0 · cancel units 27/0 · harness isolation 14/0 ·
+  SQL gate 170/0 · e2e gate 178/0 · cancel TTL e2e 86/0
+Log: runall.log (`worktree: forge_t_bd4781a6_86326f  db:
+thrivin_test_forge_t_bd4781a6_86326f  port base: 41940`).
+
+==============================================================================
+7. Batas jujur & yang TIDAK ditutup
+==============================================================================
+- Backstop `invalid_order` di route: setelah normalisasi `.trim()` di jalur yang
+  sama, route tidak bisa lagi mengirim order_id kosong ke RPC ⇒ cabang itu hanya
+  penjaga (kalau kena, ada bentuk jawaban Scalev yang belum dikenal dan itu
+  muncul di log). Diuji di level RPC (SQL suite) + ACL/DB, BUKAN lewat serangan
+  jalur app — dinyatakan apa adanya.
+- C-2 (residual): baris WARISAN `created` + `order_id` kosong masih menjawab
+  `already_created` untuk kunci yang sama (sengaja: `created` mengaku ada order;
+  melepasnya = mencetak order kedua). Kartu ini menutup SUMBERNYA (jalur tulis
+  menolak), bukan membersihkan baris lama — pembersihan = keputusan ops.
+- C-5 (route memakai `orderData.id` sebagai `order_id` ⇒ webhook `mark_…paid`
+  join meleset) TIDAK disentuh; kartu follow-up terpisah. Kartu ini hanya
+  menambah `.trim()` pada fallback yang sudah ada.
+- Baris warisan `order_id` whitespace TETAP dianggap "punya order" (diukur
+  benign oleh Sentinel; dibahas di §1).
+- `staging/schema-consent.sql` masih DRAFT; belum di-apply ke staging/produksi.
+  Jalur uang ⇒ WAJIB delta-review Sentinel sebelum merge/deploy.
+
+==============================================================================
+8. Reproduksi
+==============================================================================
+```bash
+cd ~/workspaces/thrivin/forge-t_bd4781a6
+set -a; . ~/t_bd4781a6-evidence/env.sh; set +a    # DB/port/tmp unik worktree ini
+npm run lint && npm run build
+bash tests/harness/seed.sh --fresh
+node --experimental-strip-types tests/test-consent-gate-sql.mts   # 170 PASS / 0 FAIL
+node --experimental-strip-types tests/test-consent-gate-e2e.mts   # 178 PASS / 0 FAIL
+bash tests/run-all.sh                                             # ALL SUITES PASSED
+bash tests/harness/w4t3c3-mutation.sh                             # 167/3 + 175/3, 165/5, pulih 170/0 + 178/0
+
+# pra-fix (basis 0c2650a, TANPA asersi baru): SQL 155/0, e2e 166/0
+# RED (asersi baru, src pra-fix): SQL 159/10 FAIL, e2e 173/5 FAIL
+# pg_proc pra vs pasca: pgproc-pre.txt / pgproc-post.txt
+```
+Log mentah: `/home/ubuntu/t_bd4781a6-evidence/` (disalin ke lampiran kartu).
+

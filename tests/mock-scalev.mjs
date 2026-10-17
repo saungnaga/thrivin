@@ -80,6 +80,24 @@ function cancelMode() {
   }
 }
 
+/**
+ * C-4 (kartu t_bd4781a6): bentuk jawaban POST /orders. `ok` (default) = jawaban
+ * normal; `ws_order_id` = Scalev membalas 200 dengan `order_id` WHITESPACE dan
+ * `id` uuid. Sama seperti CANCEL_MODE_FILE: dibaca per request dari file supaya
+ * suite bisa mengubah bentuk jawaban tanpa me-restart mock, dan mode jelek itu
+ * satu-satunya cara assertion C-4 bisa gagal.
+ */
+const ORDER_MODE_FILE =
+  process.env.MOCK_SCALEV_ORDER_MODE_FILE ||
+  path.join(os.tmpdir(), `thrivin-mock-order-mode-${process.pid}.txt`);
+function orderMode() {
+  try {
+    return fs.readFileSync(ORDER_MODE_FILE, "utf-8").trim() || "ok";
+  } catch {
+    return "ok";
+  }
+}
+
 function persistCalls() {
   writeAtomic(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
 }
@@ -154,7 +172,9 @@ const server = http.createServer(async (req, res) => {
 
       return send(res, 200, {
         id: `uuid_${orderId}`,
-        order_id: orderId,
+        // C-4: mode whitespace — nomor bisnis tidak bisa dipakai join/track,
+        // pengenal kanonik `id` tetap ada (bentuk yang ditemui Sentinel ATK-3).
+        order_id: orderMode() === "ws_order_id" ? "   " : orderId,
         public_order_url: `https://thrivin.myscalev.com/orders/${orderId}`,
         pg_payment_info: { payment_url: `https://thrivin.myscalev.com/pay/${orderId}` },
         gross_revenue: gross,

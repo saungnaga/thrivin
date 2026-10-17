@@ -607,7 +607,14 @@ export async function POST(req: Request) {
       }
     }
 
-    const createdOrderId = orderData.order_id || orderData.id || null;
+    // C-4 (kartu t_bd4781a6): `order_id`/`id` whitespace-only BUKAN pengenal —
+    // perlakukan seperti kosong, sama seperti fallback `order_id || id` yang sudah
+    // ada untuk `""`/null. Kalau tidak, klaim akan menyimpan nomor order kosong:
+    // jalur tulis DB sekarang menolaknya (`invalid_order`) dan baris itu jadi
+    // baris warisan yang nyangkut (C-2/C-3).
+    const createdOrderId =
+      String(orderData.order_id ?? "").trim() || String(orderData.id ?? "").trim() || null;
+    const canonicalOrderId = String(orderData.id ?? "").trim() || null;
 
     // Ikat reservasi promo ke order supaya webhook pembayaran bisa
     // meng-consume-nya (dan menegakkan 1x per nomor).
@@ -653,15 +660,28 @@ export async function POST(req: Request) {
     // nomor ini terkunci 10 menit oleh klaim yang tidak pernah ada ordernya.
     if (activeClaimId) {
       if (createdOrderId) {
-        await completeCheckoutClaim(
+        const closed = await completeCheckoutClaim(
           activeClaimId,
           String(createdOrderId),
           paymentUrl,
           Number(orderData.gross_revenue ?? targetAmount),
           // F-W4-1c: canonical UUID disimpan terpisah dari nomor bisnis. Endpoint
           // cancel hanya menerima yang ini; webhook tetap join ke `order_id`.
-          orderData.id ? String(orderData.id) : null
+          canonicalOrderId
         );
+        if (closed?.status === "invalid_order") {
+          // Backstop C-4: RPC menolak menulis nomor order kosong, jadi tidak ada
+          // yang tersimpan. Klaim tidak boleh tinggal `in_flight` (nomor terkunci
+          // sampai TTL) — dilepas, sama seperti jalur "Scalev 200 tanpa order_id".
+          // Route sudah menormalkan `order_id` di atas, jadi jalur ini hanya
+          // penjaga; kalau sampai kena, ada bentuk jawaban Scalev yang belum
+          // dikenal dan itu harus kelihatan di log.
+          console.error(
+            "[checkout-gate] RPC menolak order_id kosong — klaim dilepas:",
+            JSON.stringify({ orderId: orderData.order_id, uuid: orderData.id })
+          );
+          await releaseCheckoutClaim(activeClaimId);
+        }
       } else {
         console.error("[checkout-gate] Scalev 200 tanpa order_id — klaim dilepas");
         await releaseCheckoutClaim(activeClaimId);

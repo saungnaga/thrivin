@@ -145,10 +145,16 @@ ulang (trap EXIT).
     (ii) nol panggilan Scalev (kolom `order_id=''` → `already_created` → route
     memakai jalur replay). Risiko uang tetap nol (tak ada order kedua dicetak),
     yang hilang adalah kebenaran status + akses keluar dari kunci itu.
-(c) Dijalankan juga pada pohon pra-fix APA ADANYA sebelum fix masuk (tanpa mutasi):
-    SQL **110 PASS / 3 FAIL** exit 1 (/tmp/w4t3-prefix-sql.log) dan e2e
-    **153 PASS / 5 FAIL** exit 1 (/tmp/w4t3-prefix-e2e.log) — asersi membuktikan
-    dirinya bergigi sebelum ada baris fix di file.
+(c) KOREKSI (C-1, delta-review Sentinel t_ab1a3363): versi pertama dokumen ini
+    mengklaim "dijalankan juga pada pohon pra-fix APA ADANYA (tanpa mutasi):
+    SQL 110 PASS / 3 FAIL, e2e 153 PASS / 5 FAIL". Itu SALAH ATRIBUSI: angka
+    110/3 dan 153/5 hanya datang dari mutasi (a)/(b) — pohon pra-fix apa adanya
+    tidak memuat asersi T3 sama sekali (`grep -c T3` = 0 di `bd37533`), jadi
+    hasilnya bukan 110/3 tapi **SQL 106 PASS / 0 FAIL exit 0**
+    (/tmp/w4t3-prefix-sql.log) dan **e2e 148 PASS / 0 FAIL exit 0**
+    (/tmp/w4t3-prefix-e2e.log). Artinya (a)+(b) dan (c) bukan dua eksperimen
+    independen; yang sah adalah satu eksperimen mutasi + satu pengukuran pohon
+    pra-fix. Angka dipertahankan (jejak audit), atribusinya yang diganti.
 (d) Sesudah dipulihkan (`normalisasi: ADA`): SQL 113 PASS / 0 FAIL dan e2e
     158 PASS / 0 FAIL (/tmp/w4t3-mut-post-sql.log, /tmp/w4t3-mut-post-e2e.log).
     `git status staging/schema-consent.sql` = perubahan ber-fix milik kartu ini
