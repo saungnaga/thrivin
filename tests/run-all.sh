@@ -37,13 +37,13 @@ if command -v flock >/dev/null; then
 fi
 
 echo "=============================================================="
-echo "1/11 harness: local Postgres stand-in + mock Scalev"
+echo "1/12 harness: local Postgres stand-in + mock Scalev"
 echo "=============================================================="
 bash "$HERE/harness/seed.sh"
 
 echo
 echo "=============================================================="
-echo "2/11 unit checks (pure helpers)"
+echo "2/12 unit checks (pure helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-remediation-units.mts"
 node --experimental-strip-types "$HERE/test-wa-first-units.mts"
@@ -62,8 +62,9 @@ node --experimental-strip-types "$HERE/test-legal-draft-shape.mts"
 node --experimental-strip-types "$HERE/test-feedback-units.mts"
 
 echo
+echo
 echo "=============================================================="
-echo "2b/11 copy checks (W1: pricing claims, promo label, guarantee)"
+echo "2b/12 copy checks (W1: pricing claims, promo label, guarantee)"
 echo "     source-level: COPY_ROOT=<tree> reruns against another revision"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-web-copy-units.mts"
@@ -71,34 +72,33 @@ node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
 
 echo
 echo "=============================================================="
-echo "2c/11 copy check, tree-wide (W1: retired price claims + promo gates)"
+echo "2c/12 copy check, tree-wide (W1: retired price claims + promo gates)"
 echo "     walks every shipped file, so new components are covered too"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-web-copy-treewide.mts"
 
-echo
 echo "=============================================================="
-echo "3/11 guard checks (existing redaction/replay helpers)"
+echo "3/12 guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"
 
 echo
 echo "=============================================================="
-echo "4/11 promo SQL: atomic redeem, kuota, kedaluwarsa, race"
+echo "4/12 promo SQL: atomic redeem, kuota, kedaluwarsa, race"
 echo "    (own throwaway DB — redeems fired from parallel psql conns)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-promo-sql.mts"
 
 echo
 echo "=============================================================="
-echo "5/11 consent/checkout gate SQL: urutan, idempotensi, append-only,"
+echo "5/12 consent/checkout gate SQL: urutan, idempotensi, append-only,"
 echo "     single-flight klaim, hak akses anon"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-consent-gate-sql.mts"
 
 echo
 echo "=============================================================="
-echo "6/11 end-to-end: webhook routes -> PostgREST -> Postgres"
+echo "6/12 end-to-end: webhook routes -> PostgREST -> Postgres"
 echo "=============================================================="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo ">> next build"
@@ -109,31 +109,38 @@ node --experimental-strip-types "$HERE/test-webhook-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "7/11 end-to-end: promo (dashboard auth/CRUD + checkout + webhook)"
+echo "7/12 end-to-end: promo (dashboard auth/CRUD + checkout + webhook)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-promo-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "8/11 end-to-end: WA-first identity (OTP mock) + status + kandidat promo"
+echo "8/12 end-to-end: WA-first identity (OTP mock) + status + kandidat promo"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-wa-first-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "9/11 end-to-end: checkout gate + consent (T&C wajib, opt-in terpisah)"
+echo "9/12 end-to-end: checkout gate + consent (T&C wajib, opt-in terpisah)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-consent-gate-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "10/11 end-to-end: cancel order Scalev saat TTL retire (F-W4-1c)"
+echo "10/12 end-to-end: cancel order Scalev saat TTL retire (F-W4-1c)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-cancel-ttl-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "11/11 end-to-end: /api/feedback + /companion/nina/kritiksaran (A8)"
+echo "11/12 ACL objek yang lahir dari DROP+CREATE (C-6, kartu t_f05112a7)"
+echo "     (seed.sh --fresh + seed.sh kedua; DB ditinggal baru)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-webhook-purge-acl.mts"
+
+echo
+echo "=============================================================="
+echo "12/12 end-to-end: /api/feedback + /companion/nina/kritiksaran (A8)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-feedback-e2e.mts"
 

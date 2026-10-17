@@ -1,0 +1,614 @@
+# W4 — Gate completion checkout server-side + consent T&C/opt-in + publish `/terms`
+
+**Kartu:** `t_f5ec336c` (root `t_fdba2939`) · **Assignee:** Forge · **Tanggal:** 2026-10-16 (r3 2026-10-17)
+**Status:** ✅ implementasi + suite hijau (`run-all.sh` 3× berturut) · ✅ migrasi consent
+**di-apply ke STAGING** (batch, bukan produksi) + readback · ✅ **F-W4-1 opsi (a)** diimplementasi ·
+⛔ **review-required (delta-review 3, Sentinel)** · **belum merge / belum deploy produksi** ·
+base kerja **`9392cdd`** (RC) + W3 head `e01a27a`
+
+---
+
+## 1. Ringkas
+
+Tiga hal dikerjakan di kartu ini:
+
+- **A2 — completion punya rumah di server.** Sebelum ini "selesai" hanya berarti
+  `localStorage` di browser dan `create-order` menerima `onboarding` / `amount` /
+  `planName` / `customerName` dari body (S0 B-5, B-2). Sekarang langkah 2–8 disimpan
+  server-side per nomor sesi, dan `create-order` memutuskan kelengkapan **sebelum**
+  efek samping eksternal apa pun. Gate gagal ⇒ nol panggilan Scalev, nol order, nol
+  sukses palsu.
+- **A7 — dua persetujuan terpisah, disimpan sebelum popup bayar.** T&C wajib, opt-in
+  pengingat opsional; dua checkbox mulai tidak tercentang; gagal simpan ⇒ tidak lanjut
+  bayar. Status efektif di `users.*`, bukti append-only di `consent_events`.
+- **A6 — publikasi teks yang sudah disetujui owner (ACC 16/10).** `/terms` + delta
+  `/privacy` + link dari footer, halaman checkout, dan sitemap.
+
+Tidak ada data pelanggan yang disentuh, tidak ada Scalev nyata (mock lokal), tidak ada
+outbound WhatsApp, tidak ada push/merge ke `main`, tidak ada deploy produksi. Migrasi consent
+**sudah di-apply ke staging** (batch, readback §6c) atas perintah operator batch.
+
+## 2. Base kerja & workspace
+
+| Hal | Nilai |
+|---|---|
+| Base wajib (kontrak S0) | `9392cdd` (`release/rc-integration-2026-10-13`) — **bukan** `origin/main` |
+| Ditumpuk di atas | W3 head `e01a27a` (`feat/wa-first-2026-10-15`) — sesi WA HMAC yang dipakai gate |
+| Branch | `feat/checkout-consent-gate-2026-10-15` |
+| Worktree | `/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate` (worktree bersama tidak diubah) |
+| Kontrak | `batch-2026-10-15/s0-security/integration-contract.md` §2 (completion) + §3 (consent) |
+
+## 3. Yang dibangun
+
+### Server (baru)
+
+| Berkas | Isi |
+|---|---|
+| `src/lib/onboarding-steps.ts` | Definisi langkah wajib 2–8 + validasi per langkah + perakitan profil dari data tersimpan. Validasi memakai konstanta `validate-onboarding.ts` (satu sumber aturan). |
+| `src/lib/checkout-gate.ts` | Pembungkus RPC: `save_onboarding_step`, baca `onboarding_progress`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`, plus `authoritativeProfile()` (nomor profil wajib = nomor sesi). |
+| `src/lib/consent.ts` | Penulisan consent di server: T&C wajib, `reminderOptIn=false` **tetap disimpan**, versi teks tak dikenal ditolak, timestamp dari `now()` RPC. Tanpa store ⇒ **fail closed**. |
+| `src/lib/legal.ts` | Fakta + versi dokumen (owner ACC 16/10): entitas, CS WA `6287788141388` 09.00–21.00 WIB, yurisdiksi Indonesia, retensi, `TERMS_VERSION=terms-2026-10-15-v1`. Tanpa impor Node supaya bisa dipakai komponen klien. |
+| `src/app/api/onboarding/progress/route.ts` | Simpan SATU langkah per nomor sesi; langkah 8 dengan nomor ≠ sesi ⇒ 409 `SESSION_PHONE_MISMATCH`; isi langkah tidak valid ⇒ 400 `INVALID_STEP_DATA`. |
+| `src/app/api/consent/route.ts` | Simpan consent (identitas dari cookie sesi, nomor body diabaikan); `termsAccepted !== true` ⇒ 400; tanpa sesi ⇒ 401. |
+| `staging/schema-consent.sql` | **Draft → ✅ di-apply ke staging (batch) ronde 3**: kolom `users.opt_in`/`opted_out`, tabel `consent_events` (append-only via trigger; unique idempotensi; status efektif = event terbaru; opt-out menang saat seri), `onboarding_progress`, `checkout_claims` (+ `paid_at`, unique parsial in-flight per nomor, reuse/blokir F-W4-1), RPC `record_consent_event`, `record_checkout_consent`, `save_onboarding_step`, `claim_checkout_order`, `complete_checkout_claim`, `release_checkout_claim`, `mark_checkout_claim_paid`, `purge_expired_onboarding_progress`. Semua `SECURITY INVOKER`, `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT` hanya `service_role`. Idempotent. |
+
+### Server (diubah)
+
+`src/app/api/scalev/create-order/route.ts` — urutan baru, semuanya **sebelum** Scalev:
+
+1. kunci idempotensi wajib (≥8 char) ⇒ 400 `IDEMPOTENCY_KEY_REQUIRED`;
+2. sesi WA wajib ⇒ 401 `SESSION_REQUIRED`; nomor body ≠ nomor sesi ⇒ 403 `PHONE_SESSION_MISMATCH`;
+3. `claim_checkout_order` (atomik) ⇒ `incomplete_onboarding` 400 · `consent_required` 400 ·
+   `in_flight` 409 · `error` 503 `GATE_UNAVAILABLE` · `already_created` ⇒ **200 replay**
+   (order yang sama, tanpa panggilan Scalev kedua);
+4. profil otoritatif dirakit dari langkah tersimpan + divalidasi ulang (400 `INVALID_ONBOARDING`);
+5. harga/paket dari katalog & variant server (`resolvePlanPrice`, `lookupVariant`);
+   `body.amount` / `body.planName` / `body.onboarding` / `body.customerName` **diabaikan**.
+
+### UI
+
+`src/app/companion/nina/onboarding/[step]/page.tsx` — dua checkbox terpisah
+(`consent-terms`, `consent-reminder`) mulai **tidak** tercentang, label eksplisit +
+`aria-describedby` + focus ring, tombol bayar `disabled` sampai T&C dicentang;
+`/api/consent` dikirim **sebelum** `/api/scalev/create-order`; langkah 2–8 dikirim ke
+`/api/onboarding/progress` (peringatan bila gagal — gate server tetap yang menentukan);
+`checkoutKeyRef` = satu kunci per halaman supaya klik ganda = replay.
+
+Publikasi A6: `src/app/terms/page.tsx` (baru), `src/app/privacy/page.tsx` (delta
+disetujui), `src/components/Footer.tsx` + `src/app/sitemap.ts` (link `/terms`).
+
+## 4. Kepatuhan ke kontrak S0 (yang paling mudah dilanggar)
+
+| Aturan §2/§3 | Implementasi | Bukti uji |
+|---|---|---|
+| Completion dari data server, bukan body | kelengkapan dibaca dari `onboarding_progress`; `body.onboarding` tidak pernah dibaca | `langkah belum lengkap ⇒ 400`, `data tersimpan tidak valid ⇒ 400`, `nol panggilan order ke Scalev pada semua kegagalan gate` |
+| Harga/paket tidak dari client | `PLAN_CATALOG` + variant server | `total yang akan ditagih = harga katalog server (bukan angka klien)`, `body klien tidak bocor ke Scalev` |
+| Race & replay | klaim single-flight per kunci; replay mengembalikan order SAMA | `tiga permintaan paralel dengan kunci sama ⇒ satu order`, `replay mengembalikan order_id SAMA`, `replay TIDAK membuat order baru` |
+| Versi/expiry/session binding | T&C versi wajib tersimpan; sesi HMAC (cookie & secret terpisah dari admin) | `belum ada consent T&C ⇒ 400`, `sesi kedaluwarsa ⇒ 401`, `sesi dipalsukan ⇒ 401 (fail closed)` |
+| Allowlist admin tidak mem-bypass | gate tidak pernah melihat `NINA_ADMIN_PHONES` | `nomor allowlist admin tetap kena gate` |
+| Dua consent terpisah, awal kosong | `useState(false)` ×2, `htmlFor`/`aria-describedby` | 13 check markup + `tidak ada checkbox yang di-precheck` |
+| `opt_in=false` tetap tersimpan & tidak menghalangi bayar | `p_reminder_value=false` ditulis; checkout pada nomor itu tetap 200 | `pengingat ditolak ⇒ opt_in false`, `menolak pengingat BUKAN opt-out`, `nilai false tetap disimpan sebagai baris`, `checkout sah ⇒ 200` |
+| Opt-out menang; retry lama tidak menyalakan ulang | trigger + status dari event terbaru | `setelah BERHENTI ⇒ opted_out true`, `retry lama (occurred_at lebih tua) tidak menyalakan opt_in`, `opt-out tetap menang`, `replay kunci lama (idempotent) tidak menghapus opt-out` |
+| Gagal simpan ⇒ tidak ada sukses palsu | `/api/consent` non-200 ⇒ UI berhenti sebelum order | `store consent tak tersedia ⇒ 503`, `gate tidak bisa diverifikasi ⇒ 5xx (tidak lanjut)`, `T&C tidak dicentang ⇒ 400 (bukan cuma tombol mati)`, `consent tanpa sesi ⇒ 401` |
+| Bukti append-only | trigger menolak UPDATE/DELETE | `append-only: UPDATE/DELETE ditolak trigger` |
+| Least privilege | `REVOKE` anon/authenticated + `GRANT` service_role; harness meniru default privilege Supabase | `anon/authenticated ditolak` (SQL suite) |
+
+## 5. Regresi yang ditemukan & diperbaiki di kartu ini (jalur uang)
+
+1. **Klaim gate tidak dilepas saat promo ditolak (BUG, ditemukan oleh suite).**
+   `/api/scalev/create-order` jalur `PROMO_*` (kuota habis / kode sudah dipakai / nomor
+   sudah pakai) mengembalikan 400 **tanpa** melepas klaim `in_flight` → nomor pelanggan
+   terkunci `TTL` 10 menit: checkout ulang dijawab 409 `ORDER_IN_FLIGHT` padahal tidak ada
+   order apa pun. Akar: klaim diambil sebelum klaim kuota promo, dan jalur tolak itu lupa
+   melepas. Fix + 2 asersi regresi di `tests/test-promo-e2e.mts`.
+2. **Scalev 200 tanpa `order_id`** meninggalkan klaim `in_flight` selamanya (nomor terkunci).
+   Sekarang: klaim **dilepas** + log error (bukan diam-diam mengunci).
+3. **Asersi race lama flaky.** "Dua kunci berbeda paralel untuk satu nomor ⇒ satu order"
+   kadang 1, kadang 2 order: klaim in-flight hanya menahan permintaan yang benar-benar
+   bersamaan, sedangkan kunci **baru** memang percobaan beli baru (perilaku itu diuji
+   eksplisit di kasus "pembelian ulang" di suite yang sama). Diganti asersi invariant yang
+   benar-benar dijamin (≥1 × 409 dari klaim in-flight; tidak semua permintaan mencetak
+   order) pada 4 permintaan paralel, dan celahnya ditulis sebagai temuan **F-W4-1**.
+
+## 6. Hasil suite (dijalankan nyata) + bukti negatif
+
+### Gate penuh, `bash tests/run-all.sh` → **ALL SUITES PASSED** (exit 0)
+
+| Suite | Hasil (ronde 3) |
+|---|---|
+| unit remediation | 27/27 |
+| unit WA-first | 16/16 |
+| **unit consent/checkout** | **44/44** |
+| **legal draft shape** | **121/121** (kini assert persis 1 placeholder alamat di legal.ts, 0 di templates) |
+| promo SQL (redeem atomik/kuota/race) | 44/44 |
+| **consent/checkout SQL** | **64/64** (+20 asersi F-W4-1; sudah termasuk anon INSERT/UPDATE, key_conflict, tie-break, purge) |
+| webhook e2e | 61/61 (+3: webhook → `paid_at`) |
+| promo e2e | 116/116 (F-S2 invariant race diperbaiki + asersi F-W4-1 pada retry) |
+| WA-first e2e | 136/136 |
+| **consent/checkout e2e** | **128/128** (+18: F-W4-1(a) reuse/409/TTL/pembelian ulang setelah lunas) |
+
+Log: `bash tests/run-all.sh` **ALL SUITES PASSED 3× berturut-turut** di salinan bersih
+(`/tmp/w4f1-runall-1..3.log`, ringkasan `/tmp/w4f1-runall3.out`), DB & port terisolasi per run
+(`HARNESS_PG_DB=thrivin_w4f1`, postgrest 54641/54642, app/mock unik) — sesuai catatan
+operasional Sentinel (RX2-2) supaya run paralel tidak saling mengontaminasi.
+
+## 6b. Remediasi Delta-Review Sentinel Ronde 1 (t_07db887d / F-S1–S8)
+
+1. **F-S1 — SYARAT WAJIB (Jalur Uang, ditutup):**
+   - Lookup replay dan reuse baris failed pada `claim_checkout_order` kini di-scope ketat: jika kunci ditemukan tetapi `phone <> p_phone`, RPC mengembalikan status `key_conflict`.
+   - Di `src/app/api/scalev/create-order/route.ts`, status `key_conflict` menghasilkan respons HTTP **409 `IDEMPOTENCY_KEY_CONFLICT`** tanpa mengembalikan `orderId` atau `paymentUrl`.
+   - Bukti repro disediakan di `tests/test-probe-cross-phone.mts`: Pelanggan A buat order -> 200; Pelanggan B (sesi valid milik B) kirim kunci A -> 409 `IDEMPOTENCY_KEY_CONFLICT` (0 data bocor); Kontrol B dengan kunci baru -> 400 `INCOMPLETE_ONBOARDING`.
+   - Diuji juga di level SQL (`test-consent-gate-sql.mts`) dan e2e route (`test-consent-gate-e2e.mts`).
+2. **F-S2 — Invariant Test Promo E2E:**
+   - Asersi `tests/test-promo-e2e.mts:835` diubah dari asumsi timing race kaku (`409 ORDER_IN_FLIGHT`) menjadi invariant yang benar-benar dijamin: tepat 1 pemenang, tepat 1 order, penolak tanpa orderId/paymentUrl, dan kode ∈ {`ORDER_IN_FLIGHT` (409), `PROMO_PENDING_ORDER` (400)}.
+   - Terbukti lulus stabil di seluruh run promo e2e.
+3. **F-S3 — Guard Placeholder Halaman Legal:**
+   - `tests/test-legal-draft-shape.mts` kini memeriksa bahwa template `page.tsx` bersih dari literal `«`, dan konstanta di `src/lib/legal.ts` memiliki tepat satu placeholder (yaitu `LEGAL_ADDRESS` yang menunggu keputusan owner sesuai ACC 16/10).
+   - `tests/test-consent-gate-e2e.mts` menguji HTML ter-render baik di `/terms` maupun `/privacy`, memastikan placeholder count ter-render tepat 1.
+4. **F-S4 — Retensi PII Onboarding ≤ 30 Hari & Purge:**
+   - Fungsi `purge_expired_onboarding_progress(p_retention_days INTEGER DEFAULT 30)` ditambahkan ke `staging/schema-consent.sql` dan `tests/harness/migrations/006-consent-gate.sql`.
+   - Menghapus data `onboarding_progress` dan `checkout_claims` lama (>30 hari) sesuai klausul 5 Kebijakan Privasi (/privacy).
+   - Didaftarkan ke `pg_cron` (bila ekstensi ada) dan dipanggil di `staging/purge-cron.sh`.
+   - Diuji fungsionalitasnya di `test-consent-gate-sql.mts`.
+5. **F-S5 — Hardening Grants & REVOKE Eksplisit:**
+   - Ditambahkan `REVOKE ALL ON TABLE consent_events, onboarding_progress, checkout_claims FROM PUBLIC, anon, authenticated;` di `staging/schema-consent.sql`.
+   - Ditambahkan probe negatif anon INSERT ke `consent_events`, anon INSERT ke `onboarding_progress`, dan anon UPDATE ke `checkout_claims` di `tests/test-consent-gate-sql.mts` (semua terbukti melempar permission denied).
+6. **F-S7 — Konsistensi Tie-Break T&C Gate (`false` Menang):**
+   - Query T&C gate di `claim_checkout_order` diubah dari `bool_or` menjadi `ORDER BY occurred_at DESC, (value = false) DESC, created_at DESC, id DESC LIMIT 1`. Jika ada dua event di timestamp identik (true & false), nilai `false` yang diambil (fail-closed, `consent_required`).
+   - Diuji kasus seri T&C di `tests/test-consent-gate-sql.mts`.
+7. **F-S8 — Isolasi & Harness Teardown:**
+   - `tests/test-consent-gate-sql.mts` kini secara otomatis memanggil `seed.sh` di awal run.
+   - `tests/harness/stack.mts` memastikan `startPostgrest()` hanya menganggap running bila status HTTP 200 (bukan 502/orphaned proxy).
+   - `tests/test-consent-gate-e2e.mts` menambahkan trap signal SIGINT/SIGTERM untuk memastikan mock Scalev dan server selalu di-kill saat exit.
+8. **F-W4-1 — Status Temuan Kunci Baru:**
+   - Menunggu keputusan pemilik (sedang diproses via Koron). Tidak diubah sepihak. Tetap fail-closed per satu kunci = satu order dan satu nomor tidak bisa cetak order bersamaan.
+
+### Bukti negatif (pra-fix GAGAL) — bukan klaim, ada log-nya
+
+| Mutasi | Suite | Hasil | Log |
+|---|---|---|---|
+| `create-order` dikembalikan ke versi pra-W4 (tanpa gate) | consent e2e | **74 PASS / 31 FAIL** (order tercetak tanpa sesi, tanpa consent, tanpa langkah) | `/tmp/w4-prefix-consent.log` |
+| Fix sendiri dimatikan (pelepasan klaim pada penolakan promo dihapus) | promo e2e | **113/115** — tepat 2 asersi baru GAGAL: `expected 200, got 409` dan `expected 0, got 1` (klaim in-flight tertinggal) | `/tmp/w4-prefix2-promo.log` |
+| Asersi race lama (timing) dijalankan 2× | consent e2e | 1× lulus, 1× GAGAL (`expected 1, got 2`) → dibuktikan flaky, lalu diganti | `/tmp/w4-runall3.log` §C |
+
+## 6c. Ronde 3 — F-W4-1 opsi (a) + apply migrasi consent ke STAGING (2026-10-17)
+
+**Keputusan owner (16/10, via Koron):** opsi (a) — *"iya kasih link bayar yang sama"*.
+Paket sama + masih ada order belum dibayar ⇒ kunci baru **dikembalikan ke order/link yang sama**;
+paket beda ⇒ blokir eksplisit; kunci sama dari nomor beda ⇒ tetap 409 `IDEMPOTENCY_KEY_CONFLICT`.
+
+### Commit ronde 3 (urutan + catatan bukti)
+
+| Commit | Isi |
+|---|---|
+| `4370e3e` | feat — F-W4-1(a): schema (`paid_at`, reuse/blokir, `mark_checkout_claim_paid`) + route + webhook |
+| `f73a281` | test — cakupan F-W4-1 + refresh ekspektasi promo/webhook |
+| `3f4c563` | docs — report/evidence ronde 3 |
+| `5ee68bf` | docs — bundel bukti mentah in-repo (`docs/w4-r3-verification.txt`) |
+
+`run-all.sh` 3× dan semua bukti negatif dijalankan pada **isi kode = `4370e3e` + `f73a281`**
+(commit docs sesudahnya tidak menyentuh kode/test). Head branch:
+`feat/checkout-consent-gate-2026-10-15` @ `5ee68bf` (di atas `0c61425`).
+
+### Perubahan DB (`staging/schema-consent.sql`, draft → di-apply ke staging)
+
+- Kolom baru `checkout_claims.paid_at TIMESTAMPTZ` — **satu-satunya** pembeda "order belum dibayar
+  yang masih hidup" dari riwayat lunas (pembelian ulang sah). Diisi jalur uang, tidak pernah klien.
+- `claim_checkout_order` (signature & grant **tidak berubah** ⇒ tidak ada overload PostgREST baru):
+  - langkah **3b**: klaim `created` yang belum dibayar & lebih tua dari **TTL 60 menit** dianggap
+    ditinggalkan (`status='failed'`) — supaya link yang ditinggalkan tidak menahan nomor selamanya;
+  - langkah **6**: nomor yang masih punya order belum dibayar ⇒ **paket sama** `reuse_unpaid`
+    (`order_id` + `payment_url` yang sama), **paket beda** `unpaid_conflict`;
+  - urutan gate TIDAK berubah: kunci/nomor (F-S1 `key_conflict`) → expire → langkah wajib → T&C →
+    **baru** reuse. Reuse tidak pernah melewati gate (diuji eksplisit: langkah wajib dihapus ⇒
+    tetap `incomplete_onboarding`).
+- RPC baru `mark_checkout_claim_paid(p_order_id, p_paid_at, p_tenant_id)` — idempotent
+  (`COALESCE(paid_at, …)`, retry webhook tidak menggeser timestamp pertama), `SECURITY INVOKER`,
+  `REVOKE` dari `PUBLIC, anon, authenticated`, `GRANT EXECUTE` hanya `service_role`.
+
+### Perubahan app
+
+- `src/lib/checkout-gate.ts` — `ClaimOutcome` + `reuse_unpaid` / `unpaid_conflict`;
+  tambahan `markCheckoutClaimPaid(orderId, paidAt?)` (best effort, tidak pernah melempar).
+- `src/app/api/scalev/create-order/route.ts` (jalur uang) — `reuse_unpaid` ⇒ **200**
+  `{orderId, paymentUrl, replay:true, unpaidOrderReused:true}` **tanpa panggilan Scalev**;
+  `unpaid_conflict` ⇒ **409 `UNPAID_ORDER_EXISTS`** tanpa `orderId`/`paymentUrl`
+  (tidak ada data order yang dibocorkan). Nomor != nomor body tetap 403, kunci milik nomor lain
+  tetap 409 `IDEMPOTENCY_KEY_CONFLICT`.
+- `src/app/api/scalev/webhook/route.ts` (jalur uang) — pada `payment.received`/`order.paid`
+  yang sudah lolos validasi status pembayaran & klaim inbox: `markCheckoutClaimPaid(orderUniqueId)`
+  (pola sama dengan `consume_promo_for_order`, tidak pernah melempar ke jalur webhook).
+
+### Suite yang berubah/tambah
+
+| Suite | Tambahan |
+|---|---|
+| `test-consent-gate-sql.mts` | bagian 10: `reuse_unpaid` (order/link sama, **tidak** ada baris klaim kedua), `unpaid_conflict` + tanpa `order_id`, F-S1 tetap `key_conflict`, `mark_checkout_claim_paid` idempotent + `not_found`, TTL 61 menit ⇒ boleh checkout baru + baris lama `failed`, reuse tidak mendahului gate, anon dilarang memanggil `mark_checkout_claim_paid` |
+| `test-consent-gate-e2e.mts` | bagian C2 (HTTP): reuse ⇒ 200 order/link SAMA & 0 order baru, paket beda ⇒ 409 `UNPAID_ORDER_EXISTS` tanpa data order, setelah dibayar ⇒ order baru, order ditinggalkan > TTL ⇒ boleh. Invariant "dua kunci berbeda paralel" diganti: **tepat satu** order, semua jawaban 200 ke order yang sama, sisanya 409 |
+| `test-webhook-e2e.mts` | webhook pembayaran mengisi `checkout_claims.paid_at` (bukan tes yang menulis); loop H-5 menandai lunas supaya percobaan berikutnya benar-benar mencetak order baru |
+| `test-promo-e2e.mts` | retry setelah pembatalan reservasi promo: kembali ke **order yang sama** (satu order), bukan order kedua |
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Mutasi | Suite | Hasil | Log |
+|---|---|---|---|
+| lookup order-belum-dibayar dimatikan (`LIMIT 1` → `LIMIT 0`) | consent/checkout SQL | **55 PASS / 10 FAIL** — reuse jadi `granted`, lahir baris klaim kedua, `unpaid_conflict` tidak pernah muncul | `/tmp/w4f1-neg-sql.log` |
+| sama (lewat HTTP) | consent/checkout e2e | **118 PASS / 10 FAIL** — terukur **dua order berbeda yang keduanya bisa dibayar** (`test_5_…` vs `test_6_…`) untuk satu nomor + satu paket | `/tmp/w4f1-neg-e2e.log` |
+
+Pasca-restore: SQL 64/64 · e2e 128/128 · `run-all.sh` **3× ALL SUITES PASSED** (exit 0).
+
+### Apply ke STAGING + readback (bukan produksi, bukan data pelanggan)
+
+- Metode: `POST https://api.supabase.com/v1/projects/<ref>/database/query` dengan token
+  **scoped staging** dari rak kredensial (`~/.hermes/secrets/staging/supabase.env`); isi file
+  `staging/schema-consent.sql` dikirim apa adanya (idempotent). Tidak ada kredensial yang dicetak.
+- **Sebelum apply (readback):** `consent_events` / `onboarding_progress` / `checkout_claims`
+  **belum ada** di staging (migrasi memang belum pernah di-apply).
+- **Sesudah apply (readback):** 3 tabel ada; `users.opt_in`/`opted_out` (boolean, default false,
+  `NOT NULL`); `checkout_claims.paid_at` ada; 8 index termasuk `uq_checkout_claims_idempotency`,
+  `uq_checkout_claims_inflight_phone`, `uq_onboarding_progress_phone`,
+  `idx_consent_events_phone_type_time`; 10 RPC (`claim_checkout_order` **tepat satu** overload
+  7-arg, `mark_checkout_claim_paid` 3-arg, `purge_expired_onboarding_progress`,
+  `consent_state_for_phone`, …); `trg_consent_events_append_only` aktif; RLS aktif di 3 tabel +
+  policy `deny_client_access_*`; hak akses: `anon` **tidak** boleh EXECUTE RPC mana pun & **tidak**
+  boleh SELECT/INSERT tabel, `service_role` boleh — persis hasil F-S5 di staging.
+- **Probe fungsional di staging, SATU transaksi lalu `ROLLBACK`** (tidak menulis apa pun):
+  `claim` → `granted`, baris klaim = **1**, `complete` → `completed`,
+  kunci baru paket sama → **`reuse_unpaid`** dengan `order_id`+`payment_url` yang SAMA,
+  paket beda → **`unpaid_conflict`**, `mark_checkout_claim_paid` → `marked` + `paid_at` terisi,
+  kunci baru setelah lunas → `granted` (order baru), kunci milik nomor lain → **`key_conflict`**.
+  Residu sesudahnya: `checkout_claims=0`, `consent_events=0`, `onboarding_progress=0`,
+  `users=5` (seed fiktif staging, tidak bertambah).
+- Bukti mentah (disalin ke repo supaya ikut terbawa reviewer): `docs/w4-r3-verification.txt`
+  (ringkasan `run-all` 3× · daftar FAIL pra-fix SQL & e2e · readback staging penuh).
+  Sumber asli: `/tmp/w4f1-runall3.out`, `/tmp/w4f1-neg-sql.log`, `/tmp/w4f1-neg-e2e.log`,
+  `/tmp/w4f1/staging-readback-consent.txt` ·
+  probe yang sama juga dijalankan di **harness lokal** setiap `run-all.sh`.
+
+### Catatan operasional ronde 3
+
+- **`pg_cron` TIDAK terpasang di staging** ⇒ blok penjadwalan purge di `schema-consent.sql`
+  ter-guard dan **tidak membuat job**. Fungsi `purge_expired_onboarding_progress` ada & terbukti
+  berfungsi, tapi **retensi 30 hari belum terjadwal di staging**. Butuh keputusan ops (dan
+  follow-up RX2-1 `t_383959b7` soal audit log purge) sebelum purge dijadwalkan di lingkungan
+  berisi data pelanggan riil.
+- **Residual F-W4-1:** melewati TTL 60 menit, order lama dianggap ditinggalkan (boleh checkout
+  baru) sementara link Scalev lama bisa masih bisa dibayar. Jendela ini disengaja (alternatifnya
+  lockout total tanpa jalur keluar) dan dibatasi 60 menit; kalau TTL link Scalev diketahui lebih
+  pendek, angkanya bisa diturunkan (satu konstanta di `claim_checkout_order`).
+- RX2-2 (harness berbagi DB/port) & RX2-3 (proses yatim saat probe gagal) sudah punya kartu
+  follow-up sendiri (`t_c85c2678`); run ronde 3 memakai env terisolasi sehingga tidak terdampak.
+
+## 6d. Ronde 4 — RX2-1: jejak audit retensi PII + bersihkan `in_flight` terbengkalai (2026-10-17)
+
+**Temuan RX2-1 (LOW, compliance)** dari delta-review 2 Sentinel (`t_7f3a1042`, laporan
+`security/review-w4-rx2-2026-10-16.md`). Kartu `t_383959b7`. **Nol apply** (Supabase/staging/produksi),
+nol data pelanggan, nol kredensial produksi — semua uji di harness lokal dengan DB + port terisolasi.
+
+### Masalah yang ditutup
+
+1. `purge_expired_onboarding_progress()` menghapus PII dengan benar tapi **tidak menulis jejak apa pun**
+   ⇒ "scheduler mati" tidak bisa dibedakan dari "tidak ada yang perlu dihapus" (padahal saudaranya
+   `purge_expired_webhook_data`, pola H-4, menulis `purge_audit_log` tiap run).
+2. Filter purge hanya `status IN ('created','failed')` ⇒ klaim `checkout_claims` ber-status `in_flight`
+   milik nomor yang ditinggalkan (worker mati sebelum `release_checkout_claim`) menyimpan `phone`
+   **selamanya** — melampaui janji Kebijakan Privasi ≤30 hari.
+
+### Perubahan DB (draft, BELUM di-apply)
+
+`staging/schema-consent.sql` (§10b):
+
+- `purge_audit_log` (+ kolom `deleted_progress`, `deleted_claims`; `deleted_inbox`/
+  `deleted_snapshots` dilonggarkan jadi NULL-able) — run retensi PII dikenali dari
+  `deleted_progress IS NOT NULL`, kolom jalur webhook dibiarkan **NULL, bukan 0**.
+- `purge_expired_onboarding_progress(p_retention_days)`: signature + bentuk return **tidak berubah**
+  (3 kolom, `purge-cron.sh` tetap kompatibel). Tambahan: `DELETE` ketiga untuk klaim `in_flight`
+  terbengkalai (`updated_at < cutoff - TTL in-flight 600s`, bukan `created` — klaim hidup
+  disegarkan dalam hitungan detik, jadi mustahil kena), `INSERT INTO purge_audit_log`, dan guard
+  `p_retention_days >= 1`.
+- View alarm baru `v_onboarding_retention_backlog` (`expired_progress_rows`, `expired_claim_rows`,
+  `last_purge_at`) + `security_invoker = on` + `REVOKE` dari `PUBLIC, anon, authenticated`
+  (pola V-2, sama seperti `v_webhook_retention_backlog`).
+
+`staging/schema-webhook-onboarding.sql`: `v_webhook_retention_backlog.last_purge_at` diberi filter
+`deleted_inbox IS NOT NULL` supaya run retensi PII tidak menyamarkan scheduler webhook yang mati.
+
+`staging/purge-cron.sh` tidak berubah (sudah memanggil kedua purge dan mencetak hitungannya).
+
+### Suite yang berubah
+
+| Suite | Tambahan |
+|---|---|
+| `test-consent-gate-sql.mts` | §9b: asersi hitungan baris **tepat** (`deleted_progress=1`, `deleted_claims=3`), baris basi benar-benar hilang, baris dalam retensi aman, klaim `in_flight` terbengkalai dibersihkan vs klaim hidup tidak dilepas, **satu baris audit per run** + isinya, kolom jalur webhook tetap NULL, alarm backlog naik tepat 1 saat baris basi disisipkan, `last_purge_at` terisi, anon ditolak view. Helper `scalar()`/`numSafe()` baru supaya pra-fix terbaca **FAIL**, bukan crash |
+| `test-promo-e2e.mts` | jalur HTTP PostgREST: anon ditolak / view kosong di `v_onboarding_retention_backlog` (baris basi disisipkan dulu) + kontrol positif `service_role` (`118/118`, dari `116/116`) |
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Kondisi | Suite | Hasil | Log |
+|---|---|---|---|
+| schema pra-fix (kolom audit + view belum ada, filter `in_flight` lama) | consent/checkout SQL | **70 PASS / 7 FAIL** — klaim terbengkalai tidak dibersihkan, `purge_audit_log` tetap 0 baris, view tidak ada, anon bukan "ditolak" | `/tmp/rx21-red.log` (disalin ke `docs/w4-rx2-1-verification.txt`) |
+
+Pasca-fix: SQL **77/77** (dari 64/64) · e2e consent 128/128 · promo e2e 118/118 · webhook 61/61 ·
+WA 136/136 · `run-all.sh` **3× ALL SUITES PASSED (exit 0)** di DB + port terisolasi
+(`HARNESS_PG_DB=thrivin_rx21_forge`, postgrest 54431/54432, promo DB sendiri).
+
+**Catatan env (bukan bug kode):** percobaan pertama `run-all` gagal di step 6 dengan
+`Timed out waiting for http://127.0.0.1:4190/…: fetch failed` padahal `next start` sudah `Ready`
+dan `curl` balas 200. Sebabnya: **4190 ada di daftar "bad port" WHATWG** yang ditolak `fetch`
+(undici) — `cause: bad port`. Diganti ke 4210/4211 ⇒ hijau. Berguna untuk RX2-2 (harness) saat
+memilih port.
+
+### Status apply
+
+Iterasi ini **bukan** penghalang apply migrasi W4 (`0c61425` sudah SIAP APPLY). Perubahan §6d
+adalah **draft lanjutan** yang harus di-apply **sebelum** purge benar-benar dijadwalkan di
+lingkungan berisi data pelanggan riil. Menunggu review Sentinel (READ-ONLY).
+
+## 6e. Ronde 4 — RX2-2 + RX2-3: isolasi harness per-worktree + teardown probe (2026-10-17)
+
+**Temuan RX2-2 (MEDIUM, infra verifikasi)** + **RX2-3 (LOW, hygiene)** dari delta-review 2 Sentinel
+(`t_7f3a1042`, laporan `security/review-w4-rx2-2026-10-16.md`). Kartu `t_c85c2678`.
+**Nol apply** ke Supabase/staging/produksi, nol data pelanggan, nol push/merge. Commit `4c89ff0` +
+`4b5412f` (RX2-2) dan `2ad67bf` (RX2-3), plus bukti `0e246d1`.
+
+### Masalah yang ditutup
+
+1. **RX2-2:** semua worktree memakai satu nama DB (`thrivin_remediation_test`), satu rentang port
+   (54321/54322 + 3981-3998 + 4111) dan satu set file `/tmp` ⇒ dua `run-all` bersamaan saling
+   meniadakan: run 1 PASS, run 2-3 FAIL karena DB bersama menyimpan overload asing
+   `cancel_promo_redemption(uuid,varchar,text,text)` dari worktree lain (`CREATE OR REPLACE` menambah
+   overload, bukan mengganti). "ALL SUITES PASSED" jadi tidak layak dipakai sebagai gate antar-agent.
+2. **RX2-3:** `tests/test-probe-cross-phone.mts` memakai `process.exit(1)` **di dalam** `try`
+   ⇒ `finally` dilewati, `next start` + `mock-scalev` + postgrest + prefix-proxy tetap `LISTEN`
+   setelah probe gagal.
+
+### Perubahan
+
+| File | Isi |
+|---|---|
+| `tests/harness/isolate.mts` (baru) | Satu sumber kebenaran dari path worktree: `SLUG` (`<basename>_<6 hex sha1(path)>`), `PG_DB` = `thrivin_test_<SLUG>`, `PROMO_DB`, `PORT_BASE` = `40000 + hash%1200*20` (17 slot), `TMP_PREFIX` = `/tmp/thrivin-<SLUG>` (auto-dibuat). CLI `db`/`env` supaya bash & node tak pernah beda hitungan. Band 40000+ sengaja: di luar daftar "bad port" WHATWG yang ditolak `fetch`/undici (pelajaran §6d). |
+| `tests/harness/stack.mts` | `PG_DB`/`POSTGREST_PORT`/`POSTGREST_UPSTREAM_PORT`/config postgrest dari `isolate.mts` (env override tetap). |
+| `tests/harness/seed.sh` | Nama DB turunan + menjalankan `drop-stale.sql` **sebelum** migrasi. |
+| `tests/harness/drop-stale.sql` (baru) | Drop tiap signature `cancel_promo_redemption` dari `pg_proc` (`DROP FUNCTION <nama>` polos gagal saat ada overload: "function name is not unique"). |
+| `tests/run-all.sh` | `eval "$(isolate.mts env)"` + log build ke `$TMP_PREFIX`; cek `node` sebelum seed. |
+| `tests/harness/prefix-proxy.mjs` | Port wajib lewat argumen (default bersama 54321/54322 dibuang); tanpa argumen → usage + exit 2. Hanya `stack.mts` yang memanggilnya, selalu dengan port `isolate.mts`. |
+| 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs` | Semua port/DB/path `/tmp` dari `isolate.mts`; default lama (3981-3998, 4111, 4121, 4135, 54321, 54322, `thrivin_*_test`) hilang. `mock-scalev` default file order kini ber-pid. |
+| `tests/test-probe-cross-phone.mts` | RX2-3: jalur gagal melempar error (bukan `process.exit`) ⇒ `finally` tetap mematikan anak proses; `main().catch` pakai `process.exitCode`. |
+
+Tidak diubah dengan sengaja: asersi H-3 `!/tmp/thrivin-onboarding` (memeriksa jalur fallback PII
+**produksi** tidak ada — bukan path harness).
+
+### Bukti negatif (pra-fix GAGAL, bukan klaim)
+
+| Kondisi | Hasil | Log |
+|---|---|---|
+| DB bersama + overload bentuk `promo-ws` R-4 | `ERROR: function cancel_promo_redemption(uuid) is not unique … Could not choose a best candidate function` | `/tmp/rx22-overload.log` |
+| DB bersama lama (schema worktree lain) | promo e2e exit 1 di awal: `column "paid_at" does not exist` (`checkout_claims` dibuat versi lain; `CREATE TABLE IF NOT EXISTS` jadi no-op) | `/tmp/rx22-legacy.log` |
+| Probe pra-fix (HEAD~1) + guard F-S1 dimatikan | exit 1, dan `ss -ltn` **menyisakan** 3995 (next-server) + 4135 (mock) + postgrest/proxy 48180-48181 | `/tmp/rx23-pre.log` |
+
+### Bukti positif (pasca-fix)
+
+- `bash tests/run-all.sh` (isolasi terpakai, port 48180+) → **ALL SUITES PASSED** (`/tmp/w4-runall-A.log`).
+- **Dua `run-all` BERSAMAAN dari dua worktree** (`w4-consent-gate` + `/tmp/wt-brx2`) → **keduanya
+  ALL SUITES PASSED, exit 0** (`/tmp/runall-A2.log`, `/tmp/runall-B2.log`) — kriteria terima kartu.
+  Diulang di HEAD `dd6fd6c` (worktree kedua di-detach ke SHA yang sama, `src/` nol perubahan):
+  **A_EXIT=0, B_EXIT=0**, step 9 kedua sisi 128/128, sesudahnya nol port tersisa
+  (`/tmp/rx22-r3-A.log`, `/tmp/rx22-r3-B.log`).
+- Ulangan terakhir di **HEAD final `8033ef6`** (isolate + drop-stale + prefix-proxy tanpa default):
+  **A_EXIT=0, B_EXIT=0**, keduanya `ALL SUITES PASSED`, step 9 128/128, nol port tersisa
+  (`/tmp/rx22-r4-A.log`, `/tmp/rx22-r4-B.log`). Worktree `--detach` sementara itu sudah dihapus
+  (`git worktree list` bersih); cara reproduksi ada di `docs/w4-rx2-2-3-verification.txt` §3b-ter.
+- `prefix-proxy.mjs` tanpa argumen → usage + exit 2; suite yang lewat proxy
+  (`test-webhook-e2e.mts`) **61/61 PASS, exit 0** (`/tmp/rx22-r3-prefixproxy-smoke.log`).
+- `drop-stale.sql` bergigi: DB tercemar overload → `seed.sh` → promo e2e **118/118**
+  (`/tmp/rx22-sim-prefix.log`).
+- Probe pasca-fix + guard F-S1 masih dimatikan → exit 1 dengan pesan kebocoran yang jelas, lalu
+  `ss -ltn` **nol** sisa port dan nol proses yatim (`/tmp/rx23-post.log`).
+- Semua mutasi uji **direvert**; `git status` bersih (kecuali `?? graphify-out/` yang bukan milik iterasi ini).
+
+### Observasi jujur: satu `run-all` penuh sempat merah (flaky, bukan akibat perubahan ini)
+
+`bash tests/run-all.sh` pada head beku **sekali** berakhir exit 1 di step 9:
+`e2e gate consent/checkout: 126 PASS, 2 FAIL` — asersi race "dua kunci berbeda paralel" melihat
+**2** order tercetak (bukan 1). Tidak bisa direproduksi: **7 run berikutnya hijau 128/128**
+(3× suite itu sendiri, + 4× di bawah beban paralel: dua salinan suite yang sama dari dua worktree
+sekaligus). `src/` tidak tersentuh di ronde ini (perubahan hanya `tests/` + `docs/`), jadi ini
+sifat timing-sensitive yang sudah ada — kelas yang sama dengan flakiness F-S2 yang didokumentasikan
+Sentinel. **Belum** diklaim penyebabnya; kartu ini tidak memperbaikinya.
+
+Rincian mentah: `docs/w4-rx2-2-3-verification.txt`.
+
+### Status apply
+
+Infra verifikasi saja — **tidak** menyentuh `staging/*.sql` dan tidak menghalangi apply migrasi W4.
+Efeknya: hasil suite sekarang bisa dipercaya saat dua worker (atau dua agent) jalan bersamaan.
+Menunggu review Sentinel. Batasan jujur: slot port = hash(path) % 1200 (tabrakan ~1/1200; override
+`HARNESS_PORT_BASE`/`HARNESS_PG_DB` tetap dihormati); DB bersama lama sengaja **tidak** di-drop
+karena worktree yang belum di-patch masih memakai default itu.
+
+## 6f. Ronde 4 — RX2-5: merah asersi race "dua kunci berbeda paralel" pernah melihat 2 order (2026-10-17)
+
+Temuan **R5** delta-review Sentinel `t_9f78ca4d` (delta-review RX2-2/3 @ `8033ef6`). Kartu `t_370981ec`.
+**Nol** perubahan `src/`, **nol** perubahan `staging/*.sql`, nol apply Supabase/staging/produksi,
+nol data pelanggan (nomor dummy), nol Scalev nyata, nol push/merge. Bukti lengkap:
+`docs/w4-rx25-verification.txt` + `/home/ubuntu/w4rx25-evidence/`.
+
+### Verdict
+
+- **Di HEAD (`6ecdbec`) asersi itu tidak bisa direproduksi**: 20/20 putaran suite gate hijau
+  (`166 PASS, 0 FAIL` tiap putaran) + **1.000 putaran** probe race terarah (4 permintaan paralel
+  per putaran ⇒ 4.000 permintaan) bersih, dan invarian DB (tepat satu klaim hidup per nomor)
+  utuh di setiap putaran.
+- **Merah itu BUKAN flake dan bukan artefak uji**: itu kebocoran **nyata** pada skema saat itu
+  (index per-nomor masih `WHERE status='in_flight'`), yang ditutup kemudian oleh `7d8389d`
+  (W4RX4 T1). Buktinya masih tersimpan di DB run 01:18: **dua** baris `checkout_claims` untuk
+  `6281200000807`, dua-duanya `status='created'` + `paid_at NULL` (`test_4_*` dan `test_5_*`,
+  35 ms apart) — keadaan yang mustahil di HEAD.
+- **Mekanismenya direproduksi dua arah, deterministik**: index pra-fix ⇒ 6/6 putaran **bocor**
+  (1 order baru, 2 klaim hidup); index HEAD ⇒ 6/6 putaran **ditahan** (`409 ORDER_IN_FLIGHT`,
+  0 order baru, 1 klaim hidup).
+- Tidak perlu "fix asersi": asersi itulah yang menangkap kebocoran asli. Yang diusulkan sebagai
+  higienitas test: tulisan file mock atomik (lihat §7 di dokumen bukti).
+
+### Perubahan
+
+| File | Isi |
+|---|---|
+| `tests/test-rx25-race-probe.mts` (baru) | Probe **frekuensi**: N putaran race 4-permintaan paralel (1 kunci ter-arm + 3 kunci baru) lewat jalur app, plus pemeriksaan invarian DB per putaran (`count(*) … paid_at is null and status in ('in_flight','created','cancel_pending','cancel_failed')` = 1) dan dump anomali (claims + `pg_locks` + `pg_stat_activity` + log server). `RX25_STAGGER_MS` menambahkan jitter keberangkatan. |
+| `tests/test-rx25-window-probe.mts` (baru) | Probe **jendela deterministik** langkah 6→7: `complete_checkout_claim(A)` ditahan terbuka di sesi lain, dua pra-syarat diverifikasi dari DB (sesi penahan aktif; baris A terbaca `in_flight` oleh sesi lain), lalu request B dijatuhkan lewat HTTP. |
+| `tests/harness/rx25-index-mutation.sh` (baru) | `narrow` / `restore` / `show` predikat `uq_checkout_claims_live_phone` untuk bukti negatif (hanya DB throwaway; menolak nama yang mengandung staging/prod). |
+| `docs/w4-rx25-verification.txt` (baru) | Dokumen bukti: run asli, frekuensi di HEAD, mekanisme, penilaian hipotesis "artefak file mock", usulan lanjutan. |
+
+Sengaja TIDAK diubah: asersi `tests/test-consent-gate-e2e.mts:464-509`, `src/**`, `staging/*.sql`,
+`tests/run-all.sh` (instrumen baru belum diikutkan gate — pemilik yang memutuskan beban tambahannya).
+
+### Bukti
+
+| Kondisi | Hasil (terukur) | Artefak |
+|---|---|---|
+| 20 putaran suite penuh di HEAD, DB/port/prefix unik per putaran | 20/20 exit 0; tiap putaran `166 PASS, 0 FAIL` | `w4rx25-evidence/rounds-head.txt` + `rounds/head-round-N.log` |
+| Probe race di HEAD, total **3.000 putaran** (12.000 permintaan; termasuk 800 putaran ber-jitter dan 1.200 putaran arm A/B di bawah beban) | **0** anomali, nol order kedua | `probe-head1000.json`, `probe-head-stagger40.json`, `probe-ab-head-index.json` |
+| Probe race yang sama pada **index pra-fix** (bukti negatif jalur app) | 1.000 bersih (host tenang) · 1.200 bersih (arm A/B) · **83 kebocoran / 3.000 putaran** (2,8 %; semua di putaran 1856–3000) | `probe-mut3000.json` + `anomalies/iter-1856.txt` dst. |
+| Jendela, index HEAD | 6/6 B tertahan 2,46–2,52 s ⇒ `409 ORDER_IN_FLIGHT`; 0 order baru; 1 klaim hidup | `window-head-index.json` |
+| Jendela, index pra-fix (`rx25-index-mutation.sh narrow`) | 6/6 B ⇒ `200`, 1 order baru, **2 klaim hidup** | `window-mut-index.json` + `anomalies/mut-index-window-round-*.txt` |
+| Bukti invarian ditegakkan DB | apply index HEAD ke DB yang masih memuat jejak kebocoran: `ERROR: could not create unique index … Key (tenant_id, phone)=(thrivin, 628128810001) is duplicated` | §5 dokumen bukti |
+| Run asli 01:18 | `/tmp/w4-runall-final.log` (126 PASS, 2 FAIL) + 2 baris klaim `created` unpaid di DB `thrivin_shared_sim` | §1 dokumen bukti |
+
+### Catatan kejujuran
+
+- Hipotesis awal "artefak baca file order mock" **tidak terbukti** dan tidak memadai:
+  pembacaan non-atomik hanya bisa **mengurangi** hitungan (JSON separuh ⇒ parse gagal ⇒ 0),
+  sedangkan gejala aslinya **+2**, dan overcount itu dikuatkan dua sumber independen
+  (baris klaim kedua di DB + dua `order_id` berbeda di respons HTTP).
+- **Angkanya, apa adanya**: pada **index pra-fix** kebocoran itu bisa lahir juga lewat jalur app
+  tanpa penahan buatan — **83 dari 3.000 putaran** (2,8 %) probe 4-permintaan-paralel, dan
+  semuanya menumpuk di putaran 1856–3000 (host sedang ramai oleh uji lain). Di jendela yang
+  lebih tenang: 0/1.000 dan 0/1.200. Jadi lajunya bergantung jitter penjadwalan; yang **tidak**
+  bergantung jitter adalah jawabannya di HEAD — **0 kejadian dari 3.000 putaran race
+  (12.000 permintaan) + 20 putaran suite**, karena sejak `7d8389d` jendela itu ditutup DB
+  (index), bukan ditutup oleh urutan baca.
+
+
+
+## 6g. Ronde 5 — RX2-4: higiene sisa isolasi harness (R1–R4) (2026-10-17)
+
+Temuan **R1–R4** delta-review Sentinel `t_9f78ca4d` (LOW). Kartu `t_38804fb8`.
+**Nol** perubahan `src/`, **nol** perubahan `staging/*.sql`, nol apply Supabase/staging/produksi,
+nol data pelanggan (nomor dummy), nol Scalev nyata, nol push/merge. Bukti lengkap:
+`docs/w4-rx2-4-verification.txt`.
+
+### Perubahan
+
+| Temuan | Perbaikan |
+|---|---|
+| R1 — mock masih punya fallback port bersama `4111` | `tests/mock-scalev.mjs`: port **wajib** eksplisit (argv atau `MOCK_SCALEV_PORT`); tanpa itu usage + exit 2 (sama seperti `prefix-proxy.mjs`). |
+| R2 — `startPostgrest()` meninggalkan anak yatim + menggantung pemanggil saat start-nya sendiri gagal | `tests/harness/stack.mts`: try/catch + `stop()` yang SIGTERM anak lalu (grace 1,5 s) SIGKILL sisa dan mencabut pipe stderr. **Urutan wajib SIGTERM dulu** — mencabut pipe stderr lebih dulu membuat PostgREST tidak mau shutdown (dibuktikan, §2a dokumen bukti). |
+| R3 — port proxy/PostgREST fail-open (listener siapa pun diadopsi) | `prefix-proxy.mjs` mengiklankan `GET /__proxy-identity`; `mock-scalev.mjs` mengiklankan `GET /__mock-identity`; `stack.mts` hanya mengadopsi proxy ber-`RUN_ID` run ini dan suite memverifikasi pemilik port mock via `assertMockOwner()` (7 suite). `RUN_ID` baru di `isolate.mts` (dari `HARNESS_RUN_ID` run-all / pid). |
+| R4 — mode "dua run dari satu worktree" tak terdokumentasi | `tests/run-all.sh`: lock `flock` per worktree (`$TMP_PREFIX/run-all.lock`, dilewati kalau `flock` tidak ada) + §4 dokumen bukti; §5 dokumen RX2-2/3 juga ditambahi catatan mode tak didukung. |
+
+Tambahan: `tests/test-harness-isolation.mts` (baru, 14 asersi, 2,5 s, nol DB/app) masuk step 2
+`run-all.sh` sebagai guard permanen untuk R1/R2/R3 — termasuk kontrol positif: identitas mock
+menyebut pid DAN jalur artefak orders-nya, dan `assertMockOwner` harus LULUS untuk mock milik kita. `POSTGREST_BIN` kini dibaca per-panggilan
+(diperlukan guard itu) dan `HARNESS_HTTP_WAIT_MS` memperpendek timeout tunggu.
+
+### Bukti (ringkas)
+
+- Pra-fix GAGAL (probe, dijalankan sebelum patch): mock tanpa argumen listen di 4111; `startPostgrest()`
+  dengan binari mati-rasa → `Timed out waiting for …` + anak yatim + pemanggil harus dibunuh `timeout`;
+  listener asing di port PostgREST → `startPostgrest() returned: HANDLE` dan query dijawab proses asing;
+  listener asing di port mock → mock anak mati EADDRINUSE tapi suite tetap lanjut.
+- Pasca-fix: mock tanpa argumen exit 2 + 4111 ECONNREFUSED; R2 throw + 0 yatim + pemanggil keluar
+  sendiri (exit 1); R3 throw dengan identitas pemilik; jalur normal tetap naik, adopsi intra-run
+  tetap jalan, `stop()` bersih (0 port/proses sisa); guard 14 PASS.
+- Gate: `bash tests/run-all.sh` → **ALL SUITES PASSED** exit 0 (`/tmp/rx24-runall-final.log`), step 9
+  **166 PASS, 0 FAIL**, nol port tersisa; `run-all.sh` kedua dari worktree yang sama ditolak lock
+  di muka (`/tmp/rx24-lock.log`).
+
+### Batasan jujur
+
+- Klaim di §6e tabel (`report.md:375`) dan §1 dokumen RX2-2/3 bahwa "default bersama 4111 sudah
+  hilang" baru benar untuk **semua** jalur sesudah ronde ini; sebelumnya masih ada fallback itu di
+  `mock-scalev.mjs:17`. Kedua klaim sudah diberi catatan penunjuk.
+- Ronde ini **tidak** mengubah penghitungan DB/port/prefix per-worktree, jadi kriteria terima
+  RX2-2 (dua `run-all` paralel dari dua worktree) tidak diulang di sini.
+
+## 7. Temuan untuk Sentinel / keputusan pemilik
+
+- **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
+  masih punya order belum dibayar **dikembalikan ke order/link yang sama** (paket sama), dan
+  **diblokir eksplisit** kalau paketnya beda. Implementasi + bukti negatif ada di §6c. Residual
+  satu-satunya: TTL 60 menit (order lama dianggap ditinggalkan) — dicatat di §6c.
+- **F-W4-2** — `checkout_claims` + `onboarding_progress` tumbuh tanpa purge; retensi 30 hari
+  sudah ada fungsinya, **belum terjadwal di staging** (pg_cron tidak terpasang) — lihat §6c.
+  Audit log purge + klaim `in_flight` terbengkalai = RX2-1 `t_383959b7`, **dikerjakan di §6d**
+  (draft, belum di-apply, menunggu review Sentinel).
+- **F-W4-3** — sesi WA berumur 60 menit. Kalau token kedaluwarsa setelah consent tersimpan
+  tapi sebelum gate: 401 dan pengguna diminta verifikasi ulang (fail-closed, tidak ada order).
+- **F-W4-4** — `terms` masih memuat satu placeholder: alamat entitas
+  («alamat lengkap menyusul dari pemilik»). Diuji: hanya SATU placeholder tersisa di `/terms`.
+
+## 8. Blocker & yang SENGAJA belum dikerjakan
+
+1. **Delta-review 3 (Sentinel) atas diff ronde 3** — permukaan baru: `checkout_claims.paid_at`,
+   langkah reuse/blokir di `claim_checkout_order`, RPC `mark_checkout_claim_paid`, jalur uang
+   `create-order` + `webhook`. Kartu review terpisah dibuat (assignee Sentinel).
+2. **Migrasi consent SUDAH di-apply ke staging** (readback di §6c). **Produksi belum** dan
+   **belum merge/push/deploy**. Sampai RC final di-merge, endpoint consent di lingkungan lain
+   tetap gagal-tertutup (503/400) — perilaku yang diinginkan, bukan bug.
+3. `whatsapp_channel_bindings` (S0 B-3) tetap belum ada DDL; jalur pengingat outbound belum
+   boleh hidup. `opt_in=true` **tidak** memicu pesan apa pun dari kartu ini.
+4. Purge retensi belum terjadwal di staging (pg_cron tidak ada) + audit log purge (RX2-1):
+   kode draft-nya sudah ada (§6d), tinggal review Sentinel + apply sebelum penjadwalan.
+5. Jalur uang (`create-order`, `webhook`) → **setiap diff wajib review**; kartu ini berhenti di
+   `review-required`.
+6. Tidak ada merge/push ke `main`, tidak ada deploy produksi, tidak ada aktivasi promo,
+   tidak ada outbound WhatsApp/Cloud, tidak ada data pelanggan yang disentuh.
+
+## 9. Perubahan pada kode/suite existing (perlu ikut dibaca reviewer)
+
+- `src/app/api/scalev/create-order/route.ts` — **jalur uang**: gate + klaim + replay +
+  pelepasan klaim (3 jalur) + nama/harga dari server.
+- `src/app/companion/nina/onboarding/[step]/page.tsx` — body order tidak lagi mengirim
+  `amount`/`planName`/`onboarding`/`customerName`; dua checkbox; simpan progress per langkah.
+- `src/app/privacy/page.tsx`, `src/components/Footer.tsx`, `src/app/sitemap.ts` — A6.
+- `tests/test-promo-e2e.mts` — helper `checkout()` menyiapkan sesi+progress+consent lewat
+  HTTP (jalur yang sama dengan UI) sebelum memanggil `create-order`; nama uji ikut masuk
+  langkah 2 (kalau tidak, injeksi kegagalan mock Scalev "FAILORDER" tidak lagi sampai ke
+  server karena nama diambil dari profil tersimpan); asersi race lama diganti; 2 asersi
+  regresi klaim ditambahkan.
+- `tests/test-webhook-e2e.mts` — menyiapkan sesi+consent untuk checkout-nya; kasus
+  "profil invalid" berubah makna: profil dari body tidak lagi dibaca ⇒ 400
+  `INCOMPLETE_ONBOARDING` (bukan 400 karena rentang nilai).
+- `src/app/api/scalev/webhook/route.ts` — **jalur uang** (ronde 3): satu panggilan
+  `markCheckoutClaimPaid(orderUniqueId)` setelah validasi status pembayaran & klaim inbox.
+- `src/lib/checkout-gate.ts` — (ronde 3) `reuse_unpaid` / `unpaid_conflict` + `markCheckoutClaimPaid`.
+- `staging/schema-consent.sql` + `tests/harness/migrations/006-consent-gate.sql` (salinan
+  otomatis dari `staging/` oleh `seed.sh`) — (ronde 3) `paid_at`, langkah reuse/blokir + TTL,
+  RPC `mark_checkout_claim_paid`.
+- `tests/test-legal-draft-shape.mts` — W2 memeriksa "belum ada route/link /terms"; setelah
+  owner ACC dan publikasi A6, pemeriksaan dibalik: route ada, footer & checkout menaut,
+  versi = `terms-2026-10-15-v1`, dan tidak ada placeholder yang bocor ke `/privacy`.
+- `tests/harness/seed.sh` (migrasi 006) + `tests/run-all.sh` (step SQL & e2e consent +
+  legal shape masuk gate).
+- (ronde 4, §6f / RX2-5) `tests/test-rx25-race-probe.mts` + `tests/test-rx25-window-probe.mts`
+  + `tests/harness/rx25-index-mutation.sh` (baru) dan `docs/w4-rx25-verification.txt` — instrumen
+  bukti kelas race jalur uang. Nol perubahan `src/`, nol perubahan `staging/*.sql`, `run-all.sh`
+  tidak disentuh.
+- (ronde 5, §6g / RX2-4) `tests/harness/isolate.mts` (`RUN_ID`), `tests/harness/stack.mts`
+  (cleanup start + identitas proxy + `assertMockOwner`), `tests/harness/prefix-proxy.mjs`
+  (`/__proxy-identity`), `tests/mock-scalev.mjs` (port wajib + `/__mock-identity`),
+  `tests/run-all.sh` (lock per worktree + step guard baru), 7 suite e2e/probe (panggilan
+  `assertMockOwner`), `tests/test-harness-isolation.mts` (baru) — higiene harness;
+  nol `src/`, nol `staging/*.sql`, nol perilaku aplikasi.
+- (ronde 4, §6e) `tests/harness/isolate.mts` + `drop-stale.sql` (baru), `tests/harness/stack.mts`,
+  `tests/run-all.sh`, 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs`,
+  `tests/test-probe-cross-phone.mts` — infrastruktur verifikasi (DB/port/prefix `/tmp` per-worktree
+  + teardown probe). Tidak menyentuh `staging/*.sql`; tidak mengubah perilaku aplikasi.
+
+## 10. Bukti & link
+
+- Kontrak: `~/workspaces/thrivin/batch-2026-10-15/s0-security/integration-contract.md`
+- Review S0: `~/workspaces/thrivin/batch-2026-10-15/s0-security/report.md` §5
+- Laporan ini + `evidence.json`: `~/workspaces/thrivin/batch-2026-10-15/w4-consent-gate/`
+- Catatan vault: `~/obsidian/kantor-ai/projects/thrivin/features/checkout-consent-gate-2026-10-15.md`
+- Draft teks legal yang disetujui: `docs/legal/{terms-draft,privacy-delta,consent-wording}-2026-10-15.md`

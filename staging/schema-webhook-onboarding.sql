@@ -114,6 +114,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- C-6: without an explicit pin this function's ACL is whatever the applying role's
+-- default privileges say — and in Supabase that is `GRANT ALL ON FUNCTIONS TO anon,
+-- authenticated`. A brand-new Postgres function also starts with EXECUTE granted to
+-- PUBLIC. Either way an anon (publishable) key could call a row-deleting function.
+-- The DROP above re-creates the function on every re-apply, so any earlier leak would
+-- come back: pin the ACL here, in the same file as the DDL.
+-- (pg_cron schedules the call as the scheduling role = superuser; PUBLIC/anon grants
+-- are irrelevant to that path.)
+REVOKE ALL ON FUNCTION purge_expired_webhook_data() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION purge_expired_webhook_data() TO service_role;
+
 -- Schedule via pg_cron when the extension exists (Supabase).
 -- Without pg_cron, schedule the same call from ops cron (see staging/purge-cron.sh).
 DO $$
