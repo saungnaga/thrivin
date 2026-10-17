@@ -29,6 +29,9 @@ R3 (pemilik port)   Identitas di dua sisi:
                       `<SLUG>#<pid>` kalau suite dijalankan langsung.
                     - PostgREST upstream: anak kita harus MASIH HIDUP sesudah listen
                       (bind berhasil); proxy harus mengaku pid = anak yang kita spawn.
+                      ⚠️ Dua sinyal ini TERBUKTI TIDAK CUKUP (verifier t_6e7be2ee): anak
+                      kita bisa belum sempat exit ⇒ listener asing tetap diadopsi.
+                      Perbaikan fail-closed (inode socket /proc) ada di §7.1.
                     - `POSTGREST_BIN` dibaca per-panggilan (bukan saat import) supaya
                       test harness sendiri bisa menyuntik binari palsu; timeout
                       `waitForHttp` bisa diperpendek lewat HARNESS_HTTP_WAIT_MS.
@@ -141,10 +144,12 @@ perbaikan R2 berubah jadi kebocoran baru: stack "normal" pun tidak mati saat sto
 ==============================================================================
 4. MODE YANG TIDAK DIDUKUNG (R4) — WAJIB dibaca sebelum menjalankan gate
 ==============================================================================
-- SATU worktree = SATU run pada satu waktu. Dua `run-all.sh` (atau dua suite e2e) sekaligus
-  dari worktree yang SAMA sekarang ditolak di muka oleh lock; sebelum lock ada, run kedua
-  gagal jauh di dalam `seed.sh` (DDL bersamaan di DB yang sama, exit 1) — Sentinel sudah
-  memprobe ini: run1 gagal keras, run2 128 PASS.
+- SATU worktree = SATU run pada satu waktu. Dua `run-all.sh` dari worktree yang SAMA sekarang
+  ditolak di muka oleh lock; sebelum lock ada, run kedua gagal jauh di dalam `seed.sh` (DDL
+  bersamaan di DB yang sama, exit 1) — Sentinel sudah memprobe ini: run1 gagal keras, run2 128 PASS.
+  ⚠️ Koreksi (verifier RX2-4, kartu `t_6e7be2ee`): lock hanya ada di `tests/run-all.sh` — suite
+  e2e yang dijalankan LANGSUNG (`node tests/test-*.mts`) tidak mengambil lock. Untuk dua run
+  paralel dari satu worktree, jalankan lewat `run-all.sh` (atau set `HARNESS_*` eksplisit berbeda).
 - Dua worktree paralel tetap didukung (nilai DB/port/prefix diturunkan dari path worktree).
 - Tabrakan PORT_BASE antar worktree (~1/1200) dulu bisa senyap; sekarang gagal keras dengan
   pesan identitas (R3). Jalan keluar: set HARNESS_PORT_BASE / HARNESS_PG_DB eksplisit.
@@ -162,9 +167,10 @@ perbaikan R2 berubah jadi kebocoran baru: stack "normal" pun tidak mati saat sto
   (kalau di-set eksplisit sama); itu memang jalur override yang disengaja.
 - `flock` tidak tersedia -> lock dilewati (dicatat di kode, bukan gagal diam-diam).
 
-==============================================================================
 6. Catatan jujur
 ==============================================================================
+
+
 - Klaim di `report.md:375` dan §1 dokumen RX2-2/3 ("default 4111 sudah hilang") SEBELUM
   kartu ini hanya benar untuk port suite, bukan untuk mock yang dijalankan manual —
   `mock-scalev.mjs:17` masih memegang fallback 4111. Sesudah R1 fallback itu benar-benar
@@ -176,3 +182,149 @@ perbaikan R2 berubah jadi kebocoran baru: stack "normal" pun tidak mati saat sto
   RX2-2 yang sudah dibuktikan; perubahan ronde ini tidak menyentuh penghitungan
   DB/port/prefix per-worktree). Batas jujur: gerbang utama ronde ini adalah gate satu
   worktree (§3d) + probe identitas.
+
+==============================================================================
+7. FOLLOW-UP (kartu t_29b52acd): B1 kepemilikan upstream fail-closed + B2 artefak /tmp privat
+==============================================================================
+Verifier RX2-4 (kartu t_6e7be2ee) mem-VETO ronde §1–§6 di target `0c2650a` dengan dua
+blocker HIGH. Ronde ini menutup keduanya. Basis kode: `0c2650a`. Branch:
+`fix/rx24-followup-u-1`. Tetap murni `tests/` + `docs/` + `report.md`: nol perubahan `src/`,
+nol perubahan `staging/*.sql`, nol apply staging/produksi, nol data pelanggan, nol push.
+
+------------------------------------------------------------------------------
+7.1 B1 (HIGH) — `startPostgrest()` mengadopsi listener ASING di upstream
+------------------------------------------------------------------------------
+Akar masalah: pemeriksaan lama menyimpulkan kepemilikan dari DUA sinyal tak sahih —
+`waitForHttp()` ("ada yang menjawab HTTP") dan `upstream.exitCode === null` (anak belum
+sempat di-reap). Padahal anak kita bisa belum exit saat itu, jadi urutannya menang/kalah
+waktu, bukan bukti. Probe verifier: foreign HTTP listener + `/tmp/postgrest` yang gagal bind
+(`resource busy`) ⇒ `started:true` dan proxy meneruskan body proses asing.
+
+Perbaikan (`tests/harness/stack.mts`): sesudah `waitForHttp()` upstream, kepemilikan
+dibuktikan POSITIF lewat kernel — `listenInode(port)` membaca inode socket ber-state LISTEN
+untuk port itu dari `/proc/net/tcp` / `/proc/net/tcp6`, lalu `ownsSocket(pid, inode)`
+memastikan inode tersebut ada di `/proc/<pid>/fd` anak yang kita spawn. Tidak bisa
+dibuktikan (inode tak ada / bukan milik anak) ⇒ throw, `stop()` mematikan anak kita.
+Jadi "HTTP menjawab" tidak lagi dianggap bukti kepemilikan sama sekali.
+
+------------------------------------------------------------------------------
+7.2 B2 (HIGH) — artefak /tmp predictable + `writeFileSync` mengikuti symlink
+------------------------------------------------------------------------------
+Akar masalah: satu direktori per worktree `/tmp/thrivin-${SLUG}` (mode 775, predictable)
+menampung config/log/orders semua run, dan `stack.mts` menulis `postgrest.conf` dengan
+`fs.writeFileSync()` yang mengikuti symlink. Probe verifier: pre-create
+`postgrest.conf -> sentinel` ⇒ sentinel tertimpa.
+
+Perbaikan:
+- `tests/harness/private-fs.mjs` (baru, `.mjs` supaya bisa dipakai mock yang dijalankan
+  tanpa `--experimental-strip-types`): `ensurePrivateDir()` (0700, tolak symlink dan tolak
+  direktori milik uid lain), `writePrivateFile()` (O_CREAT|O_EXCL|O_NOFOLLOW),
+  `rewritePrivateFile()` (O_TRUNC|O_NOFOLLOW + cek lstat), `mkPrivateTempDir()` (mkdtemp).
+- `tests/harness/isolate.mts`: `TMP_BASE` = `/tmp/thrivin-${SLUG}` (privat 0700, tempat lock)
+  dan `TMP_PREFIX` = `TMP_BASE/run-<RUN_ID>` (privat 0700) ⇒ artefak per-RUN, bukan per
+  worktree; `LOCK_PATH` diekspor (isolate.mts `env` mengeluarkan `HARNESS_LOCK_PATH`).
+- `tests/run-all.sh`: lock tetap PER WORKTREE, sekarang lewat `$HARNESS_LOCK_PATH`
+  (satu sumber kebenaran bash/node).
+- `tests/harness/stack.mts`: `postgrest.conf` ditulis eksklusif di direktori privat.
+- `tests/mock-scalev.mjs` (audit artefak mock): default order/cancel/mode tidak lagi
+  `/tmp/thrivin-mock-*-<pid>.json` yang predictable, tapi `mkdtemp` 0700; semua tulis mirror
+  (orders + cancel) lewat helper eksklusif/tanpa-follow.
+
+------------------------------------------------------------------------------
+7.3 BUKTI NEGATIF (pra-fix, tree `0c2650a`; probe dijalankan SEBELUM patch)
+------------------------------------------------------------------------------
+Probe ulang dipakai apa adanya di dua tree (hanya memakai export yang ada di kedua revisi):
+`~/t_29b52acd-evidence/{probe-b1-foreign-upstream.mts,probe-b2-symlink.mts}`.
+
+(a) B1 binari palsu yang tidak listen (`pre-fix-b1.json` + log probe):
+      TREE=~/workspaces/thrivin/rx24-prefix-u node --experimental-strip-types \
+        probe-b1-foreign-upstream.mts
+      {"upstreamPort":56881,"foreignPid":3914535,"adopted":true,
+       "proxiedBody":"{\"foreign\":true,\"pid\":3914535}","proxiedStatus":200}
+    → `startPostgrest()` MENGAUTOPSI listener asing; query ke POSTGREST_URL dijawab
+      proses asing (body foreign). Determinstik: anak palsu tidur, tetap `exitCode:null`.
+
+(b) B1 binari NYATA `/tmp/postgrest` (`pre-fix-b1-realbin.json`) — kontrol persis probe
+    verifier:
+      PROBE_BIN=/tmp/postgrest TREE=…/rx24-prefix-u node … probe-b1-foreign-upstream.mts
+      [postgrest] Network.Socket.bind: resource busy (Address in use)
+      {"adopted":true,"proxiedBody":"{\"foreign\":true,\"pid\":3915095}","proxiedStatus":200}
+
+(c) B2 (`pre-fix-b2.json`):
+      {"tmpPrefix":"/tmp/thrivin-rx24_prefix_u_08d4dd","dirModeBefore":"775",
+       "confIsSymlinkAfter":true,"confIsFileAfter":false,
+       "sentinelIntact":false,
+       "sentinelContent":"db-uri = \"postgresql://authenticator:***@127.0.0.1:5…"}
+    → symlink diikuti: `postgrest.conf -> sentinel` menimpa sentinel; direktori 775.
+
+(d) Guard permanen di tree pra-fix (test baru + helper disalin, isolate/stack pra-fix):
+      $ node --experimental-strip-types tests/test-harness-isolation.mts
+      harness isolation: 21 PASS, 4 FAIL            (exit 1)
+        FAIL upstream dipegang listener asing ⇒ startPostgrest TIDAK mengadopsi
+        FAIL pesan galat menyebut listener bukan anak kita
+        FAIL symlink postgrest.conf tidak menimpa targetnya
+        FAIL postgrest.conf ditulis sebagai file biasa (link lama dibuang, bukan diikuti)
+    Empat asersi itulah regresi yang dikunci. Catatan jujur: asersi "TMP_PREFIX mode 0700"
+    di tree itu LULUS hanya karena helper baru sudah ada (writePrivateFile memanggil
+    ensurePrivateDir pada direktori itu) — mode 775 pra-fix terbukti langsung di probe (c),
+    bukan dari asersi itu.
+
+------------------------------------------------------------------------------
+7.4 BUKTI POSITIF (pasca-fix, HEAD ronde ini)
+------------------------------------------------------------------------------
+(a) B1 binari palsu (`post-fix-b1.json`):
+      {"adopted":false,"message":"127.0.0.1:45661 menjawab HTTP tapi listener-nya BUKAN anak
+       kita (pid anak=3914842, inode LISTEN di /proc=36513992) — port itu dipegang proses
+       lain. Menolak mengadopsi: proxy akan meneruskan body proses asing. …"}
+(b) B1 binari nyata `/tmp/postgrest` (`post-fix-b1-realbin.json`): sama — `adopted:false`,
+    inode milik proses asing, anak PostgREST dimatikan (`Received termination unix signal
+    SIGTERM`), nol port tersisa.
+(c) B2 (`post-fix-b2.json`):
+      {"tmpPrefix":"/tmp/thrivin-forge_t_29b52acd_773cd5/run-forge_t_29b52acd_773cd5_3914847",
+       "dirModeBefore":"700","dirModeAfter":"700","confIsSymlinkAfter":false,
+       "confIsFileAfter":true,"sentinelIntact":true,"sentinelContent":"SENTINEL\n"}
+(d) Guard permanen (tests/ + docs/ hanya, worktree kerja kartu ini):
+      $ node --experimental-strip-types tests/test-harness-isolation.mts
+      harness isolation: 25 PASS, 0 FAIL · OK · ~3,7 s   (nol DB, nol app)
+    Asersi baru: B1 ×3 (tidak mengadopsi, pesan menyebut kepemilikan, nol proses/port sisa)
+    + B2 symlink ×2 + B2 direktori privat ×5.
+(e) Gate penuh `bash tests/run-all.sh` di HEAD ronde ini: **ALL SUITES PASSED** exit 0
+    (`runall-postfix.log`, diulang lagi sesudah semua patch docs: `runall-postfix-2.log` —
+    isolation 25 PASS/0 FAIL, SQL 155/0, consent e2e 166/0, cancel TTL 86/0), dan nol
+    listener/proses milik run yang tersisa sesudahnya (`ss -ltn` pada blok port worktree = 0).
+
+------------------------------------------------------------------------------
+7.5 MOCK & CLEANUP — audit kepemilikan
+------------------------------------------------------------------------------
+- Artefak mock (orders / cancel-calls / cancel-mode) semua di dalam direktori privat run
+  (dari suite: `tmpPath(...)`; default manual: `mkdtemp`), ditulis eksklusif/tanpa-follow.
+- Log server app (`*server.log`, `build.log`) juga di `TMP_PREFIX` privat — mode dir 0700,
+  jadi proses uid lain tidak bisa membaca log uji maupun menaruh entri di dalamnya.
+- Kepemilikan yang DIBERSIHKAN saat ini: proses (grup proses anak di-SIGTERM/SIGKILL) dan
+  lock (`flock` dilepas saat proses mati). Direktori run TIDAK dihapus otomatis (agar bukti
+  bisa diperiksa sesudah run) — sisa direktori di `/tmp` tinggal menunggu reaper OS; kalau
+  dibutuhkan pembersihan terjadwal, itu kartu terpisah (bukan klaim ronde ini).
+
+------------------------------------------------------------------------------
+7.6 BATASAN JUJUR
+------------------------------------------------------------------------------
+- `/proc/net/tcp` = Linux-only. Harness ini memang Linux-only (psql/sudo/peer auth), jadi
+  tidak ada fallback non-Linux; kalau harness dipindah ke macOS, pemeriksaan ini HARUS
+  diganti (bukan diam-diam dianggap lulus).
+- Kalau `POSTGREST_BIN` adalah wrapper yang FORK (bukan exec) sehingga PostgREST hasil fork
+  memegang socket, pemeriksaan akan gagal-keras (fail-closed) walau stack-nya sehat.
+  Jalan keluar: `exec` di wrapper — lebih baik daripada mengadopsi listener tanpa bukti.
+- `HARNESS_TMP_BASE` / `HARNESS_TMP_PREFIX` override tetap dipaksa privat 0700 milik uid ini:
+  mengarahkan artefak ke direktori milik uid lain sekarang GAGAL (disengaja).
+- Pemeriksaan kepemilikan ini melindungi dari proses uid LAIN. Proses uid yang sama (mis.
+  run lama milik kita sendiri) tetap ditolak lewat `RUN_ID` (proxy/mock) dan lock per-worktree.
+- Tidak ada uji anti-symlink khusus untuk `MOCK_SCALEV_*` path yang diberikan suite (path itu
+  sudah berada di direktori privat 0700 milik kita); yang dikunci helper tetap sama untuk
+  semua pemanggil.
+- Koreksi dokumentasi dari verifier (K4 "catatan"): lock per-worktree hanya di `tests/run-all.sh`;
+  suite e2e yang dijalankan langsung tidak mengambil lock — §4 sudah dikoreksi di ronde ini.
+- Lock per-worktree kini memakai `$HARNESS_LOCK_PATH` (jalur yang sama dihitung isolate.mts untuk
+  bash dan node). Uji: lock dipegang proses lain ⇒ `run-all.sh` berhenti di muka dengan exit 1
+  dan pesan jalur lock baru.
+
+==============================================================================

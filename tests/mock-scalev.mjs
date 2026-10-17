@@ -10,9 +10,12 @@
  */
 import http from "http";
 import fs from "fs";
-import os from "os";
 import path from "path";
 import crypto from "crypto";
+import {
+  mkPrivateTempDir,
+  writePrivateFile,
+} from "./harness/private-fs.mjs";
 
 // RX2-4 R1: wajib port eksplisit — dulu fallback bersama 4111 bikin dua reviewer
 // yang menjalankan mock manual bertabrakan (dan membuat mock anak mati
@@ -38,23 +41,32 @@ export const createdOrders = [];
 export const changeStatusCalls = [];
 
 /**
- * Tulis-ke-tmp lalu rename (satu direktori ⇒ satu fs, rename atomik). Dengan
- * writeFileSync (truncate + tulis) pembaca bisa menangkap JSON separuh,
- * `JSON.parse` gagal, dan hitungan order tampak 0 — merah-palsu.
+ * Mirror ditulis tiap request sementara suite membacanya — dua properti harus
+ * dipegang bersamaan (RC 15/10 integrasi):
+ *  - RX2-5 D3 (`t_4e696fde`): pembaca tidak boleh menangkap JSON separuh. Tulis ke
+ *    file temp di direktori yang sama, lalu `rename` (swap atomik).
+ *  - RX2-4 B2 (`t_4c220415`): nol follow symlink / nol tulisan ke artefak asing.
+ *    File temp dibuat lewat `writePrivateFile` (O_CREAT|O_EXCL|O_NOFOLLOW + cek uid
+ *    direktori), dan `rename` mengganti entri (bukan menembus link) bila path
+ *    akhirnya symlink.
  */
-function writeAtomic(file, data) {
+function persistPrivate(file, data) {
   const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, data);
+  writePrivateFile(tmp, data);
   fs.renameSync(tmp, file);
 }
 
 // Mirror to disk so the test process (which talks to the mock over HTTP, not
-// via import) can assert on what the route actually sent Scalev. Default
-// ber-pid supaya menjalankan mock manual tidak menimpa file run lain (RX2-2).
+// via import) can assert on what the route actually sent Scalev.
+// RX2-4 follow-up B2: default dulu `/tmp/thrivin-mock-orders-<pid>.json` yang
+// predictable, ditulis `writeFileSync` (mengikuti symlink). Default sekarang
+// direktori unik 0700 (mkdtemp) dan tiap tulis eksklusif/tanpa-follow; suite
+// tetap boleh menunjuk path sendiri lewat env (di dalam TMP_PREFIX privat).
+const ARTIFACT_DIR =
+  process.env.MOCK_SCALEV_DIR || mkPrivateTempDir("thrivin-mock-");
 const ORDERS_FILE =
-  process.env.MOCK_SCALEV_ORDERS_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-orders-${process.pid}.json`);
-writeAtomic(ORDERS_FILE, "[]");
+  process.env.MOCK_SCALEV_ORDERS_FILE || path.join(ARTIFACT_DIR, "orders.json");
+writePrivateFile(ORDERS_FILE, "[]");
 
 /**
  * F-W4-1c: mode cancel DIBACA DARI FILE pada tiap request (bukan env), supaya
@@ -66,11 +78,11 @@ writeAtomic(ORDERS_FILE, "[]");
  */
 const CANCEL_MODE_FILE =
   process.env.MOCK_SCALEV_CANCEL_MODE_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-cancel-mode-${process.pid}.txt`);
+  path.join(ARTIFACT_DIR, "cancel-mode.txt");
 const CANCEL_FILE =
   process.env.MOCK_SCALEV_CANCEL_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-cancel-${process.pid}.json`);
-writeAtomic(CANCEL_FILE, "[]");
+  path.join(ARTIFACT_DIR, "cancel-calls.json");
+writePrivateFile(CANCEL_FILE, "[]");
 
 function cancelMode() {
   try {
@@ -89,7 +101,7 @@ function cancelMode() {
  */
 const ORDER_MODE_FILE =
   process.env.MOCK_SCALEV_ORDER_MODE_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-order-mode-${process.pid}.txt`);
+  path.join(ARTIFACT_DIR, "order-mode.txt");
 function orderMode() {
   try {
     return fs.readFileSync(ORDER_MODE_FILE, "utf-8").trim() || "ok";
@@ -99,11 +111,11 @@ function orderMode() {
 }
 
 function persistCalls() {
-  writeAtomic(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
+  persistPrivate(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
 }
 
 function persistOrders() {
-  writeAtomic(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
+  persistPrivate(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
 }
 
 function send(res, status, body) {

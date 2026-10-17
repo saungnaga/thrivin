@@ -9,8 +9,13 @@
  *       tidak boleh menggantung pemanggil (pipe stderr menahan event loop).
  *   R3  port PostgREST / port mock yang dipegang listener ASING harus gagal keras,
  *       bukan diadopsi (dulu: hijau/merah di DB atau file orders milik run lain).
+ *   B1  (follow-up RX2-4) upstream PostgREST yang dipegang listener asing harus
+ *       ditolak — "HTTP menjawab" bukan bukti kepemilikan; buktinya inode socket
+ *       di /proc milik anak yang kita spawn.
+ *   B2  (follow-up RX2-4) artefak /tmp: direktori privat 0700 milik uid ini, dan
+ *       file (mis. postgrest.conf) dibuat eksklusif tanpa mengikuti symlink.
  *
- * Detail bukti: docs/w4-rx2-4-verification.txt
+ * Detail bukti: docs/w4-rx2-4-verification.txt §7
  */
 import fs from "fs";
 import http from "http";
@@ -20,10 +25,15 @@ import {
   PORTS,
   POSTGREST_URL,
   RUN_ID,
+  TMP_PREFIX,
   assertMockOwner,
   startPostgrest,
   tmpPath,
 } from "./harness/stack.mts";
+import {
+  ensurePrivateDir,
+  writePrivateFile,
+} from "./harness/private-fs.mjs";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const MOCK = path.join(HERE, "mock-scalev.mjs");
@@ -137,6 +147,130 @@ const close = (server: http.Server) => new Promise<void>((r) => server.close(() 
   } catch {
     /* sudah mati */
   }
+}
+
+// ── B1 (RX2-4 follow-up): upstream PostgREST dipegang listener asing ────────
+// Dulu `waitForHttp()` dijawab listener asing SEBELUM anak kita sempat exit
+// (`upstream.exitCode` masih null) ⇒ handle tetap dikembalikan dan proxy
+// meneruskan body proses asing. Sekarang kepemilikan listener dibuktikan lewat
+// inode socket di /proc, jadi "HTTP menjawab" tidak lagi dianggap bukti.
+{
+  const fake = tmpPath("fake-upstream-postgrest.sh");
+  const pidFile = tmpPath("fake-upstream.pid");
+  writePrivateFile(fake, `#!/bin/bash\necho $$ > "${pidFile}"\nexec sleep 300\n`);
+  fs.chmodSync(fake, 0o755);
+  const server = await foreignListener(PORTS.postgrestUpstream);
+  const prevBin = process.env.POSTGREST_BIN;
+  const prevWait = process.env.HARNESS_HTTP_WAIT_MS;
+  process.env.POSTGREST_BIN = fake;
+  process.env.HARNESS_HTTP_WAIT_MS = "1500";
+  let message = "";
+  let adopted = false;
+  let handle: { stop: () => void } | null = null;
+  try {
+    handle = await startPostgrest();
+    adopted = handle !== null;
+  } catch (err: any) {
+    message = err.message;
+  }
+  handle?.stop();
+  if (prevBin === undefined) delete process.env.POSTGREST_BIN;
+  else process.env.POSTGREST_BIN = prevBin;
+  if (prevWait === undefined) delete process.env.HARNESS_HTTP_WAIT_MS;
+  else process.env.HARNESS_HTTP_WAIT_MS = prevWait;
+  check(!adopted, "upstream dipegang listener asing ⇒ startPostgrest TIDAK mengadopsi");
+  check(
+    message.includes("BUKAN anak kita"),
+    "pesan galat menyebut listener bukan anak kita",
+    message.slice(0, 200)
+  );
+  await close(server);
+  const fakePid = Number(fs.readFileSync(pidFile, "utf-8").trim());
+  let fakeGone = false;
+  for (let i = 0; i < 40 && !fakeGone; i++) {
+    fakeGone = !alive(fakePid);
+    if (!fakeGone) await sleep(250);
+  }
+  check(fakeGone, "anak postgrest palsu dimatikan (nol proses tersisa)", `pid ${fakePid}`);
+  let leftover = false;
+  try {
+    await fetch(`http://127.0.0.1:${PORTS.postgrestUpstream}/`);
+    leftover = true;
+  } catch {
+    /* bersih */
+  }
+  check(!leftover, "nol listener tersisa di port upstream sesudah probe");
+}
+
+// ── B2: config PostgREST tidak boleh ditulis lewat symlink ─────────────────
+// Dulu `fs.writeFileSync(tmpPath("postgrest.conf"))` mengikuti symlink yang
+// di-pre-create (probe verifier: sentinel di luar harness tertimpa).
+{
+  const sentinel = tmpPath("sentinel-target.txt");
+  writePrivateFile(sentinel, "SENTINEL\n");
+  const conf = tmpPath("postgrest.conf");
+  fs.rmSync(conf, { force: true });
+  fs.symlinkSync(sentinel, conf);
+  const fake = tmpPath("fake-slow-postgrest.sh");
+  writePrivateFile(fake, "#!/bin/bash\nexec sleep 300\n");
+  fs.chmodSync(fake, 0o755);
+  const prevBin = process.env.POSTGREST_BIN;
+  const prevWait = process.env.HARNESS_HTTP_WAIT_MS;
+  process.env.POSTGREST_BIN = fake;
+  process.env.HARNESS_HTTP_WAIT_MS = "800";
+  try {
+    (await startPostgrest())?.stop();
+  } catch {
+    /* timeout: yang diuji isi file, bukan hasil start */
+  }
+  if (prevBin === undefined) delete process.env.POSTGREST_BIN;
+  else process.env.POSTGREST_BIN = prevBin;
+  if (prevWait === undefined) delete process.env.HARNESS_HTTP_WAIT_MS;
+  else process.env.HARNESS_HTTP_WAIT_MS = prevWait;
+  check(
+    fs.readFileSync(sentinel, "utf-8") === "SENTINEL\n",
+    "symlink postgrest.conf tidak menimpa targetnya"
+  );
+  check(
+    !fs.lstatSync(conf).isSymbolicLink(),
+    "postgrest.conf ditulis sebagai file biasa (link lama dibuang, bukan diikuti)"
+  );
+}
+
+// ── B2: direktori artefak privat (0700, milik uid ini) ─────────────────────
+{
+  const st = fs.lstatSync(TMP_PREFIX);
+  check(
+    !st.isSymbolicLink() && st.isDirectory(),
+    "TMP_PREFIX = direktori, bukan symlink",
+    JSON.stringify({ symlink: st.isSymbolicLink(), dir: st.isDirectory() })
+  );
+  check(
+    (st.mode & 0o777) === 0o700,
+    "TMP_PREFIX mode 0700",
+    `mode ${(st.mode & 0o777).toString(8)}`
+  );
+  check(st.uid === process.getuid(), "TMP_PREFIX milik uid ini", `uid ${st.uid}`);
+
+  const loose = tmpPath("loose-dir");
+  fs.mkdirSync(loose, { recursive: true, mode: 0o777 });
+  fs.chmodSync(loose, 0o777);
+  ensurePrivateDir(loose);
+  check(
+    (fs.lstatSync(loose).mode & 0o777) === 0o700,
+    "dir longgar (0777) dirapatkan jadi 0700"
+  );
+
+  const link = tmpPath("dir-link");
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(loose, link);
+  let msg = "";
+  try {
+    ensurePrivateDir(link);
+  } catch (err: any) {
+    msg = err.message;
+  }
+  check(msg.includes("symlink"), "dir symlink ⇒ gagal keras", msg.slice(0, 140));
 }
 
 // ── R2: gagal start ⇒ nol anak yatim, nol gantung ───────────────────────────

@@ -25,12 +25,13 @@ export HARNESS_RUN_ID="${HARNESS_RUN_ID:-$$}"
 eval "$(node --experimental-strip-types "$HERE/harness/isolate.mts" env)"
 echo "worktree: $HARNESS_SLUG  db: $HARNESS_PG_DB  port base: $HARNESS_PORT_BASE  run: $HARNESS_RUN_ID"
 
-# Lock per-worktree (RX2-4 R4). Kalau `flock` tidak ada, lewati — jangan bikin
-# gate gagal karena tooling opsional.
+# Lock per-worktree (RX2-4 R4) — jalurnya dari isolate.mts supaya bash dan node
+# tidak pernah menghitung path berbeda. Kalau `flock` tidak ada, lewati — jangan
+# bikin gate gagal karena tooling opsional.
 if command -v flock >/dev/null; then
-  exec 9>"$TMP_PREFIX/run-all.lock"
+  exec 9>"$HARNESS_LOCK_PATH"
   if ! flock -n 9; then
-    echo "run-all SUDAH berjalan untuk worktree ini ($TMP_PREFIX/run-all.lock)." >&2
+    echo "run-all SUDAH berjalan untuk worktree ini ($HARNESS_LOCK_PATH)." >&2
     echo "Satu worktree = satu run pada satu waktu (docs/w4-rx2-4-verification.txt §4)." >&2
     exit 1
   fi

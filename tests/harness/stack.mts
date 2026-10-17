@@ -13,6 +13,7 @@ import fs from "fs";
 import { spawn, type ChildProcess } from "child_process";
 import { execFileSync } from "child_process";
 import { PORTS, PG_DB, RUN_ID, tmpPath } from "./isolate.mts";
+import { writePrivateFile } from "./private-fs.mjs";
 
 export {
   PG_DB,
@@ -209,6 +210,56 @@ export async function assertMockOwner(
   );
 }
 
+/**
+ * RX2-4 follow-up B1: buktikan listener di `port` benar-benar dipegang `pid`.
+ *
+ * `waitForHttp()` bisa dijawab listener ASING sebelum anak kita sempat exit
+ * (PostgREST bind gagal ⇒ exit beberapa ms kemudian, tapi `exitCode` masih null
+ * saat itu) — probe verifier: foreign HTTP listener + `/tmp/postgrest` yang
+ * "resource busy" tetap menghasilkan handle dan proxy meneruskan body asing.
+ * Jadi bukan soal kalah cepat: kita tidak boleh menyimpulkan kepemilikan dari
+ * "HTTP menjawab" sama sekali. Di Linux pemilik socket LISTEN bisa dibaca pasti
+ * dari /proc: cari inode socket untuk port itu di /proc/net/tcp[6], lalu cek
+ * apakah inode itu ada di fd proses anak. Tidak bisa dibuktikan ⇒ gagal keras.
+ */
+function listenInode(port: number): string | null {
+  const hexPort = port.toString(16).toUpperCase().padStart(4, "0");
+  for (const file of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split("\n").slice(1)) {
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 10) continue;
+      if (cols[3] !== "0A") continue; // 0A = LISTEN
+      if (cols[1].split(":")[1] !== hexPort) continue;
+      return cols[9]; // inode
+    }
+  }
+  return null;
+}
+
+function ownsSocket(pid: number, inode: string): boolean {
+  const dir = `/proc/${pid}/fd`;
+  let fds: string[];
+  try {
+    fds = fs.readdirSync(dir);
+  } catch {
+    return false; // anak sudah hilang
+  }
+  for (const fd of fds) {
+    try {
+      if (fs.readlinkSync(`${dir}/${fd}`) === `socket:[${inode}]`) return true;
+    } catch {
+      /* fd hilang di tengah pembacaan */
+    }
+  }
+  return false;
+}
+
 export interface RunningStack {
   stop: () => void;
 }
@@ -262,7 +313,10 @@ export async function startPostgrest(): Promise<RunningStack | null> {
 
   const upstreamConfig = tmpPath("postgrest.conf");
   const proxyScript = new URL("./prefix-proxy.mjs", import.meta.url).pathname;
-  fs.writeFileSync(
+  // RX2-4 follow-up B2: tulis EKSKLUSIF di direktori privat 0700 — `writeFileSync`
+  // biasa mengikuti symlink yang di-pre-create orang lain di path /tmp yang
+  // predictable (probe verifier: `postgrest.conf -> sentinel` tertimpa).
+  writePrivateFile(
     upstreamConfig,
     [
       `db-uri = "${PG_URL}"`,
@@ -333,6 +387,22 @@ export async function startPostgrest(): Promise<RunningStack | null> {
       throw new Error(
         `PostgREST anak kita mati (exit ${upstream.exitCode}) padahal ` +
           `127.0.0.1:${POSTGREST_UPSTREAM_PORT} menjawab — port itu milik proses lain.`
+      );
+    }
+    // RX2-4 follow-up B1: "menjawab HTTP" BUKAN bukti kepemilikan (anak kita bisa
+    // belum sempat exit). Buktikan lewat inode socket di /proc; kalau tidak bisa
+    // dibuktikan, jangan lanjut — proxy ke listener asing = uji hijau/merah di DB
+    // orang lain.
+    const upstreamPid = upstream.pid as number;
+    const inode = listenInode(POSTGREST_UPSTREAM_PORT);
+    if (!inode || !ownsSocket(upstreamPid, inode)) {
+      throw new Error(
+        `127.0.0.1:${POSTGREST_UPSTREAM_PORT} menjawab HTTP tapi listener-nya BUKAN ` +
+          `anak kita (pid anak=${upstreamPid}, inode LISTEN di /proc=${inode ?? "tidak ada"}) ` +
+          `— port itu dipegang proses lain. Menolak mengadopsi: proxy akan meneruskan ` +
+          `body proses asing. Matikan pemiliknya (\`ss -ltnp | grep :` +
+          `${POSTGREST_UPSTREAM_PORT}\`) atau jalankan ulang dengan HARNESS_PORT_BASE lain. ` +
+          `Lihat docs/w4-rx2-4-verification.txt §7.`
       );
     }
 
