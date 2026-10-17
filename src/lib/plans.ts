@@ -29,12 +29,6 @@ export interface PlanDefinition {
   fallbackVariantPrice: number;
 }
 
-export const PUBLIC_PROMO_CODE = "TEMANBARU";
-export const PUBLIC_PROMO_RATE = 0.2; // 20% off, plans longer than 1 month
-export const SECRET_PROMO_CODE = "TEMANBAIKHATI";
-export const SECRET_PROMO_PRICE = 10000; // flat Rp 10k, 3-month plan only
-export const SECRET_PROMO_PLAN: PlanKey = "quarter";
-
 export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
   month: {
     key: "month",
@@ -90,30 +84,15 @@ export const PLAN_LOOKUP_KEYWORDS: Record<PlanKey, string[]> = {
   year: ["1 tahun", "12 bulan", "365 hari"],
 };
 
-export function isKnownPromoCode(code: string): boolean {
-  return code === PUBLIC_PROMO_CODE || code === SECRET_PROMO_CODE;
-}
-
 /**
- * Authoritative price. Returns base list price when no (or ineligible) promo.
- * TEMANBAIKHATI is only valid on the 3-month plan, matching the UI.
+ * Category price (harga katalog) for a plan. Lifeline for when the promo store
+ * is unreachable — the caller then refuses the promo and charges the list price,
+ * rather than silently honouring a discount it cannot verify.
+ *
+ * Promo pricing lives in the `promo_codes` table now (dashboard-managed); the
+ * old hardcoded TEMANBARU / TEMANBAIKHATI rules moved into the migration seed.
  */
-export function resolvePlanPrice(
-  plan: PlanKey,
-  promoCode: string
-): { price: number; promoApplied: string | null } {
-  if (promoCode === SECRET_PROMO_CODE) {
-    if (plan === SECRET_PROMO_PLAN) {
-      return { price: SECRET_PROMO_PRICE, promoApplied: SECRET_PROMO_CODE };
-    }
-    return { price: PLAN_CATALOG[plan].basePrice, promoApplied: null };
-  }
-  if (promoCode === PUBLIC_PROMO_CODE && plan !== "month") {
-    return {
-      price: Math.round(PLAN_CATALOG[plan].basePrice * (1 - PUBLIC_PROMO_RATE)),
-      promoApplied: PUBLIC_PROMO_CODE,
-    };
-  }
+export function resolvePlanPrice(plan: PlanKey): { price: number; promoApplied: null } {
   return { price: PLAN_CATALOG[plan].basePrice, promoApplied: null };
 }
 

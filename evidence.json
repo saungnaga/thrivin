@@ -1,0 +1,235 @@
+{
+  "task": "t_86bf9739",
+  "slug": "w3-wa-first",
+  "assignee": "forge",
+  "date": "2026-10-15",
+  "status": "implemented-local-green_blocked-live_review-required_audit-w3-remediated",
+  "base": {
+    "required_by_contract": "9392cdd",
+    "branch": "feat/wa-first-2026-10-15",
+    "worktree": "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w3-wa-first",
+    "stacked_on": "promo-ws feat/promo-management @ f456d0f (clean descendant of 9392cdd; fetched as wa-first-promo-src)",
+    "shared_worktree_untouched": "/home/ubuntu/workspaces/thrivin/repo (no checkout/reset)",
+    "audit": {
+      "card": "t_a498a912 (objek t_86bf9739, reviewer Sentinel)",
+      "doc": "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/security/review-w3-wa-first-2026-10-15.md",
+      "verdict_in": "AMAN DENGAN CATATAN, 0 veto, BELUM boleh apply",
+      "remediated_here": "t_ee4d66c7 (F-1, F-2, F-4 + evidence resend_limit)"
+    }
+  },
+  "suites": {
+    "command": "bash tests/run-all.sh",
+    "exit_code": 0,
+    "result": "ALL SUITES PASSED",
+    "counts": {
+      "remediation_units": "27/27",
+      "wa_first_units": "16/16",
+      "guard_checks": "pass",
+      "promo_sql": "44/44",
+      "webhook_e2e": "57/57",
+      "promo_e2e": "113/113",
+      "wa_first_e2e": "136/136"
+    },
+    "stack": "Next.js production build -> HTTP -> PostgREST -> local Postgres; OTP provider = mock (file sink); no Scalev mock needed for this slice",
+    "artifacts": [
+      "/tmp/w3-runall.log",
+      "/tmp/w3-e2e-out.log",
+      "/tmp/thrivin-wa-first-otp-sink.jsonl (dummy codes only)"
+    ]
+  },
+  "artifacts": {
+    "sql_draft": "staging/schema-wa-identity.sql",
+    "server": [
+      "src/lib/wa-session.ts",
+      "src/lib/otp.ts",
+      "src/lib/otp-provider.ts",
+      "src/lib/subscription-lookup.ts",
+      "src/lib/renewal.ts",
+      "src/lib/session-secret.ts",
+      "src/app/api/wa/session/request/route.ts",
+      "src/app/api/wa/session/verify/route.ts",
+      "src/app/api/wa/session/route.ts",
+      "src/app/api/wa/subscription/route.ts"
+    ],
+    "ui": [
+      "src/app/companion/nina/status/page.tsx",
+      "src/app/companion/nina/status/layout.tsx"
+    ],
+    "tests": [
+      "tests/test-wa-first-units.mts",
+      "tests/test-wa-first-e2e.mts",
+      "tests/harness/seed.sh",
+      "tests/run-all.sh"
+    ],
+    "docs": [
+      "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w3-wa-first/report.md",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/wa-first-2026-10-15.md"
+    ]
+  },
+  "existing_code_touched": [
+    {
+      "file": "src/lib/admin-auth.ts",
+      "change": "isWeakSecret + safeEqual dipindah ke src/lib/session-secret.ts lalu di-import/di-re-export; behavior tidak berubah; alasan: admin-auth.ts mengimpor next/headers sehingga tidak bisa dimuat tes node murni"
+    },
+    {
+      "file": "tests/harness/seed.sh",
+      "change": "menyalin staging/schema-wa-identity.sql -> migrations/005-wa-identity.sql"
+    },
+    {
+      "file": "tests/run-all.sh",
+      "change": "unit WA-first masuk langkah 2; e2e WA-first jadi langkah 7/7"
+    }
+  ],
+  "db_objects_drafted": {
+    "table": "wa_otp_challenges (phone, code_hash HMAC, attempts, max_attempts, expires_at, consumed_at, request_ip_hash; unique partial: satu challenge hidup per (tenant, phone); RLS deny anon/authenticated; GRANT service_role)",
+    "functions": [
+      "create_wa_otp_challenge(p_phone, p_code_hash, p_ttl_seconds, p_min_interval_seconds, p_max_per_hour, p_ip_hash, p_tenant_id) -> {status: created|cooldown|resend_limit|invalid_phone}",
+      "verify_wa_otp_challenge(p_phone, p_code_hash, p_tenant_id) -> {status: ok|invalid|expired|no_challenge|too_many_attempts}",
+      "subscription_status_for_owner(p_phone) -> {state, expires_at, last_plan_key} (STABLE, tanpa tulisan)"
+    ],
+    "grants": "REVOKE ALL FROM PUBLIC, anon, authenticated; GRANT EXECUTE/table hanya ke service_role",
+    "applied_where": "hanya DB harness lokal (dummy, sekali pakai) — NOL apply ke staging/produksi"
+  },
+  "evidence_for_card_requirements": {
+    "bare_number_privacy": [
+      "privasi: bentuk body IDENTIK untuk nomor ada vs tidak ada",
+      "privasi: body hanya {ok,message}",
+      "privasi: kode OTP tidak pernah ikut di jawaban HTTP"
+    ],
+    "otp_abuse_session_swap": [
+      "otp: kode salah -> 401 tanpa sisa percobaan",
+      "otp: percobaan habis -> 429 (bukan percobaan tanpa batas)",
+      "otp: kode yang sama TIDAK bisa dipakai dua kali (single-use)",
+      "otp: kode LAMA mati setelah permintaan baru",
+      "otp: 3 verifikasi paralel = tepat 1 x 200 (single-use atomik)",
+      "race: hanya SATU challenge hidup untuk nomor itu",
+      "swap: kode milik nomor lain tidak bisa ditukar nomor",
+      "sesi: token dipalsukan / epoch lain / kedaluwarsa -> 401",
+      "sesi: cookie ADMIN tidak diterima di endpoint pelanggan"
+    ],
+    "generic_error": [
+      "privasi: nomor tidak valid -> 400 (bukan disubstitusi)",
+      "otp: bentuk kode ngawur -> 401 (bukan oracle bentuk)",
+      "fail-closed: DB mati -> 503 (bukan 200)",
+      "fail-closed: jawaban tanpa field state — tidak pernah terbaca sebagai \\\"nomor baru\\\""
+    ],
+    "active_nonactive_boundary": [
+      "boundary: aktif -> active + sisa masa aktif > 0",
+      "boundary: kedaluwarsa 8 hari -> expired + kandidat",
+      "boundary: TEPAT 7 hari = TIDAK eligible (batas spec)",
+      "boundary: 7 hari + 30 detik -> eligible",
+      "boundary: field yang keluar = daftar minimal (tanpa nama/token/user_id)",
+      "eligibility: tepat 7×24 jam -> TIDAK eligible (unit, juga ±1 ms)"
+    ],
+    "promo_tamper_race": [
+      "promo: NOL baris redemption — slice ini tidak mengklaim/mengaktifkan promo",
+      "promo: aktivasi reaktivasi ditahan (t_7bcb4487) — dinyatakan eksplisit",
+      "promo: harga tetap katalog server walau client mengirim amount/promo_code",
+      "promo: tanpa sesi tetap 401 walau query diberi promo/amount",
+      "boundary: baris promo non-aktif -> kandidat null (tidak mengarang angka)"
+    ],
+    "admin_bypass_vs_non_admin": [
+      "admin: nomor di NINA_ADMIN_PHONES tetap dievaluasi normal (tanpa bypass)",
+      "admin: eligibilitas dihitung dari expires_at, bukan dari allowlist",
+      "non-admin: nomor non-admin dievaluasi sama"
+    ],
+    "sql_least_privilege": [
+      "rpc: anon DITOLAK (401/403), bukan 200 berisi data",
+      "rpc: anon tidak bisa membaca tabel challenge",
+      "rpc: service_role tetap bisa membaca challenge",
+      "rpc: jalur BACA tidak mengubah status di DB (beda dari check_subscription)",
+      "rpc: jawaban hanya 3 field ({state,expires_at,last_plan_key})"
+    ],
+    "ui_keyboard_mobile": [
+      "ui: input nomor punya <label for> eksplisit",
+      "ui: inputmode=numeric + autocomplete=tel",
+      "ui: wilayah aria-live untuk status/error",
+      "ui: tombol form type=submit (Enter mengirim)",
+      "ui: target sentuh minimal 44px",
+      "ui: CTA checkout baru muncul setelah status dimuat (tidak ada sebelum verifikasi)"
+    ],
+    "log_hygiene": [
+      "log: tidak ada kode OTP yang tercetak di log server",
+      "log: tidak ada nomor mentah di log (hanya bentuk ***1234)"
+    ]
+  },
+  "audit_remediation_w3_rx": {
+    "card": "t_ee4d66c7",
+    "commits": ["eef4c6c (fix + uji)", "be69f95 (bukti)"],
+    "scope": "HANYA temuan audit (F-1, F-2, F-4) + refresh klaim resend_limit; F-3 & F-5 tetap item pasca-apply",
+    "F-1": {
+      "finding": "batas OTP per jam (resend_limit) mati di jalur app: kuota dihitung dari baris `consumed_at IS NULL` sementara jalur tulis memakai UPSERT → baris hidup selalu 1 → kuota maksimum 1/jam. Batas nyata = cooldown 60 s (sampai 60 OTP/jam/nomor)",
+      "fix": "create_wa_otp_challenge: (a) kuota dihitung dari SEMUA baris dalam 1 jam terakhir, bukan baris hidup; (b) baris hidup lama ditutup (consumed_at=now()) lalu baris BARU dicatat → tiap penerbitan terhitung; (c) pg_advisory_xact_lock(hashtext(tenant:phone)) men-serialisasi permintaan paralel (serialisasi lama datang dari ON CONFLICT yang kini tidak dipakai)",
+      "test_baru": "instance app TANPA WA_OTP_MAX_PER_HOUR (default app = 5) + 6 permintaan lewat POST /api/wa/session/request (3, tunggu jendela batas laju 61 s, 3 lagi)",
+      "bukti_pass": [
+        "kuota-http: 3 permintaan pertama (batas laju route) -> 200",
+        "kuota-http: permintaan melewati kuota tetap 200 generik (tidak membocorkan batas)",
+        "kuota-http: HANYA 5 kode dalam satu jam (default app), bukan 6 — dan bukan 60",
+        "kuota-http: 5 baris tercatat — hitungan dari baris tercatat, bukan baris hidup",
+        "kuota-http: tetap hanya SATU challenge hidup per nomor"
+      ],
+      "bukti_gagal_pre_fix": "git stash push staging/schema-wa-identity.sql → bash tests/harness/seed.sh --fresh → node --experimental-strip-types tests/test-wa-first-e2e.mts = 130/136, exit 1 (log /tmp/w3rx-prefix-e2e.log): 'kuota-http: HANYA 5 kode … expected 5, got 6' dan 'kuota-http: 5 baris tercatat … expected 5, got 1'"
+    },
+    "F-2": {
+      "finding": ".env.example mengirim WA_OTP_PROVIDER=mock sebagai nilai AKTIF dan tidak ada penjaga NODE_ENV → di produksi endpoint menjawab 200 'kode sudah dikirim' padahal nol outbound, dan WA_OTP_MOCK_SINK menulis {phone, code} mentah ke disk",
+      "fix": "getOtpProvider(): mock DITOLAK saat NODE_ENV=production kecuali pintu darurat eksplisit WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1 (dipakai HANYA harness yang menjalankan build produksi); .env.example: WA_OTP_PROVIDER=mock jadi komentar + pintu darurat didokumentasikan sebagai larangan; file sink ditulis mode 0600",
+      "bukti_pass": [
+        "unit: provider OTP: mock ditolak saat NODE_ENV=production (F-2)",
+        "fail-closed: WA_OTP_PROVIDER=mock saat NODE_ENV=production -> 503 (tidak menjanjikan kode)",
+        "fail-closed: file sink mock TIDAK dibuat — nol kode OTP/nomor mentah ke disk",
+        "fail-closed: nol challenge diterbitkan untuk mock-di-produksi"
+      ],
+      "bukti_gagal_pre_fix": "git stash push src/lib/otp-provider.ts → npm run build → unit FAIL 'mock lolos di produksi tanpa pintu darurat'; e2e 4 FAIL termasuk 'expected 503, got 200' + body 'kode verifikasi sudah dikirim' + sink tertulis (log /tmp/w3rx-prefix-units.log, /tmp/w3rx-prefix2-e2e.log)"
+    },
+    "F-4": {
+      "finding": "RPC baru membandingkan `phone = p_phone` (literal) padahal format simpanan users.phone bisa beda",
+      "query_readonly_staging": {
+        "cara": "Supabase Management API POST /v1/projects/<staging-ref>/database/query (token scoped staging; GET /v1/projects hanya menampilkan thrivin-staging) — SELECT agregat, tanpa nilai mentah",
+        "hasil": "total_users=5, phone_null=0, fmt_62_ok=0, fmt_plus62=5, fmt_leading_zero=0, fmt_nondigit_or_space=0, fmt_needs_trim=0, fmt_lain=5; sample termask +628****01..05 (len 13)",
+        "kesimpulan": "5/5 baris staging tersimpan +62… (E.164 ber-plus) — predikat lama `phone = '628…'` = TIDAK PERNAH cocok → pelanggan lama terbaca 'none'",
+        "nol_tulis": "READ-ONLY: hanya SELECT (agregat + sample termask); tidak ada INSERT/UPDATE/DDL"
+      },
+      "fix": "subscription_status_for_owner: bandingkan DIGIT saja — regexp_replace(phone,'[^0-9]','','g') IN (p_phone, '0' || substring(p_phone from 3)) → +62…, 62…, 0812…, spasi/dash semua cocok",
+      "bukti_pass": [
+        "format: baris `+62…` tetap terbaca active lewat sesi `62…`",
+        "format: baris `0812…` tetap terbaca active lewat sesi `62…`",
+        "format: baris berspasi/berdash tetap terbaca active (hanya digit yang dibandingkan)",
+        "format: baris uji tersimpan apa adanya (tidak ada tulisan ke tabel users)"
+      ],
+      "bukti_gagal_pre_fix": "seed --fresh dengan RPC lama → 3 FAIL 'expected \"active\", got \"none\"' (log /tmp/w3rx-prefix-e2e.log)"
+    },
+    "resend_limit_claim_refresh": "Klaim lama 'resend: … resend_limit' hanya berlaku untuk panggilan RPC dengan p_max_per_hour=1. Sekarang: kuota per jam DIUJI lewat jalur HTTP dengan default app (5) → maksimum 5 kode/jam/nomor, dan batas tetap tidak dibocorkan ke klien (200 generik).",
+    "logs": [
+      "/tmp/w3rx-runall.log (bash tests/run-all.sh, exit 0)",
+      "/tmp/w3rx-e2e2.log (136/136)",
+      "/tmp/w3rx-prefix-e2e.log (pre-fix: 130/136 — F-1 & F-4)",
+      "/tmp/w3rx-prefix2-e2e.log (pre-fix: F-2)",
+      "/tmp/w3rx-prefix-units.log (pre-fix: F-2 unit)"
+    ]
+  },
+  "not_done_intentionally": [
+    "provider OTP live (WA_OTP_PROVIDER selain 'mock' -> 503 gagal-tertutup); transport resmi ada di worktree channel-sender-ws, belum di RC",
+    "staging/schema-wa-identity.sql belum di-apply ke staging/produksi (butuh delta-review Sentinel)",
+    "baris promo TEMENANLAGI tidak dibuat; aktivasi reaktivasi dimatikan (t_7bcb4487 blocked)",
+    "verifikasi runtime Nina produksi (blocked-live; read-only menyusul di N1/N2/Q1)",
+    "tidak ada perubahan pada jalur uang (create-order/webhook/promo.ts) dan tidak ada aktivasi langganan (itu t_f5ec336c)"
+  ],
+  "safety": {
+    "customer_data": "no-touch (hanya nomor dummy 62812xxxxxxx di DB harness lokal)",
+    "credentials": "tidak ada secret produksi dibaca; env staging/prod tidak disentuh; header apikey tampil sebagai *** di output tool (redactor), nilai tidak pernah dicetak",
+    "production": "nol deploy, nol apply SQL, nol push ke main",
+    "outbound": "nol WhatsApp outbound (mock provider menulis ke file sink lokal)",
+    "shared_repo": "git status worktree bersama bersih; tidak ada checkout/reset"
+  },
+  "claim_limits": [
+    "UI diuji di level markup + alur API (harness tidak punya browser headless), bukan simulasi ketukan perangkat nyata",
+    "limitRequest in-process per instance (bukan pengaman multi-instance)",
+    "sesi stateless: logout membereskan cookie; cabut semua sesi = naikkan WA_SESSION_EPOCH",
+    "RPC diuji terhadap skema harness yang meniru staging/schema/{db-tables,db-functions}.sql; belum terhadap Supabase staging/produksi",
+    "batas laju route (3 permintaan/menit/nomor) lebih ketat dari kuota per jam (5), jadi uji kuota lewat HTTP perlu 2 jendela waktu (suite menunggu 61 s)",
+    "WA_OTP_MOCK_ALLOW_IN_PRODUCTION=1 adalah pintu darurat untuk harness build-produksi; WAJIB tidak ada di env staging/produksi saat apply (default = mock ditolak)",
+    "F-4: normalisasi di dalam RPC memakai regexp_replace → seq scan pada users (tidak memakai index users_phone_key); ganti ke index ekspresi/normalisasi data saat users membesar",
+    "baris wa_otp_challenges tidak dibersihkan oleh RPC (butuh purge terjadwal saat apply)"
+  ],
+  "next_step": "kanban_block(kind=needs_input, reason='review-required: re-check closure F-1/F-2/F-4')"
+}

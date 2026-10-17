@@ -71,24 +71,30 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname.endsWith("/orders")) {
-    const body = await readBody(req);
-    const record = { receivedAt: Date.now(), body, authorization: req.headers.authorization };
-    createdOrders.push(record);
-    persistOrders();
+      const body = await readBody(req);
+      const record = { receivedAt: Date.now(), body, authorization: req.headers.authorization };
+      createdOrders.push(record);
+      persistOrders();
 
-    const orderId = `test_${createdOrders.length}_${Date.now().toString(36)}`;
-    const unitPrice = 219000;
-    const qty = Array.isArray(body.ordervariants) ? body.ordervariants[0]?.quantity || 1 : 1;
-    const gross = unitPrice * qty - (Number(body.product_discount) || 0);
+      // Order yang gagal di Scalev, untuk menguji pelepasan kuota promo
+      // (kode promo sudah diklaim, order tidak jadi dibuat).
+      if (String(body.customer_name || "").startsWith("FAILORDER")) {
+        return send(res, 422, { message: "mock: order rejected on purpose" });
+      }
 
-    return send(res, 200, {
-      id: `uuid_${orderId}`,
-      order_id: orderId,
-      public_order_url: `https://thrivin.myscalev.com/orders/${orderId}`,
-      pg_payment_info: { payment_url: `https://thrivin.myscalev.com/pay/${orderId}` },
-      gross_revenue: gross,
-      notes: body.notes,
-    });
+      const orderId = `test_${createdOrders.length}_${Date.now().toString(36)}`;
+      const unitPrice = 219000;
+      const qty = Array.isArray(body.ordervariants) ? body.ordervariants[0]?.quantity || 1 : 1;
+      const gross = unitPrice * qty - (Number(body.product_discount) || 0);
+
+      return send(res, 200, {
+        id: `uuid_${orderId}`,
+        order_id: orderId,
+        public_order_url: `https://thrivin.myscalev.com/orders/${orderId}`,
+        pg_payment_info: { payment_url: `https://thrivin.myscalev.com/pay/${orderId}` },
+        gross_revenue: gross,
+        notes: body.notes,
+      });
   }
 
   send(res, 404, { error: "not found", path: url.pathname });

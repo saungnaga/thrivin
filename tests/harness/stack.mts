@@ -170,7 +170,8 @@ export async function startPostgrest(): Promise<RunningStack | null> {
 
 export function truncateAll(): void {
   psqlSuper(
-    "TRUNCATE webhook_events_inbox, onboarding_snapshots, subscriptions, users RESTART IDENTITY CASCADE;"
+    "TRUNCATE webhook_events_inbox, onboarding_snapshots, subscriptions, users, " +
+      "promo_redemptions, promo_codes RESTART IDENTITY CASCADE;"
   );
 }
 

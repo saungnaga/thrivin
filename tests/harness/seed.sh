@@ -28,8 +28,12 @@ if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB';"
   run_pg postgres -c "CREATE DATABASE $DB OWNER postgres;"
 fi
 
-# Keep the harness copy in lock-step with the schema under review.
+# Keep the harness copies in lock-step with the schema under review. Copying
+# (instead of hand-maintaining a second file) is what keeps the leak/quota tests
+# honest: the harness runs the exact draft that is going to be applied.
 cp "$REPO/staging/schema-webhook-onboarding.sql" "$HERE/migrations/002-webhook-onboarding.sql"
+cp "$REPO/staging/schema-promo-codes.sql" "$HERE/migrations/004-promo-codes.sql"
+cp "$REPO/staging/schema-wa-identity.sql" "$HERE/migrations/005-wa-identity.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"
