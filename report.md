@@ -490,6 +490,48 @@ Sengaja TIDAK diubah: asersi `tests/test-consent-gate-e2e.mts:464-509`, `src/**`
 
 
 
+## 6g. Ronde 5 — RX2-4: higiene sisa isolasi harness (R1–R4) (2026-10-17)
+
+Temuan **R1–R4** delta-review Sentinel `t_9f78ca4d` (LOW). Kartu `t_38804fb8`.
+**Nol** perubahan `src/`, **nol** perubahan `staging/*.sql`, nol apply Supabase/staging/produksi,
+nol data pelanggan (nomor dummy), nol Scalev nyata, nol push/merge. Bukti lengkap:
+`docs/w4-rx2-4-verification.txt`.
+
+### Perubahan
+
+| Temuan | Perbaikan |
+|---|---|
+| R1 — mock masih punya fallback port bersama `4111` | `tests/mock-scalev.mjs`: port **wajib** eksplisit (argv atau `MOCK_SCALEV_PORT`); tanpa itu usage + exit 2 (sama seperti `prefix-proxy.mjs`). |
+| R2 — `startPostgrest()` meninggalkan anak yatim + menggantung pemanggil saat start-nya sendiri gagal | `tests/harness/stack.mts`: try/catch + `stop()` yang SIGTERM anak lalu (grace 1,5 s) SIGKILL sisa dan mencabut pipe stderr. **Urutan wajib SIGTERM dulu** — mencabut pipe stderr lebih dulu membuat PostgREST tidak mau shutdown (dibuktikan, §2a dokumen bukti). |
+| R3 — port proxy/PostgREST fail-open (listener siapa pun diadopsi) | `prefix-proxy.mjs` mengiklankan `GET /__proxy-identity`; `mock-scalev.mjs` mengiklankan `GET /__mock-identity`; `stack.mts` hanya mengadopsi proxy ber-`RUN_ID` run ini dan suite memverifikasi pemilik port mock via `assertMockOwner()` (7 suite). `RUN_ID` baru di `isolate.mts` (dari `HARNESS_RUN_ID` run-all / pid). |
+| R4 — mode "dua run dari satu worktree" tak terdokumentasi | `tests/run-all.sh`: lock `flock` per worktree (`$TMP_PREFIX/run-all.lock`, dilewati kalau `flock` tidak ada) + §4 dokumen bukti; §5 dokumen RX2-2/3 juga ditambahi catatan mode tak didukung. |
+
+Tambahan: `tests/test-harness-isolation.mts` (baru, 14 asersi, 2,5 s, nol DB/app) masuk step 2
+`run-all.sh` sebagai guard permanen untuk R1/R2/R3 — termasuk kontrol positif: identitas mock
+menyebut pid DAN jalur artefak orders-nya, dan `assertMockOwner` harus LULUS untuk mock milik kita. `POSTGREST_BIN` kini dibaca per-panggilan
+(diperlukan guard itu) dan `HARNESS_HTTP_WAIT_MS` memperpendek timeout tunggu.
+
+### Bukti (ringkas)
+
+- Pra-fix GAGAL (probe, dijalankan sebelum patch): mock tanpa argumen listen di 4111; `startPostgrest()`
+  dengan binari mati-rasa → `Timed out waiting for …` + anak yatim + pemanggil harus dibunuh `timeout`;
+  listener asing di port PostgREST → `startPostgrest() returned: HANDLE` dan query dijawab proses asing;
+  listener asing di port mock → mock anak mati EADDRINUSE tapi suite tetap lanjut.
+- Pasca-fix: mock tanpa argumen exit 2 + 4111 ECONNREFUSED; R2 throw + 0 yatim + pemanggil keluar
+  sendiri (exit 1); R3 throw dengan identitas pemilik; jalur normal tetap naik, adopsi intra-run
+  tetap jalan, `stop()` bersih (0 port/proses sisa); guard 14 PASS.
+- Gate: `bash tests/run-all.sh` → **ALL SUITES PASSED** exit 0 (`/tmp/rx24-runall.log`), step 9
+  **166 PASS, 0 FAIL**, nol port tersisa; `run-all.sh` kedua dari worktree yang sama ditolak lock
+  di muka (`/tmp/rx24-lock.log`).
+
+### Batasan jujur
+
+- Klaim di §6e tabel (`report.md:375`) dan §1 dokumen RX2-2/3 bahwa "default bersama 4111 sudah
+  hilang" baru benar untuk **semua** jalur sesudah ronde ini; sebelumnya masih ada fallback itu di
+  `mock-scalev.mjs:17`. Kedua klaim sudah diberi catatan penunjuk.
+- Ronde ini **tidak** mengubah penghitungan DB/port/prefix per-worktree, jadi kriteria terima
+  RX2-2 (dua `run-all` paralel dari dua worktree) tidak diulang di sini.
+
 ## 7. Temuan untuk Sentinel / keputusan pemilik
 
 - **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
@@ -552,6 +594,12 @@ Sengaja TIDAK diubah: asersi `tests/test-consent-gate-e2e.mts:464-509`, `src/**`
   + `tests/harness/rx25-index-mutation.sh` (baru) dan `docs/w4-rx25-verification.txt` — instrumen
   bukti kelas race jalur uang. Nol perubahan `src/`, nol perubahan `staging/*.sql`, `run-all.sh`
   tidak disentuh.
+- (ronde 5, §6g / RX2-4) `tests/harness/isolate.mts` (`RUN_ID`), `tests/harness/stack.mts`
+  (cleanup start + identitas proxy + `assertMockOwner`), `tests/harness/prefix-proxy.mjs`
+  (`/__proxy-identity`), `tests/mock-scalev.mjs` (port wajib + `/__mock-identity`),
+  `tests/run-all.sh` (lock per worktree + step guard baru), 7 suite e2e/probe (panggilan
+  `assertMockOwner`), `tests/test-harness-isolation.mts` (baru) — higiene harness;
+  nol `src/`, nol `staging/*.sql`, nol perilaku aplikasi.
 - (ronde 4, §6e) `tests/harness/isolate.mts` + `drop-stale.sql` (baru), `tests/harness/stack.mts`,
   `tests/run-all.sh`, 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs`,
   `tests/test-probe-cross-phone.mts` — infrastruktur verifikasi (DB/port/prefix `/tmp` per-worktree

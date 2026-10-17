@@ -39,7 +39,9 @@ Perubahan lain:
                    argumen -> exit 2 + usage. Hanya stack.mts yang memanggilnya dan
                    selalu dengan port isolate.mts, jadi tak ada jalur yang berubah.
   5 suite e2e + promo-sql + mock-scalev: port/DB/path /tmp dari isolate.mts
-                   (semua default lama 3981-3998/4111/4121/4135/54321/54322/thrivin_*_test sudah hilang)
+                   (semua default lama 3981-3998/4111/4121/4135/54321/54322/thrivin_*_test sudah hilang;
+                   fallback 4111 di `mock-scalev.mjs` masih hidup di ronde ini — ditutup RX2-4,
+                   lihat §5 dan docs/w4-rx2-4-verification.txt)
 
 Sisa yang JANGAN diubah: asersi H-3 `!/tmp/thrivin-onboarding` di test-webhook-e2e (§634) —
 itu memeriksa jalur fallback PII PRODUKSI harus tidak ada, bukan path harness.
@@ -167,6 +169,17 @@ Mutasi uji (sementara, SUDAH DIREVERT): guard F-S1 di `staging/schema-consent.sq
   masih memakai default lama). Efek samping yang wajar: seed.sh terbaru membersihkan overload asingnya.
 - Batasan yang jujur: slot port = hash(path) % 1200, jadi dua worktree bisa tabrakan (~1/1200).
   Jalan keluar: set `HARNESS_PORT_BASE` / `HARNESS_PG_DB` eksplisit (sudah dihormati semua suite).
+- **Mode yang TIDAK didukung: satu worktree = satu run pada satu waktu.** Dua `run-all.sh`
+  (atau dua suite e2e) sekaligus dari worktree yang SAMA memakai DB dan set path `/tmp` yang
+  sama: run kedua gagal keras di dalam `seed.sh` (DDL bersamaan, exit 1) — diprobe Sentinel
+  (run1 exit 1, run2 128 PASS), jadi tidak ada pencampuran senyap, tapi tetap bukan setup yang
+  didukung. Sejak RX2-4 ada lock `flock` di `$TMP_PREFIX/run-all.lock` yang menolak run kedua
+  di muka; dua worktree BERBEDA tetap didukung seperti sebelumnya.
+- **RX2-4 (`t_38804fb8`) menutup sisa isolasi** (mock tanpa port → exit 2, `startPostgrest()`
+  membersihkan diri saat gagal, port proxy/mock gagal keras kalau dipegang listener asing).
+  Konsekuensinya klaim "default bersama sudah hilang" di §1 di atas baru benar untuk SEMUA
+  jalur (termasuk mock yang dijalankan manual) SESUDAH RX2-4; detail + bukti pra/pasca-fix:
+  `docs/w4-rx2-4-verification.txt`.
 - Belum: `seed.sh --fresh` masih manual (bukan default run-all) — sengaja, karena drop+recreate DB
   setiap run memperlambat gate; drop-stale.sql sudah menutup kasus signature berubah.
 

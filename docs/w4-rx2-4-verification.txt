@@ -1,0 +1,178 @@
+RX2-4 — higiene sisa isolasi harness (R1–R4) — bukti.
+Kartu kanban t_38804fb8 (temuan LOW, 4 butir) dari delta-review Sentinel t_9f78ca4d
+(laporan: ~/obsidian/kantor-ai/projects/thrivin/security/review-w4-rx2-2-3-2026-10-17.md).
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15. Basis kode saat mulai: bdf0f99.
+
+Semua uji di harness LOKAL (Postgres + PostgREST + mock Scalev lokal). Nol apply ke
+Supabase/staging/produksi, nol data pelanggan (nomor dummy), nol Scalev nyata, nol push/merge.
+Nol perubahan `src/`, nol perubahan `staging/*.sql` — murni `tests/` + `docs/` + `report.md`.
+
+==============================================================================
+1. Empat temuan + perbaikannya
+==============================================================================
+R1 (mock 4111)      `tests/mock-scalev.mjs` — port WAJIB eksplisit (argv[2] atau
+                    MOCK_SCALEV_PORT). Tanpa keduanya: usage + exit 2, sama seperti
+                    `prefix-proxy.mjs`. Tidak ada lagi default bersama 4111.
+R2 (anak yatim)     `tests/harness/stack.mts` — `startPostgrest()` dibungkus try/catch:
+                    apa pun yang gagal SESUDAH spawn pertama mematikan anak yang sudah
+                    hidup lalu melempar. Urutannya SIGTERM dulu, baru (1,5 s) SIGKILL
+                    + cabut pipe stderr — lihat §2a, urutan itu penting.
+R3 (pemilik port)   Identitas di dua sisi:
+                    - `prefix-proxy.mjs` mengiklankan `GET /__proxy-identity`
+                      ({pid, listenPort, upstreamPort, runId}); `stack.mts` hanya
+                      mengadopsi listener yang runId-nya = RUN_ID run ini.
+                    - `mock-scalev.mjs` mengiklankan `GET /__mock-identity` (pola
+                      promo-ws); `assertMockOwner()` (stack.mts) dipanggil 7 suite
+                      sesudah spawn mock dan GAGAL KERAS kalau pid-nya bukan anak kita.
+                    - `RUN_ID` (isolate.mts) = HARNESS_RUN_ID dari run-all.sh ($$), atau
+                      `<SLUG>#<pid>` kalau suite dijalankan langsung.
+                    - PostgREST upstream: anak kita harus MASIH HIDUP sesudah listen
+                      (bind berhasil); proxy harus mengaku pid = anak yang kita spawn.
+                    - `POSTGREST_BIN` dibaca per-panggilan (bukan saat import) supaya
+                      test harness sendiri bisa menyuntik binari palsu; timeout
+                      `waitForHttp` bisa diperpendek lewat HARNESS_HTTP_WAIT_MS.
+R4 (mode tak didukung) `tests/run-all.sh` — lock `flock` per worktree
+                    (`$TMP_PREFIX/run-all.lock`): run kedua dari worktree yang sama
+                    berhenti di muka dengan pesan jelas. Kalau `flock` tidak ada, lock
+                    dilewati (jangan gagalkan gate karena tooling opsional).
+
+Guard permanen: `tests/test-harness-isolation.mts` (baru, ikut step 2 `run-all.sh`,
+2,5 s, nol DB/app) — 14 asersi yang menjaga R1/R2/R3 tetap mati. Termasuk kontrol positif:
+identitas mock menyebut pid DAN jalur artefak orders-nya (butir "pid dan artefak" di SOP divisi),
+dan `assertMockOwner` harus LULUS untuk mock milik kita sendiri.
+
+==============================================================================
+2. BUKTI NEGATIF (pra-fix, dijalankan SEBELUM patch) — semuanya GAGAL
+==============================================================================
+(a) R1 — mock tanpa port tetap listen di port bersama 4111 (`/tmp/rx24-pre-r1.log`):
+      $ node --experimental-strip-types ~/rx24-evidence/probe-r1.mts
+      exit=still running after 2s
+      output="[mock-scalev] listening on http://127.0.0.1:4111"
+      port 4111 answering: yes status=200
+
+    R2 — `startPostgrest()` dengan POSTGREST_BIN palsu (hidup, tak pernah listen)
+    (`/tmp/rx24-pre-r2.log`):
+      $ POSTGREST_BIN=~/rx24-evidence/fake-postgrest HARNESS_POSTGREST_UPSTREAM_PORT=42511 \
+        HARNESS_POSTGREST_PORT=42510 timeout -k 2 40 node --experimental-strip-types \
+        ~/rx24-evidence/probe-r2.mts
+      startPostgrest() THREW: Timed out waiting for http://127.0.0.1:42511/
+      elapsed=20597ms  EXIT=124 (timeout membunuh pemanggil)
+      pgrep "^sleep 300$" -> 2 proses yatim MASIH HIDUP
+    Reproduksi apa adanya: probe tidak keluar sendiri (pipe stderr anak menahan event
+    loop), jadi `timeout` yang mengakhiri — persis temuan Sentinel.
+
+    R3-proxy — port PostgREST dipegang listener asing (`/tmp/rx24-pre-r3.log`):
+      $ node --experimental-strip-types ~/rx24-evidence/probe-r3.mts
+      foreign listener up on 48180 (pid 3114496)
+      startPostgrest() returned: HANDLE            <-- fail-open
+      query through POSTGREST_URL answered by: {"adopted":true,"foreign":true,...,"pid":3114496}
+
+    R3-mock — port mock dipegang listener asing (`/tmp/rx24-pre-r3b.log`):
+      foreign listener up on 48183 (pid 3114211)
+      mock child exitCode=1 stderr=... (EADDRINUSE)
+      waitFor menjawab: 200 {"foreign":true,"path":"/v3/stores/x/products",...}
+      assertMockOwner: TIDAK ADA — tidak ada pemeriksaan pemilik port
+    (mock anak MATI tapi suite tetap lanjut bicara ke mock orang lain → hitungan order
+    dari file run lain; kelas kesalahan yang sama dengan yang dictat promo-ws.)
+
+(b) Test guard permanennya sendiri di HEAD pra-fix (`git worktree add --detach
+    /tmp/rx24-prefix bdf0f99` + salinan file test) → exit 1:
+      SyntaxError: The requested module './harness/stack.mts' does not provide an
+      export named 'RUN_ID'      (/tmp/rx24-newtest-prefix.log)
+    Artinya: di HEAD belum ada identitas run maupun pemeriksaan pemilik port — guard-nya
+    memang belum ada, dan bukti per-temuan ada di probe (a).
+
+==============================================================================
+2a. Kenapa urutan SIGTERM-vs-cabut-pipe itu penting (kalau tidak: kebalikan R2)
+==============================================================================
+Percobaan A (`/tmp/rx24-diag-kill-order-first.log`) — SIGTERM dulu, pipe stderr TIDAK
+dicabut:
+  up, pid=3194518 / SIGTERM ke grup -pid / exitCode sesudah 2s: 0
+Percobaan B (`/tmp/rx24-diag-destroy-first.log`) — `stderr.destroy()` DULU, baru SIGTERM:
+  stderr destroyed; SIGTERM ke grup / MASIH HIDUP sesudah 3s  (hanya SIGKILL yang mematikan)
+Kesimpulan: PostgREST 16.4 tidak shutdown kalau pembaca stderr-nya sudah dicabut lebih dulu.
+Makanya `stop()` baru mencabut pipe di grace 1,5 s, bukan sebelumnya. Kalau ini dilanggar,
+perbaikan R2 berubah jadi kebocoran baru: stack "normal" pun tidak mati saat stop().
+
+==============================================================================
+3. BUKTI POSITIF (pasca-fix)
+==============================================================================
+
+(a) Empat probe yang sama, sesudah patch:
+    R1  (`/tmp/rx24-post-r1.log`)
+        exit=2
+        output="usage: node tests/mock-scalev.mjs <port>  (or set MOCK_SCALEV_PORT)"
+        port 4111 answering: no (ECONNREFUSED)
+    R2  (`/tmp/rx24-post-r2.log`)
+        startPostgrest() THREW: Timed out waiting for http://127.0.0.1:42511/
+        elapsed=20081ms  EXIT=1 (keluar SENDIRI, bukan dibunuh timeout)
+        pgrep "^sleep 300$" -> 0 yatim;  ss -ltn | grep :4251x -> 0 listener
+    R3  (`/tmp/rx24-post-r3.log`)
+        startPostgrest() THREW: port 48180 sudah dipakai listener ASING — identitas yang
+        diiklankan: pid=3127073 runId=undefined listen=undefined upstream=undefined;
+        run ini: runId="w4_consent_gate_e92cbc#3127073" upstream=48181. Menolak mengadopsi —
+        matikan pemiliknya (`ss -ltnp | grep :48180`) atau jalankan ulang dengan
+        HARNESS_PORT_BASE lain. Lihat docs/w4-rx2-4-verification.txt.
+    R3-mock (`/tmp/rx24-post-r3b.log`)
+        assertMockOwner THREW: port 48183: mock Scalev dipegang proses lain (pid 3127084,
+        bukan anak kita pid 3127092) — port tabrakan, menolak lanjut (ordersFile=undefined)
+
+(b) Jalur positif tidak rusak (`/tmp/rx24-post-r0.log`) — stack normal, adopsi intra-run
+    tetap jalan, stop() bersih:
+        identity: {"pid":3191157,"listenPort":48180,"upstreamPort":48181,
+                   "runId":"w4_consent_gate_e92cbc#3191134"}
+        runId cocok: true            /rest/v1/ status: 200
+        adopsi (panggilan kedua): HANDLE        pid proxy sama sesudah adopsi: true
+        proxy hilang sesudah 0.3s: true
+        sisa listener 48180/48181: (kosong, diperiksa juga 3 s kemudian)
+
+(c) Guard permanen: `node --experimental-strip-types tests/test-harness-isolation.mts`
+    -> "harness isolation: 14 PASS, 0 FAIL" · OK · 2,5 s (nol DB, nol app),
+    nol port/proses tersisa sesudahnya.
+
+(d) Gate penuh `bash tests/run-all.sh` di HEAD ronde ini -> ALL SUITES PASSED, exit 0
+    (log /tmp/rx24-runall.log): unit 27/27 + 16/16 + 44/44 + 27/27, guard harness isolation
+    14 PASS, SQL gate 155 PASS, promo e2e ALL PASS, WA-first 136/136, gate consent/checkout
+    166 PASS 0 FAIL, cancel TTL 86 PASS 0 FAIL; sesudahnya `ss -ltn | grep -c ':4xxxx'` = 0.
+    Lock R4: menjalankan `run-all.sh` kedua dari worktree yang sama sekarang berhenti
+    di muka (pesan lock) — lihat /tmp/rx24-lock.log.
+
+==============================================================================
+4. MODE YANG TIDAK DIDUKUNG (R4) — WAJIB dibaca sebelum menjalankan gate
+==============================================================================
+- SATU worktree = SATU run pada satu waktu. Dua `run-all.sh` (atau dua suite e2e) sekaligus
+  dari worktree yang SAMA sekarang ditolak di muka oleh lock; sebelum lock ada, run kedua
+  gagal jauh di dalam `seed.sh` (DDL bersamaan di DB yang sama, exit 1) — Sentinel sudah
+  memprobe ini: run1 gagal keras, run2 128 PASS.
+- Dua worktree paralel tetap didukung (nilai DB/port/prefix diturunkan dari path worktree).
+- Tabrakan PORT_BASE antar worktree (~1/1200) dulu bisa senyap; sekarang gagal keras dengan
+  pesan identitas (R3). Jalan keluar: set HARNESS_PORT_BASE / HARNESS_PG_DB eksplisit.
+
+==============================================================================
+5. Status & batasan
+==============================================================================
+- Nol apply Supabase/staging/produksi; `staging/*.sql` tak tersentuh; `src/` nol perubahan.
+- Perubahan perilaku yang DISENGAJA (semuanya gagal-keras, bukan gagal-senyap):
+  * mock tanpa port -> exit 2 (sebelumnya diam-diam 4111);
+  * listener asing di port proxy/mock -> throw (sebelumnya diadopsi);
+  * sisa proses/port dari run lain tidak lagi diadopsi (RUN_ID beda) -> throw;
+  * run kedua dari worktree sama -> ditolak lock sebelum seed.
+- Sisa yang BELUM: `HARNESS_RUN_ID` manual bisa "mengakui" run lain sebagai milik sendiri
+  (kalau di-set eksplisit sama); itu memang jalur override yang disengaja.
+- `flock` tidak tersedia -> lock dilewati (dicatat di kode, bukan gagal diam-diam).
+
+==============================================================================
+6. Catatan jujur
+==============================================================================
+- Klaim di `report.md:375` dan §1 dokumen RX2-2/3 ("default 4111 sudah hilang") SEBELUM
+  kartu ini hanya benar untuk port suite, bukan untuk mock yang dijalankan manual —
+  `mock-scalev.mjs:17` masih memegang fallback 4111. Sesudah R1 fallback itu benar-benar
+  hilang, dan guard permanen mengeceknya (termasuk fetch ke 4111 harus ECONNREFUSED).
+- R2 "pemanggil menggantung" itu nyata tapi berbatas: yang menggantung adalah proses
+  pemanggil yang stderr pipe anaknya masih hidup. Perbaikannya = kill-dulu-baru-cabut
+  (§2a), bukan sekadar menambah try/catch.
+- Yang TIDAK diklaim: tidak ada uji dua-worktree-paralel ulang di ronde ini (itu kriteria
+  RX2-2 yang sudah dibuktikan; perubahan ronde ini tidak menyentuh penghitungan
+  DB/port/prefix per-worktree). Batas jujur: gerbang utama ronde ini adalah gate satu
+  worktree (§3d) + probe identitas.
