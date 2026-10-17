@@ -1,0 +1,314 @@
+{
+  "task": "t_f5ec336c",
+  "root": "t_fdba2939",
+  "slug": "w4-consent-gate",
+  "assignee": "forge",
+  "date": "2026-10-16",
+  "date_round3": "2026-10-17",
+  "status": "implemented_3x-run-all-green_F-W4-1-a-implemented_consent-migration-applied-to-STAGING_review-required_no-merge_no-prod-deploy",
+  "base": {
+    "required_by_contract": "9392cdd",
+    "stacked_on": "W3 head e01a27a (feat/wa-first-2026-10-15)",
+    "branch": "feat/checkout-consent-gate-2026-10-15",
+    "worktree": "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate",
+    "shared_worktree_untouched": true
+  },
+  "contract": "/home/ubuntu/workspaces/thrivin/batch-2026-10-15/s0-security/integration-contract.md (§2 completion, §3 consent)",
+  "scope_delivered": {
+    "A2": "authoritative server-side onboarding completion gate before any external order side effect",
+    "A7": "T&C acceptance (required) + separate optional reminder opt-in, persisted server-side before payment popup",
+    "A6": "publish approved /terms + privacy delta + footer/checkout/sitemap links (owner ACC 16/10)"
+  },
+  "changed_files": {
+    "server_new": [
+      "src/lib/onboarding-steps.ts",
+      "src/lib/checkout-gate.ts",
+      "src/lib/consent.ts",
+      "src/lib/legal.ts",
+      "src/app/api/onboarding/progress/route.ts",
+      "src/app/api/consent/route.ts"
+    ],
+    "server_modified": [
+      "src/app/api/scalev/create-order/route.ts"
+    ],
+    "ui_modified": [
+      "src/app/companion/nina/onboarding/[step]/page.tsx",
+      "src/app/privacy/page.tsx",
+      "src/components/Footer.tsx",
+      "src/app/sitemap.ts"
+    ],
+    "ui_new": [
+      "src/app/terms/page.tsx"
+    ],
+    "sql_applied_to_staging": [
+      "staging/schema-consent.sql",
+      "tests/harness/migrations/006-consent-gate.sql"
+    ],
+    "tests_new": [
+      "tests/test-consent-gate-units.mts",
+      "tests/test-consent-gate-sql.mts",
+      "tests/test-consent-gate-e2e.mts",
+      "tests/helpers/checkout-arm.mts"
+    ],
+    "tests_modified": [
+      "tests/test-promo-e2e.mts",
+      "tests/test-webhook-e2e.mts",
+      "tests/test-legal-draft-shape.mts",
+      "tests/harness/seed.sh",
+      "tests/harness/stack.mts",
+      "tests/run-all.sh"
+    ],
+    "docs": [
+      "report.md",
+      "evidence.json",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/checkout-consent-gate-2026-10-15.md",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/index.md",
+      "/home/ubuntu/obsidian/kantor-ai/projects/thrivin/features/batch-2026-10-15-status.md"
+    ]
+  },
+  "db_surface_new": {
+    "columns": [
+      "users.opt_in (default false)",
+      "users.opted_out (default false)",
+      "checkout_claims.paid_at (F-W4-1: diisi webhook pembayaran via mark_checkout_claim_paid)"
+    ],
+    "tables": ["consent_events (append-only, trigger blocks UPDATE/DELETE)", "onboarding_progress", "checkout_claims"],
+    "rpcs": [
+      "record_consent_event",
+      "record_checkout_consent",
+      "save_onboarding_step",
+      "claim_checkout_order (7-arg; ronde 3: reuse_unpaid / unpaid_conflict + TTL 60 menit, signature tidak berubah)",
+      "complete_checkout_claim",
+      "release_checkout_claim",
+      "mark_checkout_claim_paid (3-arg, ronde 3)"
+    ],
+    "privileges": "SECURITY INVOKER; REVOKE FROM PUBLIC, anon, authenticated; GRANT service_role only",
+    "applied_anywhere": true,
+    "applied_where": "STAGING Supabase (project thrivin-staging) via Management API dengan token scoped staging — ronde 3, atas perintah operator batch",
+    "applied_note": "readback penuh + probe fungsional (transaksi di-rollback, 0 residu) di report.md §6c dan /tmp/w4f1/staging-readback-consent.txt. PRODUKSI TIDAK disentuh; belum merge/push/deploy. Draft tetap wajib delta-review 3 (Sentinel)."
+  },
+  "http_surface_new": [
+    "POST /api/onboarding/progress",
+    "POST /api/consent"
+  ],
+  "http_surface_changed": [
+    "POST /api/scalev/create-order (gate + klaim + replay; body amount/planName/onboarding/customerName diabaikan)"
+  ],
+  "suites": {
+    "gate": "bash tests/run-all.sh",
+    "results_round3": {
+      "unit_remediation": "27/27",
+      "unit_wa_first": "16/16",
+      "unit_consent_gate": "44/44 PASS, 0 FAIL",
+      "legal_draft_shape": "121/121",
+      "guard_checks": "pass",
+      "promo_sql": "44/44",
+      "consent_gate_sql": "64/64 PASS, 0 FAIL (+20 asersi F-W4-1)",
+      "webhook_e2e": "61/61 (+3: webhook -> paid_at)",
+      "promo_e2e": "116/116 (+1: reuse order yang sama setelah pembatalan reservasi)",
+      "wa_first_e2e": "136/136",
+      "consent_gate_e2e": "128/128 PASS, 0 FAIL (+18 asersi F-W4-1)",
+      "probe_cross_phone": "PASS (F-S1: 409 IDEMPOTENCY_KEY_CONFLICT, 0 leak)"
+    },
+    "results_round2": {
+      "unit_consent_gate": "44/44",
+      "legal_draft_shape": "121/121",
+      "consent_gate_sql": "44/44",
+      "webhook_e2e": "58/58",
+      "promo_e2e": "115/115",
+      "wa_first_e2e": "136/136",
+      "consent_gate_e2e": "110/110"
+    },
+    "exit_code": 0,
+    "consistency": "run-all.sh ALL SUITES PASSED 3x berturut-turut dengan angka identik (env terisolasi: HARNESS_PG_DB=thrivin_w4f1, postgrest 54641/54642, app/mock unik)",
+    "logs": [
+      "/tmp/w4f1-runall-1.log",
+      "/tmp/w4f1-runall-2.log",
+      "/tmp/w4f1-runall-3.log",
+      "/tmp/w4f1-runall3.out"
+    ],
+    "typecheck": "npx tsc --noEmit -> exit 0"
+  },
+  "pre_fix_evidence": [
+    {
+      "mutation": "create-order dikembalikan ke versi pra-W4 (tanpa gate sama sekali)",
+      "suite": "tests/test-consent-gate-e2e.mts",
+      "result": "74 PASS, 31 FAIL",
+      "log": "/tmp/w4-prefix-consent.log",
+      "meaning": "suite menangkap absennya gate: order tetap tercetak tanpa sesi, tanpa consent, tanpa langkah server"
+    },
+    {
+      "mutation": "fix sendiri dimatikan (pelepasan klaim pada penolakan promo dihapus dari create-order)",
+      "suite": "tests/test-promo-e2e.mts",
+      "result": "113/115 — tepat 2 asersi regresi baru GAGAL",
+      "detail": [
+        "RACE: nomor yang promo-nya ditolak tetap bisa checkout tanpa promo — expected 200, got 409",
+        "RACE: nol klaim in-flight tertinggal — expected 0, got 1"
+      ],
+      "log": "/tmp/w4-prefix2-promo.log",
+      "meaning": "bug nyata (nomor terkunci 10 menit) memang terdeteksi oleh uji baru"
+    },
+    {
+      "mutation": "asersi race lama (berbasis timing) dijalankan 2x",
+      "result": "1x lulus, 1x GAGAL (expected 1, got 2 order)",
+      "log": "/tmp/w4-runall3.log",
+      "meaning": "asersi lama flaky; diganti invariant yang benar-benar dijamin + celahnya jadi temuan F-W4-1"
+    },
+    {
+      "round": 3,
+      "mutation": "lookup 'order belum dibayar' di claim_checkout_order dimatikan (`LIMIT 1` -> `LIMIT 0`) = perilaku pra-F-W4-1",
+      "suite": "tests/test-consent-gate-sql.mts",
+      "result": "55 PASS / 10 FAIL",
+      "detail": [
+        "F-W4-1(a): paket sama + kunci baru ⇒ reuse_unpaid — expected \"reuse_unpaid\", got \"granted\"",
+        "F-W4-1(a): tidak ada baris klaim kedua yang lahir — expected 1, got 2",
+        "F-W4-1(a): paket beda ⇒ unpaid_conflict — expected \"unpaid_conflict\", got \"in_flight\""
+      ],
+      "log": "/tmp/w4f1-neg-sql.log",
+      "meaning": "tanpa fix, nomor yang sama mencetak order kedua + tidak ada blokir paket beda"
+    },
+    {
+      "round": 3,
+      "mutation": "mutasi yang sama, diuji lewat HTTP",
+      "suite": "tests/test-consent-gate-e2e.mts",
+      "result": "118 PASS / 10 FAIL",
+      "detail": [
+        "F-W4-1(a): orderId yang SAMA — expected \"test_5_…\", got \"test_6_…\" (DUA order berbeda)",
+        "F-W4-1(a): TIDAK ada order kedua di Scalev — expected 5, got 6",
+        "F-W4-1(a): paket beda ⇒ 409 — expected 409, got 200"
+      ],
+      "log": "/tmp/w4f1-neg-e2e.log",
+      "meaning": "terukur nyata: satu nomor + satu paket bisa punya dua link pembayaran hidup (dua-duanya bisa dibayar) — inilah bug yang ditutup F-W4-1 opsi (a)"
+    }
+  ],
+  "regressions_found_and_fixed": [
+    {
+      "id": "F-S1",
+      "title": "Replay kunci idempotensi lintas nomor (MEDIUM, jalur uang)",
+      "severity": "medium (jalur uang / kontrol akses order)",
+      "detail": "Kunci idempotensi milik nomor A yang sudah dibuat order dapat dipanggil oleh sesi nomor B untuk mengambil order_id + payment_url milik A",
+      "fix": "claim_checkout_order memeriksa phone = p_phone pada lookup replay/failed; beda nomor mengembalikan status key_conflict -> route mengembalikan 409 IDEMPOTENCY_KEY_CONFLICT tanpa data order",
+      "proof": "tests/test-probe-cross-phone.mts, tests/test-consent-gate-sql.mts, tests/test-consent-gate-e2e.mts"
+    },
+    {
+      "id": "F-S2",
+      "title": "Asersi race paralel promo e2e flaky",
+      "severity": "test-reliability",
+      "fix": "test-promo-e2e.mts:835 diubah ke invariant yang dijamin: tepat 1 pemenang, 1 order, penolak tanpa orderId/paymentUrl, kode ∈ {ORDER_IN_FLIGHT, PROMO_PENDING_ORDER}"
+    },
+    {
+      "id": "F-S3",
+      "title": "Guard placeholder terms & privacy hanya memeriksa page.tsx",
+      "severity": "compliance-audit",
+      "fix": "assert template page.tsx bebas raw «, dan konstanta legal.ts memiliki tepat 1 placeholder (LEGAL_ADDRESS); diuji HTML render /terms & /privacy"
+    },
+    {
+      "id": "F-S4",
+      "title": "Retensi onboarding_progress & checkout_claims <= 30 hari",
+      "severity": "compliance",
+      "fix": "fungsi purge_expired_onboarding_progress(30) di schema-consent.sql + schedule pg_cron + purge-cron.sh"
+    },
+    {
+      "id": "F-S5",
+      "title": "Hardening default privilege Supabase: REVOKE ALL ON TABLE",
+      "severity": "hardening",
+      "fix": "REVOKE ALL ON TABLE consent_events, onboarding_progress, checkout_claims FROM PUBLIC, anon, authenticated di schema-consent.sql + probe anon INSERT/UPDATE di SQL suite"
+    },
+    {
+      "id": "F-S7",
+      "title": "Tie-break T&C gate selaras false-menang",
+      "severity": "consistency",
+      "fix": "claim_checkout_order ORDER BY occurred_at DESC, (value = false) DESC, created_at DESC, id DESC LIMIT 1"
+    },
+    {
+      "id": "F-S8",
+      "title": "Isolasi suite SQL dan teardown mock",
+      "severity": "test-hygiene",
+      "fix": "test-consent-gate-sql.mts auto-seed; startPostgrest status 200 check; signal handlers teardown di test-consent-gate-e2e.mts"
+    },
+    {
+      "id": "BUG-W4-1",
+      "title": "Klaim gate tidak dilepas saat promo ditolak",
+      "severity": "high (jalur uang, user-facing lockout)",
+      "detail": "jalur PROMO_* 400 di create-order tidak melepas klaim in-flight -> nomor terkunci TTL 600s, checkout ulang dijawab 409 ORDER_IN_FLIGHT padahal tidak ada order",
+      "fix": "releaseCheckoutClaim pada jalur tolak promo + 2 asersi regresi",
+      "proof": "/tmp/w4-prefix2-promo.log (pra-fix GAGAL), /tmp/w4-runall4.log (pasca-fix hijau)"
+    },
+    {
+      "id": "BUG-W4-2",
+      "title": "Scalev 200 tanpa order_id meninggalkan klaim in-flight",
+      "severity": "medium",
+      "fix": "klaim dilepas + log error (tidak boleh mengunci nomor)"
+    },
+    {
+      "id": "BUG-W4-3",
+      "title": "Suite promo e2e tidak hermetik terhadap tabel baru",
+      "severity": "test-hygiene (false FAIL antar-run)",
+      "fix": "tests/harness/stack.mts truncateAll() + consent_events, onboarding_progress, checkout_claims"
+    }
+  ],
+  "findings_for_reviewer": [
+    {
+      "id": "F-W4-1",
+      "title": "Kunci idempotensi baru tidak pernah ditolak (order belum dibayar kedua bisa lahir)",
+      "status": "RESOLVED-ROUND3 (keputusan owner 16/10: opsi a)",
+      "decision": "paket sama + masih ada order belum dibayar ⇒ kunci baru DIKEMBALIKAN ke order/link yang sama; paket beda ⇒ blokir eksplisit 409 UNPAID_ORDER_EXISTS; kunci sama dari nomor beda ⇒ tetap 409 IDEMPOTENCY_KEY_CONFLICT",
+      "implementation": "checkout_claims.paid_at + langkah reuse/blokir di claim_checkout_order + RPC mark_checkout_claim_paid (dipanggil webhook pembayaran) + route create-order",
+      "proof": "/tmp/w4f1-neg-sql.log (pra-fix 55/10 FAIL) + /tmp/w4f1-neg-e2e.log (pra-fix 118/10 FAIL, DUA order berbeda) + suite ronde 3 hijau 3x",
+      "residual": "TTL 60 menit: setelah itu order lama dianggap ditinggalkan (boleh checkout baru) walau link Scalev lama mungkin masih hidup — jendela disengaja, konstanta tunggal di claim_checkout_order"
+    },
+    {
+      "id": "F-W4-2",
+      "title": "checkout_claims + onboarding_progress tumbuh tanpa purge",
+      "needs": "retensi terjadwal saat apply (dicatat sebagai komentar di SQL)"
+    },
+    {
+      "id": "F-W4-3",
+      "title": "Sesi WA 60 menit: kedaluwarsa antara consent dan gate -> 401",
+      "impact": "pengguna diminta verifikasi ulang (fail-closed, tidak ada order). Perlu keputusan UX kalau dianggap terlalu ketat"
+    },
+    {
+      "id": "F-W4-4",
+      "title": "Placeholder alamat entitas masih ada di /terms",
+      "impact": "satu-satunya placeholder yang tersisa; diuji eksplisit (count=1)"
+    }
+  ],
+  "blockers_before_apply": [
+    "SUDAH SELESAI ronde 3: migrasi consent di-apply ke STAGING (Supabase thrivin-staging) + readback + probe fungsional rollback (report.md §6c)",
+    "TERTAHAN: apply ke PRODUKSI (belum merge/push RC, belum ada izin ops) — endpoint consent di lingkungan tanpa migrasi gagal-tertutup (perilaku yang diinginkan)",
+    "TERTAHAN: purge retensi 30 hari belum terjadwal di staging (pg_cron tidak terpasang) + audit log purge (RX2-1 t_383959b7)",
+    "TERTAHAN: whatsapp_channel_bindings (S0 B-3) belum ada DDL; jalur pengingat outbound belum boleh hidup (opt_in=true TIDAK memicu pesan apa pun dari kartu ini)",
+    "TERTAHAN: delta-review 3 (Sentinel) atas jalur uang ronde 3 (create-order + webhook + schema diff)",
+    "TERTAHAN: alamat entitas di /terms masih placeholder"
+  ],
+  "claim_limits": [
+    "bukti suite = harness lokal (Postgres + PostgREST + mock Scalev), BUKAN Scalev nyata",
+    "apply + readback = STAGING Supabase dengan token scoped staging; probe fungsional dijalankan dalam transaksi yang di-ROLLBACK (0 residu). PRODUKSI dan data pelanggan tidak disentuh",
+    "UI diuji di level markup + HTTP (harness tidak punya browser headless) -> 'keyboard/focus' dibuktikan lewat atribut aksesibilitas & urutan request, bukan ketukan perangkat",
+    "tidak ada merge/push/deploy, tidak ada aktivasi promo, tidak ada outbound WhatsApp/Cloud",
+    "tidak ada data pelanggan, secret produksi, atau DB produksi yang disentuh; tidak ada nilai kredensial yang dicetak"
+  ],
+  "round3_apply_staging": {
+    "target": "Supabase project thrivin-staging (STAGING saja — bukan produksi)",
+    "method": "Management API POST /v1/projects/<ref>/database/query, token scoped staging dari ~/.hermes/secrets/staging/supabase.env (nilai token tidak pernah dicetak)",
+    "file": "staging/schema-consent.sql (idempotent)",
+    "before": "consent_events / onboarding_progress / checkout_claims BELUM ada di staging",
+    "after_readback": {
+      "tables": ["consent_events", "onboarding_progress", "checkout_claims"],
+      "users_columns": ["opt_in boolean NOT NULL default false", "opted_out boolean NOT NULL default false"],
+      "checkout_claims_columns": "termasuk paid_at timestamptz",
+      "indexes": ["uq_checkout_claims_idempotency", "uq_checkout_claims_inflight_phone", "uq_onboarding_progress_phone", "uq_consent_events_idempotency", "idx_consent_events_phone_type_time"],
+      "functions": "10 RPC termasuk claim_checkout_order (TEPAT satu overload 7-arg), mark_checkout_claim_paid, purge_expired_onboarding_progress, consent_state_for_phone",
+      "trigger": "trg_consent_events_append_only aktif",
+      "rls": "aktif di 3 tabel + policy deny_client_access_*",
+      "grants": "anon: EXECUTE false (semua RPC) & SELECT/INSERT tabel false; service_role: true"
+    },
+    "functional_probe": "SATU transaksi lalu ROLLBACK: granted -> complete -> reuse_unpaid (order+link sama) -> unpaid_conflict (paket beda) -> marked (paid_at terisi) -> granted (order baru setelah lunas) -> key_conflict (kunci nomor lain). Residu: claims=0, events=0, progress=0, users=5 (seed fiktif, tidak bertambah)",
+    "evidence": "docs/w4-r3-verification.txt (in-repo) + /tmp/w4f1/staging-readback-consent.txt",
+    "ops_note": "pg_cron TIDAK terpasang di staging -> job purge tidak dibuat (blok ter-guard). Retensi 30 hari belum terjadwal di staging"
+  },
+  "review_required": {
+    "kind": "needs_input",
+    "reason": "review-required: apply + F-W4-1 selesai — siap delta-review"
+  }
+}
