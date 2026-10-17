@@ -55,6 +55,16 @@ import {
   MessageCircle,
   Smartphone
 } from "lucide-react";
+import { PLAN_CATALOG } from "@/lib/plans";
+import {
+  REFUND_GUARANTEE_TEXT,
+  REFUND_GUARANTEE_TITLE,
+  formatIdr,
+  monthlyPrice as catalogMonthlyPrice,
+  promoAppliedNote,
+  promoDiscountPill,
+  savingsVsMonthlyPercent,
+} from "@/lib/pricing-copy";
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
@@ -268,7 +278,9 @@ export default function OnboardingStepPage({
   const proteinTarget = Math.round((data.weight || 65) * 1.6);
   const hydrationTarget = ((data.weight || 65) * 0.035).toFixed(1);
 
-  // Pricing calculation
+  // Pricing display. Angka TIDAK diketik ulang di JSX: semua dari PLAN_CATALOG
+  // (kontrak S0 §11). Badge "hemat X%" dihitung dari katalog juga, supaya klaim
+  // tidak pernah menyimpang dari harga server.
   const PLANS: Record<string, {
     name: string;
     duration: string;
@@ -278,35 +290,35 @@ export default function OnboardingStepPage({
     desc: string;
   }> = {
     month: {
-      name: "Paket 1 Bulan (Trial)",
+      name: PLAN_CATALOG.month.name,
       duration: "1 Bulan",
-      totalPrice: 99000,
-      monthlyPrice: 99000,
+      totalPrice: PLAN_CATALOG.month.basePrice,
+      monthlyPrice: catalogMonthlyPrice("month"),
       badge: "Coba dulu · Tanpa Komitmen Panjang",
       desc: "Langkah awal mencoba langsung interaksi harian bersama Nina.",
     },
     quarter: {
-      name: "Paket 3 Bulan (Quarter)",
+      name: PLAN_CATALOG.quarter.name,
       duration: "3 Bulan",
-      totalPrice: 231000,
-      monthlyPrice: 77000,
+      totalPrice: PLAN_CATALOG.quarter.basePrice,
+      monthlyPrice: catalogMonthlyPrice("quarter"),
       badge: "Fase Adaptasi 90 Hari · Bangun Kebiasaan Baru",
       desc: "Durasi optimal pembentukan kebiasaan baru.",
     },
     half: {
-      name: "Paket 6 Bulan (Half-Year)",
+      name: PLAN_CATALOG.half.name,
       duration: "6 Bulan",
-      totalPrice: 357000,
-      monthlyPrice: 59500,
-      badge: "Hemat 23% · Rekomendasi Transformasi Nyata",
+      totalPrice: PLAN_CATALOG.half.basePrice,
+      monthlyPrice: catalogMonthlyPrice("half"),
+      badge: `Hemat ${savingsVsMonthlyPercent("half")}% vs bayar bulanan`,
       desc: "Transformasi kebiasaan dan metabolisme nyata.",
     },
     year: {
-      name: "Paket 1 Tahun (Yearly)",
+      name: PLAN_CATALOG.year.name,
       duration: "12 Bulan",
-      totalPrice: 465000,
-      monthlyPrice: 38750,
-      badge: "Paling Hemat 50% · Rp 39rb-an/bulan",
+      totalPrice: PLAN_CATALOG.year.basePrice,
+      monthlyPrice: catalogMonthlyPrice("year"),
+      badge: `Paling Hemat ${savingsVsMonthlyPercent("year")}% vs bayar bulanan`,
       desc: "Gaya hidup permanen dengan pendampingan penuh.",
     },
   };
@@ -1650,7 +1662,7 @@ export default function OnboardingStepPage({
                 </div>
                 <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold shadow-2xs self-start sm:self-auto shrink-0">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Garansi 100% Uang Kembali 3 Hari</span>
+                  <span>{REFUND_GUARANTEE_TITLE}</span>
                 </div>
               </div>
 
@@ -1685,37 +1697,45 @@ export default function OnboardingStepPage({
                 </div>
               )}
 
-              {/* 3 Simple Cards Grid */}
+              {/* 3 Simple Cards Grid — badge & harga dari PLANS (turunan PLAN_CATALOG).
+                  Kartu = <button> supaya bisa dijangkau keyboard & punya nama aksesibel. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                 {[
                   {
                     id: "quarter",
                     name: "Paket 3 Bulan",
-                    badge: "Fase Adaptasi 90 Hari · Bangun Kebiasaan Baru",
+                    badge: PLANS.quarter.badge,
                     badgeColor: "bg-accent/15 text-accent-dark border border-accent/30",
                     pricing: getPlanPricing("quarter"),
                   },
                   {
                     id: "half",
                     name: "Paket 6 Bulan",
-                    badge: "Hemat 23% · Rekomendasi Transformasi Nyata",
+                    badge: PLANS.half.badge,
                     badgeColor: "bg-emerald-50 text-emerald-800 border border-emerald-200",
                     pricing: getPlanPricing("half"),
                   },
                   {
                     id: "year",
                     name: "Paket 1 Tahun",
-                    badge: "Paling Hemat 50% · Rp 39rb-an/bulan",
+                    badge: PLANS.year.badge,
                     badgeColor: "bg-purple-50 text-purple-800 border border-purple-200",
                     pricing: getPlanPricing("year"),
                   },
                 ].map(({ id, name, badge, badgeColor, pricing }) => {
                   const isSelected = data.selectedPlan === id;
+                  // Pill diskon dari kutipan SERVER, bukan persentase hardcoded.
+                  const promoPill = pricing.hasDiscount
+                    ? promoDiscountPill(discountAmount, pricing.originalTotal)
+                    : null;
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={id}
                       onClick={() => updateData({ selectedPlan: id as any })}
-                      className={`p-4 sm:p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between relative ${
+                      aria-pressed={isSelected}
+                      aria-label={`${name} — Rp ${formatIdr(pricing.discountedTotal)}, ${pricing.hasDiscount ? "dengan promo" : "harga normal"}`}
+                      className={`text-left w-full p-4 sm:p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                         isSelected
                           ? "bg-brand-950 text-white border-accent shadow-xl ring-2 ring-accent/30"
                           : "bg-white text-brand-950 border-surface-border hover:border-slate-300 shadow-2xs"
@@ -1740,7 +1760,7 @@ export default function OnboardingStepPage({
                           </div>
                         </div>
 
-                        {/* Struck-through Pricing with OFF 20% logo */}
+                        {/* Struck-through Pricing + pill diskon dari kutipan server */}
                         <div className="my-2">
                           {pricing.hasDiscount ? (
                             <div>
@@ -1748,10 +1768,12 @@ export default function OnboardingStepPage({
                                 <span className={`line-through text-xs ${isSelected ? "text-slate-400" : "text-slate-400"}`}>
                                   Rp {pricing.originalTotal.toLocaleString("id-ID")}
                                 </span>
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono font-black text-[9px] uppercase tracking-wider shadow-xs">
-                                  <Percent className="w-2.5 h-2.5" />
-                                  <span>OFF 20%</span>
-                                </span>
+                                {promoPill && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono font-black text-[9px] uppercase tracking-wider shadow-xs">
+                                    {promoPill.startsWith("OFF") && <Percent className="w-2.5 h-2.5" />}
+                                    <span>{promoPill}</span>
+                                  </span>
+                                )}
                                 <span className={`text-xl sm:text-2xl font-black font-mono ${
                                   isSelected ? "text-accent" : "text-brand-950"
                                 }`}>
@@ -1779,45 +1801,66 @@ export default function OnboardingStepPage({
                           )}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
 
-              {/* Subtle 1-Month Trial Option (Escape Hatch) */}
-              <div className="pt-1 flex items-center justify-center text-center">
+              {/* Paket 1 Bulan — tetap penawaran TERAKHIR setelah grid, tapi dibuat
+                  jelas & mudah dilihat (permintaan owner A1). Tombol nyata: keyboard,
+                  focus ring, dan nama aksesibel. Harga tetap dari katalog. */}
+              <div className="pt-1">
                 {data.selectedPlan === "month" ? (
-                  <div className="inline-flex items-center gap-2.5 py-2 px-4 rounded-2xl bg-brand-900 text-white text-xs font-semibold shadow-xs border border-brand-700">
-                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent text-brand-950">
-                      Coba Dulu
-                    </span>
-                    <span>
-                      Terpilih: Paket 1 Bulan Trial (Rp{" "}
-                      {getPlanPricing("month").discountedTotal.toLocaleString("id-ID")})
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => updateData({ selectedPlan: "quarter" })}
-                      className="text-accent underline text-[11px] ml-1.5 hover:text-white cursor-pointer font-bold"
-                    >
-                      Pilih paket program 3 bulan &rarr;
-                    </button>
+                  <div className="w-full rounded-3xl border-2 border-accent bg-brand-900 text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg">
+                    <div className="flex items-center gap-3 text-left">
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-accent text-brand-950 shrink-0">
+                        Coba Dulu
+                      </span>
+                      <div>
+                        <div className="font-serif font-bold text-base sm:text-lg">{PLANS.month.name}</div>
+                        <div className="text-[11px] text-brand-200">{PLANS.month.desc}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 self-start sm:self-auto">
+                      <span className="font-mono font-black text-lg sm:text-xl">
+                        Rp {formatIdr(getPlanPricing("month").discountedTotal)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => updateData({ selectedPlan: "quarter" })}
+                        className="text-accent underline text-[11px] hover:text-white cursor-pointer font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        Pilih paket program 3 bulan &rarr;
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => updateData({ selectedPlan: "month" })}
-                    className="text-xs sm:text-sm text-text-secondary hover:text-brand-950 transition-colors inline-flex items-center gap-2 cursor-pointer group py-1.5 px-3 rounded-full hover:bg-surface-muted border border-transparent hover:border-surface-border"
+                    aria-pressed={false}
+                    aria-label={`${PLANS.month.name} — Rp ${formatIdr(getPlanPricing("month").discountedTotal)}, coba 1 bulan dulu`}
+                    className="w-full rounded-3xl border-2 border-brand-200 bg-white hover:bg-brand-50 text-brand-950 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-2xs cursor-pointer text-left transition-colors group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
-                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
-                      Coba dulu
-                    </span>
-                    <span>Belum yakin dengan komitmen panjang?</span>
-                    <span className="underline underline-offset-4 text-brand-900 font-bold group-hover:text-accent-dark">
-                      Coba 1 bulan dulu seharga Rp{" "}
-                      {getPlanPricing("month").discountedTotal.toLocaleString("id-ID")}
-                    </span>
-                    <span className="text-accent-dark group-hover:translate-x-0.5 transition-transform font-bold">&rarr;</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-slate-200 text-slate-700 shrink-0">
+                        Coba dulu
+                      </span>
+                      <div>
+                        <div className="font-serif font-bold text-base sm:text-lg">{PLANS.month.name}</div>
+                        <div className="text-[11px] text-text-secondary">
+                          Belum yakin dengan komitmen panjang? {PLANS.month.badge}.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 self-start sm:self-auto">
+                      <span className="font-mono font-black text-lg sm:text-xl">
+                        Rp {formatIdr(getPlanPricing("month").discountedTotal)}
+                      </span>
+                      <span className="px-4 py-2 rounded-full bg-brand-900 group-hover:bg-brand-800 text-white text-xs font-bold whitespace-nowrap">
+                        Pilih 1 Bulan
+                      </span>
+                    </div>
                   </button>
                 )}
               </div>
@@ -1850,9 +1893,7 @@ export default function OnboardingStepPage({
                 {promoQuote && (
                   <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      {`Kode promo ${promoQuote.code} terpasang — potongan Rp ${promoQuote.discount.toLocaleString("id-ID")} (1x per nomor).`}
-                    </span>
+                    <span>{promoAppliedNote(promoQuote.code, promoQuote.finalPrice)}</span>
                   </div>
                 )}
               </div>
@@ -1878,11 +1919,16 @@ export default function OnboardingStepPage({
                 </div>
               </div>
 
-              {/* 3-Day Money Back Guarantee Banner */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-2.5 text-xs text-emerald-900 leading-relaxed">
-                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+              {/* 3-Day Money Back Guarantee Banner — tepat di atas CTA, teks dari satu
+                  sumber (pricing-copy.ts) supaya tidak pernah lebih kuat dari /privacy §3 */}
+              <div
+                role="note"
+                className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 flex items-start gap-3 text-xs sm:text-sm text-emerald-900 leading-relaxed"
+              >
+                <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>
-                  <strong>Garansi Uang Kembali 3 Hari:</strong> Jika dalam 3 hari kamu merasa pendampingan Nina tidak cocok dengan ritmemu, dana dikembalikan 100% tanpa ribet.
+                  <strong className="font-extrabold">{REFUND_GUARANTEE_TITLE}.</strong>{" "}
+                  {REFUND_GUARANTEE_TEXT}
                 </span>
               </div>
 

@@ -1,5 +1,6 @@
 import React from "react";
 import { siteConfig } from "@/lib/site";
+import { offerRange } from "@/lib/pricing-copy";
 
 export function OrganizationJsonLd() {
   const schema = {
@@ -53,6 +54,9 @@ export function WebSiteJsonLd() {
 }
 
 export function NinaCompanionJsonLd() {
+  // Harga wajib sama dengan katalog server (PLAN_CATALOG). Angka lama di rilis
+  // sebelumnya (low & high hardcoded) tidak pernah ada di katalog mana pun.
+  const { low, high, count } = offerRange();
   const schema = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -64,9 +68,9 @@ export function NinaCompanionJsonLd() {
     offers: {
       "@type": "AggregateOffer",
       priceCurrency: "IDR",
-      lowPrice: "39000",
-      highPrice: "219000",
-      offerCount: "3",
+      lowPrice: String(low),
+      highPrice: String(high),
+      offerCount: String(count),
     },
     publisher: {
       "@type": "Organization",

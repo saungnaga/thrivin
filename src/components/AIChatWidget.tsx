@@ -15,6 +15,7 @@ import {
   User,
   ExternalLink
 } from "lucide-react";
+import { REFUND_GUARANTEE_TEXT, TEMANBARU_PROMO, planPriceLine } from "@/lib/pricing-copy";
 
 interface ChatMessage {
   id: string;
@@ -66,7 +67,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     query.includes("berapa")
   ) {
     return {
-      text: "Investasi Thrivin mulai dari Rp 39.000/bulan (sistem sekali bayar, tanpa tagihan otomatis!). Ada Paket 3 Bulan (Rp 231rb), 6 Bulan (Rp 357rb), dan 1 Tahun (Rp 465rb). Khusus pengguna baru, kamu bisa pakai kode promo 'TEMANBARU' untuk diskon ekstra 20%!",
+      text: `Investasi Thrivin sekali bayar, tanpa tagihan otomatis: ${planPriceLine()}. Kode promo '${TEMANBARU_PROMO.code}' diskon ${TEMANBARU_PROMO.discountPercent}% di paket ${TEMANBARU_PROMO.minMonths} bulan ke atas, 1x per nomor WhatsApp. Semua paket ada garansi uang kembali 3 hari.`,
       cta: {
         label: "Mulai Onboarding & Pilih Paket",
         href: "/companion/nina/onboarding/1",
@@ -97,7 +98,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
     query.includes("aman")
   ) {
     return {
-      text: "Thrivin memberikan garansi 100% uang kembali dalam 3 hari pertama jika kamu merasa gaya pendampingan AI companion tidak cocok dengan ritmemu. Tanpa ribet, tanpa risiko!",
+      text: `Thrivin memberikan ${REFUND_GUARANTEE_TEXT}`,
     };
   }
 

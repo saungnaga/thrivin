@@ -60,7 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       username: username.trim(),
       whatsapp: whatsapp.trim(),
       activeCompanion: "nina",
-      plan: "Pengguna Baru",
+      // No `plan` label on signup: signing up does not buy anything, and the
+      // old "Pengguna Baru" value re-asserted the retired new-user gate (C-6.1).
       joinedAt: new Date().toLocaleDateString("id-ID", { month: "short", year: "numeric" }),
     };
     setUser(userData);

@@ -18,6 +18,13 @@ import {
   X,
   BookOpen
 } from "lucide-react";
+import {
+  REFUND_GUARANTEE_TEXT,
+  REFUND_GUARANTEE_TITLE,
+  TEMANBARU_PROMO,
+  entryPrice,
+  formatIdr,
+} from "@/lib/pricing-copy";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -559,10 +566,10 @@ export default function Home() {
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
               </div>
               <h3 className="font-sans font-bold text-base text-brand-950 mb-1.5">
-                Garansi Uang Kembali
+                {REFUND_GUARANTEE_TITLE}
               </h3>
               <p className="text-xs text-text-secondary leading-relaxed font-serif font-normal">
-                Garansi 3 hari uang kembali 100% jika kamu merasa pendampingan AI companion tidak cocok dengan ritmemu.
+                {REFUND_GUARANTEE_TEXT}
               </p>
             </div>
           </div>
@@ -639,15 +646,33 @@ export default function Home() {
             <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold leading-tight text-white tracking-tight">
               Investasi Terbaik untuk Konsistensi Hidupmu.
             </h2>
-            {/* Rule 2 & 4: Sub-headline / Deskripsi Pendukung Inter Regular + Harga Inter Bold */}
+            {/* Rule 2 & 4: Sub-headline / Deskripsi Pendukung Inter Regular + Harga Inter Bold.
+                Angka diambil dari PLAN_CATALOG (src/lib/plans.ts) lewat pricing-copy.ts —
+                jangan ketik ulang harga di JSX (kontrak S0 §11). */}
             <p className="text-xs sm:text-sm text-brand-200 leading-relaxed font-sans font-normal">
-              Mulai dari <strong className="font-extrabold text-white font-sans">Rp 39.000/bulan</strong>. Gunakan kode promo <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">TEMANBARU</span> untuk diskon ekstra 20% khusus pengguna baru.
+              Paket mulai{" "}
+              <strong className="font-extrabold text-white font-sans">
+                Rp {formatIdr(entryPrice())}
+              </strong>{" "}
+              untuk 1 bulan, sekali bayar tanpa tagihan otomatis. Pakai kode promo{" "}
+              <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">
+                {TEMANBARU_PROMO.code}
+              </span>{" "}
+              untuk diskon {TEMANBARU_PROMO.discountPercent}% di paket{" "}
+              {TEMANBARU_PROMO.minMonths} bulan ke atas.
             </p>
 
-            {/* Guarantee Box (Rule 3: Lora Regular) */}
-            <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15 inline-flex items-center gap-2 text-xs text-white/90 font-serif font-normal">
-              <ShieldCheck className="w-4 h-4 text-accent shrink-0" />
-              <span>Garansi uang kembali dalam 3 hari apabila tidak puas dengan AI companion-mu.</span>
+            {/* Guarantee Box (Rule 3: Lora Regular) — satu sumber teks di pricing-copy.ts,
+                tidak boleh lebih kuat dari kebijakan /privacy §3 */}
+            <div
+              role="note"
+              className="p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-400/40 text-left inline-flex items-start gap-3 text-xs sm:text-sm text-white font-sans"
+            >
+              <ShieldCheck className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>
+                <strong className="font-extrabold text-white">{REFUND_GUARANTEE_TITLE}.</strong>{" "}
+                {REFUND_GUARANTEE_TEXT}
+              </span>
             </div>
 
             {/* Rule 8: CTA Button Text: Inter Semibold */}

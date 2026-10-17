@@ -28,6 +28,21 @@ node --experimental-strip-types "$HERE/test-wa-first-units.mts"
 
 echo
 echo "=============================================================="
+echo "2b/7 copy checks (W1: pricing claims, promo label, guarantee)"
+echo "     source-level: COPY_ROOT=<tree> reruns against another revision"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-web-copy-units.mts"
+node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
+
+echo
+echo "=============================================================="
+echo "2c/7 copy check, tree-wide (W1: retired price claims + promo gates)"
+echo "     walks every shipped file, so new components are covered too"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-web-copy-treewide.mts"
+
+echo
+echo "=============================================================="
 echo "3/7  guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"
