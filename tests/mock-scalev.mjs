@@ -37,13 +37,24 @@ export const createdOrders = [];
 // F-W4-1c: `POST /v3/orders/change-status` (cancel). Dipakai uji cancel TTL.
 export const changeStatusCalls = [];
 
+/**
+ * Tulis-ke-tmp lalu rename (satu direktori ⇒ satu fs, rename atomik). Dengan
+ * writeFileSync (truncate + tulis) pembaca bisa menangkap JSON separuh,
+ * `JSON.parse` gagal, dan hitungan order tampak 0 — merah-palsu.
+ */
+function writeAtomic(file, data) {
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, file);
+}
+
 // Mirror to disk so the test process (which talks to the mock over HTTP, not
 // via import) can assert on what the route actually sent Scalev. Default
 // ber-pid supaya menjalankan mock manual tidak menimpa file run lain (RX2-2).
 const ORDERS_FILE =
   process.env.MOCK_SCALEV_ORDERS_FILE ||
   path.join(os.tmpdir(), `thrivin-mock-orders-${process.pid}.json`);
-fs.writeFileSync(ORDERS_FILE, "[]");
+writeAtomic(ORDERS_FILE, "[]");
 
 /**
  * F-W4-1c: mode cancel DIBACA DARI FILE pada tiap request (bukan env), supaya
@@ -59,7 +70,7 @@ const CANCEL_MODE_FILE =
 const CANCEL_FILE =
   process.env.MOCK_SCALEV_CANCEL_FILE ||
   path.join(os.tmpdir(), `thrivin-mock-cancel-${process.pid}.json`);
-fs.writeFileSync(CANCEL_FILE, "[]");
+writeAtomic(CANCEL_FILE, "[]");
 
 function cancelMode() {
   try {
@@ -70,11 +81,11 @@ function cancelMode() {
 }
 
 function persistCalls() {
-  fs.writeFileSync(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
+  writeAtomic(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
 }
 
 function persistOrders() {
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
+  writeAtomic(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
 }
 
 function send(res, status, body) {
