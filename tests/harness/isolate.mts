@@ -50,6 +50,17 @@ export const SLUG = (() => {
 export const PG_DB = process.env.HARNESS_PG_DB || `thrivin_test_${SLUG}`;
 export const PROMO_DB = process.env.HARNESS_PROMO_DB || `thrivin_promo_${SLUG}`;
 
+/**
+ * Identitas SATU run (RX2-4). Semua proses di bawah satu `run-all.sh` memakai
+ * nilai yang sama (run-all.sh mengekspor HARNESS_RUN_ID=$$), supaya harness bisa
+ * membedakan "listener milik run ini" dari "listener asing yang kebetulan
+ * memegang port kita" (tabrakan PORT_BASE ~1/1200, atau mock manual yang lupa
+ * dimatikan). Dipanggil langsung tanpa run-all, nilainya unik per proses —
+ * artinya PENGADOSIAN sisa proses run lama jadi gagal keras, bukan senyap.
+ */
+export const RUN_ID =
+  process.env.HARNESS_RUN_ID || `${SLUG}#${process.pid}`;
+
 /** Blok port worktree ini (20 slot). Lihat catatan "bad port" di atas. */
 export const PORT_BASE = Number(
   process.env.HARNESS_PORT_BASE ||
@@ -100,6 +111,7 @@ if (
     console.log(`HARNESS_SLUG=${SLUG}`);
     console.log(`HARNESS_PG_DB=${PG_DB}`);
     console.log(`HARNESS_PORT_BASE=${PORT_BASE}`);
+    console.log(`HARNESS_RUN_ID=${RUN_ID}`);
     console.log(`TMP_PREFIX=${TMP_PREFIX}`);
   } else {
     console.error("usage: node --experimental-strip-types isolate.mts <db|env>");

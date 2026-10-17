@@ -40,6 +40,7 @@ import {
   ANON_KEY,
   POSTGREST_URL,
   PORTS,
+  assertMockOwner,
   startPostgrest,
   tmpPath,
   truncateAll,
@@ -120,6 +121,7 @@ async function startMockScalev(): Promise<Stack> {
     env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: MOCK_ORDERS_FILE },
   });
   child.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, child.pid);
   await waitFor(`${MOCK_URL}/v3/stores/x/products`);
   return {
     stop: () => {

@@ -20,6 +20,7 @@ import {
   POSTGREST_URL,
   PORTS,
   SERVICE_KEY,
+  assertMockOwner,
   startPostgrest,
   psqlSuper,
   tmpPath,
@@ -80,6 +81,7 @@ async function main() {
     env: { ...process.env, MOCK_SCALEV_PORT: String(MOCK_PORT), MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  await assertMockOwner(MOCK_PORT, mock.pid);
   const logFd = fs.openSync(LOG, "w");
   const app = spawn("./node_modules/.bin/next", ["start", "-p", String(APP_PORT)], {
     cwd: REPO,

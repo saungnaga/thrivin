@@ -10,11 +10,21 @@
  */
 import crypto from "crypto";
 import fs from "fs";
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { execFileSync } from "child_process";
-import { PORTS, PG_DB, tmpPath } from "./isolate.mts";
+import { PORTS, PG_DB, RUN_ID, tmpPath } from "./isolate.mts";
 
-export { PG_DB, PORTS, PROMO_DB, PORT_BASE, REPO_ROOT, SLUG, TMP_PREFIX, tmpPath } from "./isolate.mts";
+export {
+  PG_DB,
+  PORTS,
+  PROMO_DB,
+  PORT_BASE,
+  REPO_ROOT,
+  RUN_ID,
+  SLUG,
+  TMP_PREFIX,
+  tmpPath,
+} from "./isolate.mts";
 
 export const PG_HOST = process.env.HARNESS_PG_HOST || "127.0.0.1";
 export const PG_PORT = process.env.HARNESS_PG_PORT || "5432";
@@ -35,7 +45,11 @@ export const POSTGREST_UPSTREAM_PORT = Number(
 export const JWT_SECRET =
   process.env.HARNESS_JWT_SECRET || "super-secret-jwt-key-with-at-least-32-chars-long";
 
-export const POSTGREST_BIN = process.env.POSTGREST_BIN || "/tmp/postgrest";
+/**
+ * Binari PostgREST. Dibaca PER PANGGILAN `startPostgrest()` (bukan saat import)
+ * supaya test harness itu sendiri bisa menyuntik binari palsu — RX2-4 R2.
+ */
+const POSTGREST_BIN = () => process.env.POSTGREST_BIN || "/tmp/postgrest";
 
 /** HS256 JWT PostgREST accepts; `role` selects which DB role the request runs as. */
 export function signJwt(
@@ -95,7 +109,14 @@ export function applySqlFile(file: string): void {
   );
 }
 
-async function waitForHttp(url: string, timeoutMs = 20000): Promise<void> {
+/**
+ * Tunggu HTTP siap. Timeout bisa diperpendek lewat HARNESS_HTTP_WAIT_MS (dipakai
+ * test harness sendiri supaya kasus "gagal start" tidak memakan 20 s).
+ */
+async function waitForHttp(
+  url: string,
+  timeoutMs = Number(process.env.HARNESS_HTTP_WAIT_MS || 20000)
+): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -109,23 +130,134 @@ async function waitForHttp(url: string, timeoutMs = 20000): Promise<void> {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
+/** Identitas yang diiklankan `tests/harness/prefix-proxy.mjs` di /__proxy-identity. */
+export interface ProxyIdentity {
+  pid: number;
+  listenPort: number;
+  upstreamPort: number;
+  runId: string;
+}
+
+/**
+ * RX2-4 R3: baca identitas proxy. `null` = tak ada yang menjawab / jawabannya
+ * bukan JSON (bukan proxy kita) — bukan error, itu artinya "belum ada listener".
+ */
+async function readProxyIdentity(): Promise<ProxyIdentity | null> {
+  try {
+    const res = await fetch(`${POSTGREST_URL}/__proxy-identity`);
+    if (res.status !== 200) return null;
+    const id = (await res.json()) as ProxyIdentity;
+    return typeof id?.pid === "number" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * RX2-4 R3: tunggu mock Scalev di `port` siap SEKALIGUS buktikan itu mock MILIK
+ * KITA (pola promo-ws: `GET /__mock-identity`). Kalau port kita kebetulan dipegang
+ * proses lain, mock anak mati EADDRINUSE sementara `waitFor` dijawab listener
+ * asing — suite lalu membaca file orders milik run lain dan hasilnya hijau/merah
+ * untuk alasan yang salah. Karena itu: gagal keras, bukan mengadopsi.
+ */
+export async function assertMockOwner(
+  port: number,
+  expectedPid: number | undefined,
+  timeoutMs = 20000
+): Promise<void> {
+  const start = Date.now();
+  let last = "no response";
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/__mock-identity`);
+      last = `status ${res.status}`;
+      if (res.status === 200) {
+        const id = (await res.json()) as {
+          pid?: number;
+          port?: number;
+          ordersFile?: string;
+        };
+        if (id.pid !== expectedPid) {
+          throw new Error(
+            `port ${port}: mock Scalev dipegang proses lain (pid ${id.pid}, ` +
+              `bukan anak kita pid ${expectedPid}) — port tabrakan, menolak ` +
+              `lanjut (ordersFile=${id.ordersFile}).`
+          );
+        }
+        if (Number(id.port) !== port) {
+          throw new Error(
+            `port ${port}: mock Scalev mengaku listen di ${id.port} — bukan mock kita.`
+          );
+        }
+        return;
+      }
+      // Menjawab HTTP tapi bukan mock kita: tidak ada gunanya menunggu.
+      if (res.status !== 502 && res.status !== 503) {
+        throw new Error(
+          `port ${port}: listener yang menjawab /__mock-identity bukan mock Scalev ` +
+            `kita (${last}) — port tabrakan. Cek \`ss -ltnp | grep :${port}\`.`
+        );
+      }
+    } catch (err: any) {
+      if (err?.message?.startsWith(`port ${port}:`)) throw err;
+      last = err?.cause?.code || err?.message || String(err);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(
+    `port ${port}: mock Scalev milik run ini tidak siap dalam ${timeoutMs}ms (${last}).`
+  );
+}
+
 export interface RunningStack {
   stop: () => void;
 }
 
 export async function startPostgrest(): Promise<RunningStack | null> {
-  if (!fs.existsSync(POSTGREST_BIN)) {
-    console.warn(`[harness] PostgREST binary not found at ${POSTGREST_BIN} — skipping`);
+  const bin = POSTGREST_BIN();
+  if (!fs.existsSync(bin)) {
+    console.warn(`[harness] PostgREST binary not found at ${bin} — skipping`);
     return null;
   }
 
-  // Probe the /rest/v1 root THROUGH THE PROXY: 200 means healthy and ready.
-  // (502 or connection error means upstream is down / orphaned proxy).
-  try {
-    const res = await fetch(`${POSTGREST_URL}/rest/v1/`);
-    if (res.status === 200) return { stop: () => {} }; // already up and healthy
-  } catch {
-    /* not running */
+  // 1. Sudah jalan? Hanya boleh diadopsi kalau listener di POSTGREST_PORT memang
+  // proxy MILIK RUN INI yang menembak upstream port yang kita harapkan (RX2-4
+  // R3). Tabrakan PORT_BASE antar worktree (~1/1200) dulu berujung "hijau di DB
+  // yang salah"; sekarang gagal keras.
+  const existing = await readProxyIdentity();
+  if (existing) {
+    if (
+      existing.runId === RUN_ID &&
+      existing.listenPort === POSTGREST_PORT &&
+      existing.upstreamPort === POSTGREST_UPSTREAM_PORT
+    ) {
+      // Milik run ini. Sehat = /rest/v1/ menjawab 200 (proxy hidup, upstream hidup).
+      let healthy = false;
+      try {
+        healthy = (await fetch(`${POSTGREST_URL}/rest/v1/`)).status === 200;
+      } catch {
+        /* upstream mati / setengah mati */
+      }
+      if (healthy) return { stop: () => {} };
+      // Proxy sisa (upstreamnya sudah mati): jangan diadopsi — matikan lalu start bersih.
+      try {
+        process.kill(-existing.pid, "SIGTERM");
+      } catch {
+        /* sudah mati */
+      }
+      for (let i = 0; i < 25 && (await readProxyIdentity()); i++) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } else {
+      throw new Error(
+        `port ${POSTGREST_PORT} sudah dipakai listener ASING — identitas yang ` +
+          `diiklankan: pid=${existing.pid} runId=${JSON.stringify(existing.runId)} ` +
+          `listen=${existing.listenPort} upstream=${existing.upstreamPort}; ` +
+          `run ini: runId=${JSON.stringify(RUN_ID)} upstream=${POSTGREST_UPSTREAM_PORT}. ` +
+          `Menolak mengadopsi — matikan pemiliknya (\`ss -ltnp | grep :${POSTGREST_PORT}\`) ` +
+          `atau jalankan ulang dengan HARNESS_PORT_BASE lain. Lihat docs/w4-rx2-4-verification.txt.`
+      );
+    }
   }
 
   const upstreamConfig = tmpPath("postgrest.conf");
@@ -142,34 +274,94 @@ export async function startPostgrest(): Promise<RunningStack | null> {
     ].join("\n")
   );
 
-  const upstream = spawn(POSTGREST_BIN, [upstreamConfig], {
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-  });
-  upstream.stderr.on("data", (d) => process.stderr.write(`[postgrest] ${d}`));
-  upstream.unref();
-
-  await waitForHttp(`http://127.0.0.1:${POSTGREST_UPSTREAM_PORT}/`);
-
-  const proxy = spawn(process.execPath, [proxyScript, String(POSTGREST_PORT), String(POSTGREST_UPSTREAM_PORT)], {
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-  });
-  proxy.stderr.on("data", (d) => process.stderr.write(`[prefix-proxy] ${d}`));
-  proxy.unref();
-
-  await waitForHttp(`${POSTGREST_URL}/rest/v1/`);
-  return {
-    stop: () => {
-      for (const child of [proxy, upstream]) {
+  // RX2-4 R2: apa pun yang gagal SESUDAH spawn pertama harus mematikan anak yang
+  // sudah hidup (dulu: fake/rusak POSTGREST_BIN => anak yatim + proses pemanggil
+  // menggantung karena pipe stderr menahan event loop).
+  const children: ChildProcess[] = [];
+  const stop = () => {
+    for (const child of children) {
+      try {
+        process.kill(-(child.pid as number), "SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+    // Jangan cabut pipe stderr SEBELUM SIGTERM: PostgREST duduk di SIGTERM kalau
+    // pembaca stderr-nya sudah dicabut lebih dulu (terbukti, §2 dokumen RX2-4).
+    // Grace 1,5 s: habis itu SIGKILL yang tersisa + cabut pipe (pipe inilah yang
+    // dulu menahan event loop / bikin pemanggil menggantung saat anak yatim).
+    setTimeout(() => {
+      for (const child of children) {
+        if (child.exitCode === null && child.pid) {
+          try {
+            process.kill(child.pid, "SIGKILL");
+          } catch {
+            /* sudah mati */
+          }
+        }
         try {
-          process.kill(-(child.pid as number), "SIGTERM");
+          child.stderr?.destroy();
         } catch {
-          /* already gone */
+          /* sudah tutup */
         }
       }
-    },
+    }, 1500).unref();
   };
+  const start = (
+    file: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+    tag: string
+  ): ChildProcess => {
+    const child = spawn(file, args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      detached: true,
+      env,
+    });
+    child.stderr?.on("data", (d) => process.stderr.write(`[${tag}] ${d}`));
+    child.unref();
+    children.push(child);
+    return child;
+  };
+
+  try {
+    const upstream = start(bin, [upstreamConfig], process.env, "postgrest");
+    await waitForHttp(`http://127.0.0.1:${POSTGREST_UPSTREAM_PORT}/`);
+    // Hidup sesudah listen = bind-nya berhasil, jadi listener itu anak kita
+    // (PostgREST keluar kalau portnya sudah dipakai).
+    if (upstream.exitCode !== null) {
+      throw new Error(
+        `PostgREST anak kita mati (exit ${upstream.exitCode}) padahal ` +
+          `127.0.0.1:${POSTGREST_UPSTREAM_PORT} menjawab — port itu milik proses lain.`
+      );
+    }
+
+    const proxy = start(
+      process.execPath,
+      [proxyScript, String(POSTGREST_PORT), String(POSTGREST_UPSTREAM_PORT), RUN_ID],
+      process.env,
+      "prefix-proxy"
+    );
+    await waitForHttp(`${POSTGREST_URL}/rest/v1/`);
+    const identity = await readProxyIdentity();
+    if (
+      !identity ||
+      identity.pid !== proxy.pid ||
+      identity.runId !== RUN_ID ||
+      identity.upstreamPort !== POSTGREST_UPSTREAM_PORT
+    ) {
+      throw new Error(
+        `proxy di ${POSTGREST_PORT} bukan proses yang kita spawn ` +
+          `(identitas: ${JSON.stringify(identity)}; anak kita pid=${proxy.pid} ` +
+          `runId=${JSON.stringify(RUN_ID)}) — port tabrakan.`
+      );
+    }
+  } catch (err) {
+    stop();
+    throw err;
+  }
+
+  return { stop };
 }
 
 export function truncateAll(): void {

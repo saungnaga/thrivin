@@ -6,7 +6,7 @@
  * "non-fatal". Tests must not touch a live payment account, so the route takes
  * its base URL from SCALEV_API_BASE_URL and the suite points it here.
  *
- *   node tests/mock-scalev.mjs [port]
+ *   node tests/mock-scalev.mjs <port>        (atau env MOCK_SCALEV_PORT)
  */
 import http from "http";
 import fs from "fs";
@@ -14,7 +14,15 @@ import os from "os";
 import path from "path";
 import crypto from "crypto";
 
-const PORT = Number(process.argv[2] || process.env.MOCK_SCALEV_PORT || 4111);
+// RX2-4 R1: wajib port eksplisit — dulu fallback bersama 4111 bikin dua reviewer
+// yang menjalankan mock manual bertabrakan (dan membuat mock anak mati
+// EADDRINUSE sementara suite-nya bicara ke mock orang lain). Port selalu datang
+// dari isolate.mts (slot per-worktree); env dipertahankan sebagai jalur eksplisit.
+const PORT = Number(process.argv[2] || process.env.MOCK_SCALEV_PORT);
+if (!PORT) {
+  console.error("usage: node tests/mock-scalev.mjs <port>  (or set MOCK_SCALEV_PORT)");
+  process.exit(2);
+}
 
 const PRODUCTS = [
   { name: "Checkout Nina 1 Bulan", variants: [{ unique_id: "variant_vF4j4Pwv1wIizRu3VP6FVOgt", price: 99000 }] },
@@ -94,6 +102,15 @@ function readBody(req) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+
+  // RX2-4 R3: identitas mock (pola promo-ws). Suite memakainya untuk memastikan
+  // port ini benar-benar dipegang mock MILIKNYA: kalau port tabrakan, mock anak
+  // mati EADDRINUSE sementara `waitFor(...)` dijawab listener asing — suite lalu
+  // membaca file orders milik run lain dan hasilnya hijau/merah karena alasan
+  // yang salah. assertMockOwner() (harness/stack.mts) yang memeriksanya.
+  if (req.method === "GET" && url.pathname === "/__mock-identity") {
+    return send(res, 200, { pid: process.pid, port: PORT, ordersFile: ORDERS_FILE, cancelFile: CANCEL_FILE });
+  }
 
   if (req.method === "GET" && url.pathname.endsWith("/products")) {
     return send(res, 200, { data: PRODUCTS });

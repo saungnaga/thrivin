@@ -14,10 +14,27 @@ cd "$REPO"
 
 if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
 
+# RX2-4 R4: satu worktree = satu run pada satu waktu. Dua run dari worktree yang
+# sama berebut DB yang sama (DDL bersamaan) dan dulu baru gagal jauh di dalam
+# seed.sh; lock ini menggagalkannya di muka dengan pesan yang jelas. flock
+# dilepas otomatis saat proses mati, jadi tidak ada lock basi.
+export HARNESS_RUN_ID="${HARNESS_RUN_ID:-$$}"
+
 # DB / port / prefix /tmp per-worktree (RX2-2). Satu sumber kebenaran supaya
 # bash dan node tidak pernah menghitung nilai berbeda.
 eval "$(node --experimental-strip-types "$HERE/harness/isolate.mts" env)"
-echo "worktree: $HARNESS_SLUG  db: $HARNESS_PG_DB  port base: $HARNESS_PORT_BASE"
+echo "worktree: $HARNESS_SLUG  db: $HARNESS_PG_DB  port base: $HARNESS_PORT_BASE  run: $HARNESS_RUN_ID"
+
+# Lock per-worktree (RX2-4 R4). Kalau `flock` tidak ada, lewati — jangan bikin
+# gate gagal karena tooling opsional.
+if command -v flock >/dev/null; then
+  exec 9>"$TMP_PREFIX/run-all.lock"
+  if ! flock -n 9; then
+    echo "run-all SUDAH berjalan untuk worktree ini ($TMP_PREFIX/run-all.lock)." >&2
+    echo "Satu worktree = satu run pada satu waktu (docs/w4-rx2-4-verification.txt §4)." >&2
+    exit 1
+  fi
+fi
 
 echo "=============================================================="
 echo "1/10 harness: local Postgres stand-in + mock Scalev"
@@ -33,6 +50,9 @@ node --experimental-strip-types "$HERE/test-wa-first-units.mts"
 node --experimental-strip-types "$HERE/test-consent-gate-units.mts"
 # F-W4-1c: klasifikasi hasil cancel + verifikasi response (nol DB/HTTP).
 node --experimental-strip-types "$HERE/test-cancel-ttl-units.mts"
+# RX2-4: higiene harness — port wajib eksplisit, nol anak yatim, pemilik port
+# harus run ini (nol DB/HTTP nyata, ~2 s).
+node --experimental-strip-types "$HERE/test-harness-isolation.mts"
 # A6: teks legal yang dipublikasikan harus tetap = teks yang disetujui owner.
 node --experimental-strip-types "$HERE/test-legal-draft-shape.mts"
 

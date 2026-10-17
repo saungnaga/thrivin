@@ -14,6 +14,7 @@ import {
   POSTGREST_URL,
   SERVICE_KEY,
   PORTS,
+  assertMockOwner,
   startPostgrest,
   psqlSuper,
   tmpPath,
@@ -251,6 +252,7 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
   });
   mock.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, mock.pid);
   const postgrest = await startPostgrest();
   const app = await startApp();
   const brokenApp = await startApp({ SUPABASE_URL: DEAD_SUPABASE }, BROKEN_APP_PORT, BROKEN_LOG);

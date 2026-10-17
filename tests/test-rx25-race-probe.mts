@@ -22,7 +22,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import { POSTGREST_URL, SERVICE_KEY, PORTS, startPostgrest, psqlSuper, tmpPath } from "./harness/stack.mts";
+import { POSTGREST_URL, SERVICE_KEY, PORTS, assertMockOwner, startPostgrest, psqlSuper, tmpPath } from "./harness/stack.mts";
 import {
   DEFAULT_WA_SESSION_SECRET,
   armCheckout,
@@ -203,6 +203,7 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
   });
   mock.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, mock.pid);
   await waitFor(`http://127.0.0.1:${MOCK_PORT}/v3/orders?x=1`).catch(() => {});
   const postgrest = await startPostgrest();
   const app = await startApp();

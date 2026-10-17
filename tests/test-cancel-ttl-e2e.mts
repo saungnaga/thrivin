@@ -28,6 +28,7 @@ import {
   POSTGREST_URL,
   SERVICE_KEY,
   PORTS,
+  assertMockOwner,
   startPostgrest,
   psqlSuper,
   tmpPath,
@@ -120,6 +121,7 @@ async function startMock(): Promise<Stack> {
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, child.pid);
   await waitFor(`${MOCK_URL}/v3/stores/x/products`);
   return {
     stop: () => {
