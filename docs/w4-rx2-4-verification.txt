@@ -288,7 +288,10 @@ Probe ulang dipakai apa adanya di dua tree (hanya memakai export yang ada di ked
       harness isolation: 25 PASS, 0 FAIL · OK · ~3,7 s   (nol DB, nol app)
     Asersi baru: B1 ×3 (tidak mengadopsi, pesan menyebut kepemilikan, nol proses/port sisa)
     + B2 symlink ×2 + B2 direktori privat ×5.
-(e) Gate penuh: lihat §7.7 (log `runall-postfix.log`).
+(e) Gate penuh `bash tests/run-all.sh` di HEAD ronde ini: **ALL SUITES PASSED** exit 0
+    (`runall-postfix.log`, diulang lagi sesudah semua patch docs: `runall-postfix-2.log` —
+    isolation 25 PASS/0 FAIL, SQL 155/0, consent e2e 166/0, cancel TTL 86/0), dan nol
+    listener/proses milik run yang tersisa sesudahnya (`ss -ltn` pada blok port worktree = 0).
 
 ------------------------------------------------------------------------------
 7.5 MOCK & CLEANUP — audit kepemilikan
