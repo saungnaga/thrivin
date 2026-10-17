@@ -267,23 +267,52 @@ export async function recordCheckoutCancelResult(
   claimId: string,
   result: "retired" | "cancel_pending" | "cancel_failed",
   error?: string
-): Promise<{ status: string }> {
+): Promise<{ status: string; state: string }> {
   try {
     const row = await callRpc("record_checkout_cancel_result", {
       p_claim_id: claimId,
       p_result: result,
       p_error: error ? error.slice(0, 200) : null,
     });
-    return { status: String(row?.status || "") };
+    // V-5: `state` yang DIKEMBALIKAN RPC = keadaan sesudah ditulis. Pemanggil
+    // menghitung laporan dari sini, bukan dari niatnya sendiri: RPC bisa menjawab
+    // `late_payment` (baris dibayar di tengah attempt) dan state-nya tetap
+    // `cancel_pending` walau worker mengira "retired".
+    return { status: String(row?.status || ""), state: String(row?.state || "") };
   } catch (err) {
     console.error("[CheckoutGate] gagal mencatat hasil cancel:", redactError(err));
-    return { status: "error" };
+    return { status: "error", state: "" };
   }
+}
+
+/**
+ * V-1: nominasi baris `created` yang lewat TTL menjadi antrean cancel.
+ * Step 3b hanya bersifat lazy (jalan kalau pelanggan checkout lagi), jadi order
+ * yang ditinggalkan tidak pernah masuk antrean — dipanggil sweep SEBELUM klaim.
+ * Nol HTTP Scalev (SQL hanya memindahkan state).
+ */
+export async function nominateStaleCancels(
+  limit = 200
+): Promise<{ nominated: number; missingId: number }> {
+  const row = await callRpc("nominate_stale_cancels", {
+    p_tenant_id: process.env.THRIVIN_TENANT_ID || "thrivin",
+    p_limit: limit,
+    // p_unpaid_ttl_seconds sengaja TIDAK dikirim: TTL 60 menit punya satu rumah
+    // di SQL (DEFAULT), bukan disalin ke TS supaya tidak bisa menyimpang.
+  });
+  return { nominated: Number(row?.nominated ?? 0), missingId: Number(row?.missing_id ?? 0) };
 }
 
 /**
  * Baris yang menunggu cancel untuk satu nomor (atau semua nomor kalau `phone`
  * kosong — dipakai sweep terjadwal). Hanya id + canonical UUID: tidak ada PII.
+ *
+ * V-3/V-4: filter lease/backoff SENGAJA TIDAK di sini. Satu-satunya gerbang yang
+ * mengikat adalah `claim_checkout_cancel` (atomik, satu transaksi): kalau listing
+ * ikut menyaring, sapuan bisa melaporkan "tidak ada yang perlu dicancel" padahal
+ * barisnya hanya sedang menunggu backoff ⇒ `resolvedAll` bohong dan replacement
+ * tercetak di belakang link lama. Baris yang tidak bisa diklaim dilaporkan
+ * sebagai `pending` (fail-closed).
  */
 export async function listPendingCancels(phone: string): Promise<CancelClaim[]> {
   const { url, key } = rpcEndpoint();

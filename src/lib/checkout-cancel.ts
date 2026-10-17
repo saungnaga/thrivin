@@ -118,7 +118,7 @@ export function resetCancelBreaker(): void {
 }
 
 export interface CancelRunResult {
-  /** Baris yang berhasil diklaim + ikut dikirim ke Scalev. */
+  /** Baris yang berhasil dilease worker ini (termasuk yang tanpa canonical ID). */
   attempted: number;
   retired: number;
   pending: number;
@@ -211,7 +211,7 @@ export async function cancelStaleOrders(opts: CancelRunOptions = {}): Promise<Ca
   if (pendingRows.length === 0) return { ...empty, resolvedAll: true };
 
   // Lease attempt per baris (M-3). Baris yang tidak bisa diklaim (pegang worker
-  // lain / sudah dibayar / status berubah) tidak ikut dikirim.
+  // lain / sudah dibayar / status berubah / masih backoff) tidak ikut dikirim.
   const claimed: CancelClaim[] = [];
   for (const row of pendingRows) {
     const claim = await claimCheckoutCancel(row.claimId);
@@ -219,15 +219,56 @@ export async function cancelStaleOrders(opts: CancelRunOptions = {}): Promise<Ca
   }
   if (claimed.length === 0) return { ...empty, pending: pendingRows.length };
 
-  const ids = claimed.map((c) => c.scalevOrderUuid).filter((id): id is string => !!id);
-  if (ids.length === 0) {
-    // Baris tanpa canonical ID tidak boleh dicancel dengan ID tebakan (§B-1.4).
-    for (const claim of claimed) {
-      await recordCheckoutCancelResult(claim.claimId, "cancel_failed", "missing_canonical_order_id");
+  // V-5: laporan dihitung dari KEADAAN yang dikembalikan RPC, bukan dari niat
+  // worker. RPC bisa menjawab `late_payment` (baris dibayar di tengah attempt)
+  // atau `not_found` (baris sudah dipindahkan pihak lain), dan `resolvedAll`
+  // hanya boleh true kalau tidak ada sisa yang belum terverifikasi.
+  const tally = { retired: 0, pending: 0, failed: 0, latePayment: 0 };
+  const record = async (
+    claimId: string,
+    result: "retired" | "cancel_pending" | "cancel_failed",
+    error?: string
+  ): Promise<void> => {
+    const r = await recordCheckoutCancelResult(claimId, result, error);
+    if (r.status === "late_payment") {
+      tally.latePayment++;
+      return;
     }
-    alertOps(`${claimed.length} baris cancel tanpa canonical ID — butuh rekonsiliasi owner`);
-    return { ...empty, attempted: claimed.length, failed: claimed.length };
+    if (r.state === "retired") tally.retired++;
+    else if (r.state === "cancel_failed") tally.failed++;
+    // `recorded`+cancel_pending, `not_found` (baris sudah pindah state), dan
+    // error pencatatan ⇒ semua tetap "belum terverifikasi": fail-closed, jangan
+    // pernah melaporkan resolvedAll dari tebakan.
+    else tally.pending++;
+  };
+  const result = (attempted: number): CancelRunResult => ({
+    ...empty,
+    attempted,
+    retired: tally.retired,
+    pending: tally.pending,
+    failed: tally.failed,
+    latePayment: tally.latePayment,
+    resolvedAll: tally.pending === 0 && tally.failed === 0,
+  });
+
+  // V-2: HANYA baris yang canonical ID-nya benar-benar ikut dikirim yang boleh
+  // dicap `retired`. Baris tanpa canonical ID tidak pernah diminta dibatalkan
+  // Scalev, jadi `retired` di situ = sukses palsu ⇒ penjaga per-nomor terbuka
+  // dan order kedua lahir di belakang link lama yang masih hidup. Catat satu per
+  // satu sebagai `cancel_failed` (kontrak B-1.4: antrean owner, bukan ID tebakan).
+  const withId = claimed.filter((c) => !!c.scalevOrderUuid);
+  const withoutId = claimed.filter((c) => !c.scalevOrderUuid);
+  for (const claim of withoutId) {
+    await record(claim.claimId, "cancel_failed", "missing_canonical_order_id");
   }
+  if (withoutId.length > 0) {
+    alertOps(
+      `${withoutId.length}/${claimed.length} baris cancel tanpa canonical ID — antrean rekonsiliasi owner`
+    );
+  }
+
+  const ids = withId.map((c) => String(c.scalevOrderUuid));
+  if (ids.length === 0) return result(claimed.length);
 
   const startedAt = now();
   let last: CancelClassification = { verdict: "transient", detail: "belum dicoba" };
@@ -244,38 +285,31 @@ export async function cancelStaleOrders(opts: CancelRunOptions = {}): Promise<Ca
     );
 
     if (verdict.verdict === "success") {
-      for (const claim of claimed) await recordCheckoutCancelResult(claim.claimId, "retired");
-      return {
-        ...empty,
-        attempted: claimed.length,
-        retired: claimed.length,
-        resolvedAll: claimed.length === pendingRows.length,
-      };
+      for (const claim of withId) await record(claim.claimId, "retired");
+      return result(claimed.length);
     }
     if (verdict.verdict === "unauthorized") {
       // 401 = alarm global + breaker; TIDAK mengunci/mengklasifikasikan per nomor.
       openCancelBreaker(now());
-      for (const claim of claimed) await recordCheckoutCancelResult(claim.claimId, "cancel_pending", "cancel_401");
+      for (const claim of withId) await record(claim.claimId, "cancel_pending", "cancel_401");
       alertOps("401 dari Scalev — breaker dibuka, cek credential/scope (tidak ada nomor yang dikunci)");
-      return { ...empty, attempted: claimed.length, pending: claimed.length, circuitOpen: true };
+      return { ...result(claimed.length), circuitOpen: true };
     }
     if (verdict.verdict === "terminal") {
-      for (const claim of claimed) {
-        await recordCheckoutCancelResult(claim.claimId, "cancel_failed", verdict.detail);
-      }
+      for (const claim of withId) await record(claim.claimId, "cancel_failed", verdict.detail);
       alertOps(
-        `${claimed.length} cancel GAGAL terminal (${verdict.detail}) — antrean rekonsiliasi owner; checkout ditahan`
+        `${withId.length} cancel GAGAL terminal (${verdict.detail}) — antrean rekonsiliasi owner; checkout ditahan`
       );
-      return { ...empty, attempted: claimed.length, failed: claimed.length };
+      return result(claimed.length);
     }
     if (attempt < CANCEL_MAX_ATTEMPTS) await sleep(CANCEL_BACKOFF_MS[attempt - 1] ?? 0);
   }
 
   // Budget/attempt habis pada hasil transient: tinggalkan `cancel_pending` +
   // jejak retry, dan JANGAN cetak order baru (fail-closed).
-  for (const claim of claimed) {
-    await recordCheckoutCancelResult(claim.claimId, "cancel_pending", last.detail);
+  for (const claim of withId) {
+    await record(claim.claimId, "cancel_pending", last.detail);
   }
-  alertOps(`${claimed.length} cancel masih pending (${last.detail}) — retry berikutnya lewat sweep/checkout`);
-  return { ...empty, attempted: claimed.length, pending: claimed.length };
+  alertOps(`${withId.length} cancel masih pending (${last.detail}) — retry berikutnya lewat sweep/checkout`);
+  return result(claimed.length);
 }
