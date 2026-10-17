@@ -306,3 +306,46 @@ isolasi DB-nya memang di-override bersama (`HARNESS_PG_DB=thrivin_shared_sim`).
   Log run asli yang diperiksa: /tmp/w4-runall-final.log (read-only)
   DB `thrivin_shared_sim` dibaca read-only (keadaan run 01:18), lalu DB throwaway
   thrivin_rx25_* di-drop dan direktori /tmp/thrivin-rx25-* dihapus sesudah kerja.
+
+==============================================================================
+10. Tindak lanjut temuan instrumen FG-1 / FG-2 / D3 (kartu t_4e696fde)
+==============================================================================
+Keputusan review Sentinel t_a812c669 (review-w4-rx25-2026-10-17.md, komentar #280).
+Perubahan HANYA di tests/ (+ dokumen ini): nol src/, nol staging/*.sql, nol apply
+staging/produksi, nol push/merge.
+
+FG-1 (blocker gate) — probe jendela melaporkan "0 kebocoran" walau jendelanya
+tidak pernah terbuka. Sekarang tests/test-rx25-window-probe.mts menghitung
+putaran SAH (observasi dengan verdict != "PRA-SYARAT GAGAL", diukur terhadap
+ROUNDS yang direncanakan) dan:
+  * ringkas di stdout: "... N kebocoran dari <sah> putaran sah (<tidak sah>
+    tidak sah dari <ROUNDS> putaran direncanakan)";
+  * ringkasan JSON memuat `valid_rounds` + `invalid_rounds`;
+  * `valid_rounds !== ROUNDS` ⇒ pesan GAGAL jelas + `process.exit(3)`.
+Bukti (log: ~/rx25-fg-evidence/a-precond.log, ~/rx25-fg-evidence/b-head.log,
+~/rx25-fg-evidence/c-narrow.log):
+  (a) `RX25_HOLD_MS=1` 2 putaran → tiap putaran "JENDELA TIDAK TERBUKA
+      (holding=false/status=created) — putaran tidak sah"; penutup
+      "0 kebocoran dari 0 putaran sah (2 tidak sah dari 2 ...)" + GAGAL → exit 3
+      (sebelumnya: exit 0 + "0 kebocoran dari 2 putaran").
+  (b) 3 putaran, index HEAD → exit 0, putaran sah 3/3, 0 kebocoran,
+      3× 409 ORDER_IN_FLIGHT, 0 order baru, klaim_hidup=1.
+  (c) 3 putaran, index di-narrow (rx25-index-mutation.sh narrow) → exit 0,
+      putaran sah 3/3, 3 kebocoran (200 + 1 order baru + klaim_hidup=2) —
+      jadi "0 kebocoran" tidak bisa lagi datang dari putaran tak sah.
+  Regresi gate: `bash tests/run-all.sh` (DB/port/prefix unik) → ALL SUITES
+  PASSED, exit 0, e2e gate consent/checkout 166 PASS/0 FAIL
+  (~/rx25-fg-evidence/runall-fg.log).
+
+FG-2 — `RX25_OUT` tidak lagi default ke direktori pribadi
+(/home/ubuntu/w4rx25-evidence), tapi ke turunan TMP_PREFIX: `tmpPath("rx25-out")`
+(⇒ /tmp/thrivin-<slug>/rx25-out), di KEDUA probe (window + race). Override env
+`RX25_OUT` tetap berlaku.
+
+D3 — tests/mock-scalev.mjs menulis ORDERS_FILE/CANCEL_FILE lewat helper
+`writeAtomic` (`<file>.tmp-<pid>` + `fs.renameSync`, satu direktori ⇒ satu fs)
+di 4 titik. Kontrol negatif (penulis non-atomik + pembaca di proses terpisah,
+beban sama): non-atomik → 434 `JSON.parse` gagal + 199.275 bacaan kosong;
+atomik → 0/0. Skrip: ~/rx25-fg-evidence/atomic-check.mjs + atomic-reader.mjs.
+Tidak dikerjakan (menunggu keputusan Atlas): probe jendela masuk run-all.sh,
+dan `rx25-index-mutation.sh narrow` masuk gate.
