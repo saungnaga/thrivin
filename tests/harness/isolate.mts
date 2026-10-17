@@ -9,7 +9,9 @@
  *
  * Semua nilai di bawah diturunkan dari path repo, jadi tiap worktree dapat DB,
  * prefix /tmp, dan blok 20 port sendiri. Butuh berbagi? Set HARNESS_PG_DB /
- * HARNESS_PORT_BASE / HARNESS_TMP_PREFIX secara eksplisit.
+ * HARNESS_PORT_BASE / HARNESS_TMP_PREFIX secara eksplisit. Direktori artefak
+ * selalu privat (0700, milik uid ini) dan artefak per-run: `TMP_BASE/run-<RUN_ID>`
+ * — lihat tests/harness/private-fs.mjs (RX2-4 follow-up B2).
  *
  * Port di 40000+ dengan sengaja: `fetch` (undici) menolak port di daftar "bad
  * port" WHATWG (tertinggi 10080), jadi port app tidak bisa jatuh ke sana dan
@@ -24,6 +26,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { ensurePrivateDir } from "./private-fs.mjs";
 
 /** Repo root worktree INI (tests/harness/isolate.mts -> ../..). */
 export const REPO_ROOT = path.resolve(
@@ -92,13 +95,30 @@ export const PORTS = {
   cancelMock: slot(19),
 } as const;
 
-/** Artefak /tmp: di-prefix SLUG supaya worktree paralel tak pernah satu file. */
+/**
+ * Artefak /tmp: BASE per worktree (tempat lock), direktori artefak per RUN.
+ *
+ * RX2-4 follow-up B2: dulu SATU direktori `${TMP_PREFIX}` yang predictable
+ * (`/tmp/thrivin-${SLUG}`, mode 775) menampung config/log/orders semua run, jadi
+ * proses lain bisa pre-create `postgrest.conf -> <korban>` dan `writeFileSync`
+ * mengikutinya. Sekarang: BASE privat 0700 (dicek symlink/pemilik uid) untuk
+ * lock, dan TMP_PREFIX = BASE/run-<RUN_ID> privat 0700 untuk artefak. Dalam satu
+ * `run-all.sh` semua suite memakai HARNESS_RUN_ID yang sama ⇒ satu direktori run;
+ * dijalankan langsung, tiap proses dapat direktorinya sendiri.
+ */
+export const TMP_BASE =
+  process.env.HARNESS_TMP_BASE || path.join(os.tmpdir(), `thrivin-${SLUG}`);
+/** Lock per-worktree (satu worktree = satu run) — lihat tests/run-all.sh R4. */
+export const LOCK_PATH =
+  process.env.HARNESS_LOCK_PATH || path.join(TMP_BASE, "run-all.lock");
 export const TMP_PREFIX =
-  process.env.HARNESS_TMP_PREFIX || path.join(os.tmpdir(), `thrivin-${SLUG}`);
+  process.env.HARNESS_TMP_PREFIX ||
+  path.join(TMP_BASE, `run-${RUN_ID.replace(/[^A-Za-z0-9._-]+/g, "_")}`);
 export const tmpPath = (name: string): string => path.join(TMP_PREFIX, name);
 // Server mock & app menulis log/orders ke sini langsung (openSync/writeFileSync),
-// jadi direktori harus ada sebelum import ini selesai.
-fs.mkdirSync(TMP_PREFIX, { recursive: true });
+// jadi direktori harus ada sebelum import ini selesai — dan privat (0700).
+ensurePrivateDir(TMP_BASE);
+ensurePrivateDir(TMP_PREFIX);
 
 if (
   process.argv[1] &&
@@ -112,7 +132,9 @@ if (
     console.log(`HARNESS_PG_DB=${PG_DB}`);
     console.log(`HARNESS_PORT_BASE=${PORT_BASE}`);
     console.log(`HARNESS_RUN_ID=${RUN_ID}`);
+    console.log(`TMP_BASE=${TMP_BASE}`);
     console.log(`TMP_PREFIX=${TMP_PREFIX}`);
+    console.log(`HARNESS_LOCK_PATH=${LOCK_PATH}`);
   } else {
     console.error("usage: node --experimental-strip-types isolate.mts <db|env>");
     process.exit(2);

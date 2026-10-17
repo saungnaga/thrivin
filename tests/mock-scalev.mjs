@@ -10,9 +10,13 @@
  */
 import http from "http";
 import fs from "fs";
-import os from "os";
 import path from "path";
 import crypto from "crypto";
+import {
+  mkPrivateTempDir,
+  rewritePrivateFile,
+  writePrivateFile,
+} from "./harness/private-fs.mjs";
 
 // RX2-4 R1: wajib port eksplisit — dulu fallback bersama 4111 bikin dua reviewer
 // yang menjalankan mock manual bertabrakan (dan membuat mock anak mati
@@ -38,12 +42,16 @@ export const createdOrders = [];
 export const changeStatusCalls = [];
 
 // Mirror to disk so the test process (which talks to the mock over HTTP, not
-// via import) can assert on what the route actually sent Scalev. Default
-// ber-pid supaya menjalankan mock manual tidak menimpa file run lain (RX2-2).
+// via import) can assert on what the route actually sent Scalev.
+// RX2-4 follow-up B2: default dulu `/tmp/thrivin-mock-orders-<pid>.json` yang
+// predictable, ditulis `writeFileSync` (mengikuti symlink). Default sekarang
+// direktori unik 0700 (mkdtemp) dan tiap tulis eksklusif/tanpa-follow; suite
+// tetap boleh menunjuk path sendiri lewat env (di dalam TMP_PREFIX privat).
+const ARTIFACT_DIR =
+  process.env.MOCK_SCALEV_DIR || mkPrivateTempDir("thrivin-mock-");
 const ORDERS_FILE =
-  process.env.MOCK_SCALEV_ORDERS_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-orders-${process.pid}.json`);
-fs.writeFileSync(ORDERS_FILE, "[]");
+  process.env.MOCK_SCALEV_ORDERS_FILE || path.join(ARTIFACT_DIR, "orders.json");
+writePrivateFile(ORDERS_FILE, "[]");
 
 /**
  * F-W4-1c: mode cancel DIBACA DARI FILE pada tiap request (bukan env), supaya
@@ -55,11 +63,11 @@ fs.writeFileSync(ORDERS_FILE, "[]");
  */
 const CANCEL_MODE_FILE =
   process.env.MOCK_SCALEV_CANCEL_MODE_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-cancel-mode-${process.pid}.txt`);
+  path.join(ARTIFACT_DIR, "cancel-mode.txt");
 const CANCEL_FILE =
   process.env.MOCK_SCALEV_CANCEL_FILE ||
-  path.join(os.tmpdir(), `thrivin-mock-cancel-${process.pid}.json`);
-fs.writeFileSync(CANCEL_FILE, "[]");
+  path.join(ARTIFACT_DIR, "cancel-calls.json");
+writePrivateFile(CANCEL_FILE, "[]");
 
 function cancelMode() {
   try {
@@ -70,11 +78,11 @@ function cancelMode() {
 }
 
 function persistCalls() {
-  fs.writeFileSync(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
+  rewritePrivateFile(CANCEL_FILE, JSON.stringify(changeStatusCalls, null, 2));
 }
 
 function persistOrders() {
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
+  rewritePrivateFile(ORDERS_FILE, JSON.stringify(createdOrders, null, 2));
 }
 
 function send(res, status, body) {
