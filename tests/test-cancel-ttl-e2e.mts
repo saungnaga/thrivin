@@ -19,6 +19,9 @@
  *   7  401 ⇒ breaker global (bukan lockout per nomor); restart memulihkan
  *   8  key cancel kosong ⇒ fail-closed, nol panggilan Scalev
  *   9  late webhook ⇒ akses tetap + tanda duplikat + nol aktivasi kedua
+ *  10  lease ≥ jendela worker sendiri (V-3) + backoff benar-benar dibaca (V-4)
+ *  11  sapuan MENEMUKAN order basi yang tak dikunjungi ulang (V-1)
+ *  12  batch campuran: baris tanpa canonical ID ⇒ cancel_failed, BUKAN retired (V-2)
  */
 import crypto from "crypto";
 import fs from "fs";
@@ -40,6 +43,11 @@ import {
   newIdempotencyKey,
   waSessionCookie,
 } from "./helpers/checkout-arm.mts";
+import {
+  CANCEL_BACKOFF_MS,
+  CANCEL_MAX_ATTEMPTS,
+  CANCEL_TIMEOUT_MS,
+} from "../src/lib/checkout-cancel.ts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
@@ -71,7 +79,17 @@ const P = {
   breaker: "6281200000907",
   breakerTwo: "6281200000908",
   nokey: "6281200000909",
+  lease: "6281200000910",
+  sweep: "6281200000911",
+  sweepFresh: "6281200000912",
+  mixed: "6281200000913",
+  mixedLegacy: "6281200000914",
 };
+
+/** V-3: lantai lease diturunkan dari konstanta worker (bukan angka pilihan sendiri). */
+const LEASE_FLOOR_MS =
+  CANCEL_MAX_ATTEMPTS * CANCEL_TIMEOUT_MS + CANCEL_BACKOFF_MS.reduce((a, b) => a + b, 0);
+const SWEEP_STATE_DIR = tmpPath("sweep-state");
 
 const results: Array<[string, string]> = [];
 function record(ok: boolean, name: string, detail = "") {
@@ -180,6 +198,41 @@ async function startApp(
 function setMode(mode: string) {
   fs.writeFileSync(MODE_FILE, mode);
 }
+
+/**
+ * Jalankan sapuan TERJADWAL yang asli (`staging/cancel-sweep.mts`) sebagai proses
+ * terpisah dengan env sesi ini — inilah jalur yang jalan dari crontab, jadi
+ * nominasi (V-1) benar-benar ikut diuji, bukan hanya worker-nya.
+ */
+async function runSweep(
+  env: Record<string, string | undefined> = {}
+): Promise<{ status: number | null; out: string }> {
+  const merged: Record<string, string | undefined> = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    SUPABASE_URL: POSTGREST_URL,
+    SUPABASE_SERVICE_KEY: SERVICE_KEY,
+    THRIVIN_TENANT_ID: "thrivin",
+    SCALEV_API_BASE_URL: MOCK_URL,
+    SCALEV_STORE_ID: "store_test",
+    SCALEV_CANCEL_API_KEY: CANCEL_KEY,
+    CANCEL_SWEEP_STATE_DIR: SWEEP_STATE_DIR,
+    ...env,
+  };
+  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
+  const child = spawn(
+    process.execPath,
+    ["--experimental-strip-types", path.join(REPO, "staging/cancel-sweep.mts")],
+    { cwd: REPO, env: merged as Record<string, string>, stdio: ["ignore", "pipe", "pipe"] }
+  );
+  let out = "";
+  child.stdout.on("data", (d) => (out += String(d)));
+  child.stderr.on("data", (d) => (out += String(d)));
+  const status = await new Promise<number | null>((resolve) =>
+    child.on("exit", (code) => resolve(code))
+  );
+  return { status, out };
+}
 function mockOrders(): any[] {
   try {
     return JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8"));
@@ -253,6 +306,17 @@ function claimField(phone: string, field: string): string {
   return psqlSuper(`select coalesce(${field}::text,'') from checkout_claims where phone='${phone}' order by created_at limit 1`, {
     csv: true,
   });
+}
+
+/**
+ * V-4: backoff 30 s adalah perilaku yang DIINGINKAN (jangan menggedor Scalev tiap
+ * klik pelanggan), jadi uji yang ingin membuktikan "upstream sudah normal lagi"
+ * memajukan jamnya, bukan menunggu 30 detik. Efek gerbangnya sendiri dikunci di §10.
+ */
+function clearCancelBackoff(phone: string): void {
+  psqlSuper(
+    `update checkout_claims set cancel_next_retry_at = now() - interval '1 second' where phone='${phone}' and status='cancel_pending'`
+  );
 }
 
 async function main() {
@@ -365,8 +429,9 @@ async function main() {
       assertOk(!err.includes(P.retry), "cancel_last_error nol PII (tanpa nomor)", err);
 
       setMode("ok");
+      clearCancelBackoff(P.retry);
       const healed = await createOrder(P.retry, newIdempotencyKey("fw41c-429-retry"));
-      assertEq(healed.status, 200, "setelah cancel bisa dipercaya ⇒ replacement boleh (200)");
+      assertEq(healed.status, 200, "setelah jendela backoff lewat & upstream normal ⇒ replacement boleh (200)");
       assertEq(mockOrderCount() - beforeCreate, 1, "... tepat satu order pengganti");
       assertEq(
         psqlSuper(`select count(*) from checkout_claims where phone='${P.retry}' and status='cancel_pending'`, { csv: true }),
@@ -429,6 +494,7 @@ async function main() {
       );
 
       setMode("ok");
+      clearCancelBackoff(P.multi);
       const healed = await createOrder(P.multi, newIdempotencyKey("fw41c-multi"));
       assertEq(healed.status, 200, "setelah respons lengkap ⇒ replacement boleh");
       assertEq(
@@ -563,6 +629,7 @@ async function main() {
       app.stop();
       app = await startApp();
       setMode("ok");
+      clearCancelBackoff(P.breaker);
       const afterRestart = await createOrder(P.breaker, newIdempotencyKey("fw41c-401-heal"));
       assertEq(afterRestart.status, 200, "setelah credential diperbaiki + restart ⇒ checkout jalan lagi (200)");
       assertEq(
@@ -662,6 +729,175 @@ async function main() {
         "1",
         "late webhook TIDAK membuat aktivasi kedua (dedup fulfillment_key tetap penentu)"
       );
+    }
+
+    // ═══ 10. V-3 lease ≥ jendela worker · V-4 backoff dibaca ═══════════════
+    section("10. lease ≥ jendela worker sendiri (V-3) + backoff dibaca (V-4)");
+    {
+      setMode("ok");
+      const arm = await armCheckout({ base: APP_URL, phone: P.lease, cookie: waSessionCookie(P.lease) });
+      await createOrder(P.lease, arm.idempotencyKey);
+      ageClaims(P.lease);
+      // Transient 429 ⇒ baris berakhir `cancel_pending` dengan jadwal retry 30 s.
+      setMode("429");
+      const blocked = await createOrder(P.lease, newIdempotencyKey("fw41c-lease"));
+      assertEq(blocked.status, 409, "pra-syarat: 429 ⇒ TAHAN pada `cancel_pending`");
+      const leaseClaimId = psqlSuper(
+        `select id from checkout_claims where phone='${P.lease}' order by created_at limit 1`,
+        { csv: true }
+      );
+      assertEq(
+        psqlSuper(
+          `select (cancel_next_retry_at > now()) from checkout_claims where id='${leaseClaimId}'`,
+          { csv: true }
+        ),
+        "t",
+        "pra-syarat: backoff 30 s tertulis"
+      );
+
+      // V-4: jadwal retry WAJIB menahan klaim. Hapus gerbang `cancel_next_retry_at`
+      // di RPC ⇒ klaim di bawah jadi 'claimed' ⇒ assertion FAIL.
+      assertEq(
+        psqlSuper(`select claim_checkout_cancel('${leaseClaimId}'::uuid)->>'status'`, { csv: true }),
+        "not_claimed",
+        "backoff dibaca: klaim DITOLAK selama jadwal retry belum lewat (V-4)"
+      );
+
+      psqlSuper(
+        `update checkout_claims set cancel_next_retry_at = now() - interval '1 second' where id='${leaseClaimId}'`
+      );
+      assertEq(
+        psqlSuper(`select claim_checkout_cancel('${leaseClaimId}'::uuid)->>'status'`, { csv: true }),
+        "claimed",
+        "setelah jadwal retry lewat ⇒ klaim boleh"
+      );
+      const leaseSecs = Number(
+        psqlSuper(
+          `select extract(epoch from (cancel_claimed_until - cancel_claimed_at)) from checkout_claims where id='${leaseClaimId}'`,
+          { csv: true }
+        )
+      );
+      assertOk(
+        leaseSecs * 1000 >= LEASE_FLOOR_MS,
+        "lease ≥ jendela worker maksimum (V-3): jangan lebih pendek dari attempt-nya sendiri",
+        `lease=${leaseSecs}s, lantai=${LEASE_FLOOR_MS / 1000}s (CANCEL_MAX_ATTEMPTS x CANCEL_TIMEOUT_MS + backoff)`
+      );
+      assertEq(
+        psqlSuper(`select claim_checkout_cancel('${leaseClaimId}'::uuid)->>'status'`, { csv: true }),
+        "not_claimed",
+        "lease mengunci: worker kedua tidak boleh mengirim id yang sama (V-3)"
+      );
+      // Lepas lease supaya sapuan di §11 tidak tersandera baris ini.
+      psqlSuper(
+        `update checkout_claims set cancel_claimed_at = NULL, cancel_claimed_until = NULL where id='${leaseClaimId}'`
+      );
+    }
+
+    // ═══ 11. V-1: sapuan menemukan order basi tanpa kunjungan ulang ════════
+    section("11. V-1: sweep 30 menit menemukan order basi (tanpa checkout ulang)");
+    {
+      setMode("ok");
+      const arm = await armCheckout({ base: APP_URL, phone: P.sweep, cookie: waSessionCookie(P.sweep) });
+      const first = await createOrder(P.sweep, arm.idempotencyKey);
+      assertEq(first.status, 200, "pra-syarat: order basi tercetak");
+      const staleUuid = String(first.body?.uuid || "");
+
+      const armFresh = await armCheckout({
+        base: APP_URL,
+        phone: P.sweepFresh,
+        cookie: waSessionCookie(P.sweepFresh),
+      });
+      const fresh = await createOrder(P.sweepFresh, armFresh.idempotencyKey);
+      const freshUuid = String(fresh.body?.uuid || "");
+      assertOk(freshUuid.length > 0, "pra-syarat: ada order KONTROL yang belum lewat TTL");
+
+      ageClaims(P.sweep);
+      assertEq(claimField(P.sweep, "status"), "created", "pra-syarat: baris basi masih `created` (belum dikunjungi ulang)");
+      assertEq(claimField(P.sweepFresh, "status"), "created", "pra-syarat: baris kontrol masih `created`");
+
+      const beforeOrders = mockOrderCount();
+      const beforeCalls = cancelCalls().length;
+      const sweep = await runSweep();
+      const calls = cancelCalls().slice(beforeCalls);
+      const sent = calls.flatMap((c) => (Array.isArray(c?.ids) ? c.ids.map(String) : []));
+
+      assertOk(
+        Number(/nominated=(\d+)/.exec(sweep.out)?.[1] ?? 0) >= 1,
+        "sweep melaporkan baris basi dinominasi (V-1)",
+        sweep.out
+      );
+      assertEq(
+        claimField(P.sweep, "status"),
+        "retired",
+        "baris basi jadi `retired` TANPA checkout ulang (hapus nominasi ⇒ tetap `created` ⇒ FAIL)"
+      );
+      assertEq(
+        claimField(P.sweepFresh, "status"),
+        "created",
+        "baris yang belum lewat TTL TIDAK ikut dinominasi"
+      );
+      assertEq(sent.filter((id) => id === staleUuid).length, 1, "canonical id baris basi dikirim tepat sekali");
+      assertOk(!sent.includes(freshUuid), "canonical id order yang masih hidup TIDAK dikirim");
+      assertOk(!sent.includes(P.sweep), "log/isi cancel nol PII: nomor pelanggan tidak pernah masuk `ids`");
+      assertEq(mockOrderCount(), beforeOrders, "sweep tidak mencetak order apa pun");
+      assertOk(
+        !sweep.out.includes(P.sweep) && !sweep.out.includes(CANCEL_KEY),
+        "log sweep nol PII/kredensial"
+      );
+      assertEq(sweep.status, 0, "sweep exit 0 (bersih)");
+    }
+
+    // ═══ 12. V-2: batch campuran — baris tanpa canonical ID ≠ retired ══════
+    section("12. V-2: hasil cancel TIDAK dipukul rata per batch");
+    {
+      setMode("ok");
+      // Keadaan warisan: dua nomor, satu baris ber-canonical-ID dan satu baris
+      // pra-F-W4-1c tanpa canonical ID (hanya nomor bisnis). Keduanya sudah di
+      // antrean cancel, jadi sapuan melihatnya sebagai SATU batch.
+      psqlSuper(
+        `insert into checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, order_id, scalev_order_uuid, created_at, updated_at)
+         values ('thrivin','${P.mixed}','co-mixed-withuuid','quarter','cancel_pending','250130JQHFZA','uuid_mixed_keep', now() - interval '120 minutes', now() - interval '120 minutes');
+         insert into checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, order_id, scalev_order_uuid, created_at, updated_at)
+         values ('thrivin','${P.mixedLegacy}','co-mixed-legacy','quarter','cancel_pending','250130JQHFZB',NULL, now() - interval '120 minutes', now() - interval '120 minutes');`
+      );
+
+      const beforeCalls = cancelCalls().length;
+      const beforeOrders = mockOrderCount();
+      const sweep = await runSweep();
+      const calls = cancelCalls().slice(beforeCalls);
+      const sent = calls.flatMap((c) => (Array.isArray(c?.ids) ? c.ids.map(String) : []));
+
+      assertOk(sent.includes("uuid_mixed_keep"), "baris ber-canonical-ID tetap dicancel");
+      assertOk(
+        !sent.includes("250130JQHFZB") && !sent.some((id) => id.includes("250130JQHFZ")),
+        "... dan nomor order BISNIS tidak pernah dikirim sebagai `ids` (B-1)"
+      );
+      assertEq(
+        psqlSuper(`select status from checkout_claims where idempotency_key='co-mixed-withuuid'`, { csv: true }),
+        "retired",
+        "baris yang benar-benar dikirim ⇒ retired"
+      );
+      assertEq(
+        psqlSuper(
+          `select status || '|' || coalesce(cancel_last_error,'') from checkout_claims where idempotency_key='co-mixed-legacy'`,
+          { csv: true }
+        ),
+        "cancel_failed|missing_canonical_order_id",
+        "baris TANPA canonical ID ⇒ cancel_failed, BUKAN retired (V-2: bukan sukses palsu)"
+      );
+
+      // Konsekuensi yang ditutup V-2: kalau baris warisan dicap `retired` padahal
+      // Scalev belum pernah diminta membatalkan link-nya, nomor itu bebas
+      // mencetak order kedua di belakang link lama yang masih hidup.
+      const arm = await armCheckout({
+        base: APP_URL,
+        phone: P.mixedLegacy,
+        cookie: waSessionCookie(P.mixedLegacy),
+      });
+      const blocked = await createOrder(P.mixedLegacy, arm.idempotencyKey);
+      assertEq(blocked.status, 423, "nomor itu TETAP ditahan (423) — nol order kedua di belakang link hidup");
+      assertEq(blocked.body?.code, "ORDER_CANCEL_FAILED", "... kode ORDER_CANCEL_FAILED (antrean owner)");
+      assertEq(mockOrderCount(), beforeOrders, "... nol order baru dicetak");
     }
   } finally {
     try {
