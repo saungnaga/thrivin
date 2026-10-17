@@ -9,9 +9,11 @@
 # (higiene V-6: bukti negatif di DB yang di-drop dulu, bukan DB sisa pasca-fix).
 #
 #   V-1  sapuan tidak menominasi  -> §11 "baris basi jadi retired" harus FAIL
-#   V-2  hasil batch dipukul rata -> §12 "cancel_failed|missing_canonical_order_id" harus FAIL
+#   V-2  baris tanpa canonical ID tidak ditangani per-ID -> §12
+#        "cancel_failed|missing_canonical_order_id" harus FAIL
 #   V-3  lease 30 s -> 15 s       -> §10 "lease ≥ jendela worker" harus FAIL
 #   V-4  gerbang cancel_next_retry_at dibuang -> §10 "backoff dibaca" harus FAIL
+#   V-7  streak gagal ditelan     -> probe alert harus FAIL (nol DB, cepat)
 #
 # Semua lokal: Postgres lokal + PostgREST lokal + mock Scalev lokal. Nol staging,
 # nol produksi, nol data pelanggan, nol kredensial nyata.
@@ -53,14 +55,17 @@ open(p, "w", encoding="utf-8").write(s.replace(old, "  const nom = { nominated: 
 PY
 }
 
-mutate_v2() { # hasil batch dipukul rata: SEMUA baris yang dilease dicap retired
+mutate_v2() { # baris tanpa canonical ID tidak lagi ditangani per-ID (pra-fix)
   py "$CANCEL" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = """      for (const claim of withId) await record(claim.claimId, "retired");"""
-assert old in s, "baris retire per-ID tidak ditemukan"
-open(p, "w", encoding="utf-8").write(s.replace(old, """      for (const claim of claimed) await record(claim.claimId, "retired");""", 1))
+old = """  for (const claim of withoutId) {
+    await record(claim.claimId, "cancel_failed", "missing_canonical_order_id");
+  }
+"""
+assert old in s, "blok cancel_failed per-ID tidak ditemukan"
+open(p, "w", encoding="utf-8").write(s.replace(old, "", 1))
 PY
 }
 
@@ -84,6 +89,30 @@ old = "      AND (cancel_next_retry_at IS NULL OR cancel_next_retry_at <= now())
 assert old in s, "gerbang cancel_next_retry_at tidak ditemukan"
 open(p, "w", encoding="utf-8").write(s.replace(old, "", 1))
 PY
+}
+
+mutate_v7() { # streak yang gagal disimpan ditelan lagi (logika pra-fix: tunggu 2x)
+  py "$SWEEP" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+old = "  if (streak >= 2 || !persisted) {"
+assert old in s, "kondisi alert streak tidak ditemukan"
+open(p, "w", encoding="utf-8").write(s.replace(old, "  if (streak >= 2) {", 1))
+PY
+}
+
+run_probe() { # $1 = nama, $2 = pola FAIL yang WAJIB muncul, $3 = skrip probe
+  local name="$1" pattern="$2" probe="$3" log="$OUT/$1.log"
+  node --experimental-strip-types "$probe" >"$log" 2>&1
+  local code=$?
+  echo "   EXIT=$code  log=$log"
+  grep -E "FAIL |PASS," "$log" | sed 's/^/     /'
+  if grep -qF "$pattern" "$log" && [ "$code" != "0" ]; then
+    echo "   HASIL: $name TERBUKTI GAGAL saat perbaikannya dibalik"
+  else
+    echo "   HASIL: ⚠️ $name tidak menangkap mutasinya (assertion tidak load-bearing)"
+  fi
 }
 
 run_case() { # $1 = nama (log), $2 = pola FAIL yang WAJIB muncul
@@ -111,7 +140,7 @@ case "$WHICH" in v1|all)
   restore;;
 esac
 case "$WHICH" in v2|all)
-  echo; echo "== V-2: hasil cancel dipukul rata per batch =="
+  echo; echo "== V-2: baris tanpa canonical ID tidak ditangani per-ID =="
   mutate_v2; echo "   (rebuild: mutasi ada di src/ yang dipakai app)"
   npm run build >"$OUT/v2-build.log" 2>&1 && echo "   build ok"
   run_case "v2-batch-dipukul-rata" "cancel_failed|missing_canonical_order_id"
@@ -125,6 +154,13 @@ esac
 case "$WHICH" in v4|all)
   echo; echo "== V-4: gerbang backoff dibuang =="
   mutate_v4; run_case "v4-backoff-dibuang" "backoff dibaca"
+  restore;;
+esac
+case "$WHICH" in v7|all)
+  echo; echo "== V-7: streak gagal ditelan (alert nol) =="
+  # Pola = nama assertion YANG HARUS GAGAL (hanya nama assertion yang gagal yang
+  # dicetak probe, jadi "streak TIDAK tersimpan" tidak akan muncul di sini).
+  mutate_v7; run_probe "v7-streak-ditelan" "alarm diangkat pada run pertama" "tests/harness/fw41c-v7-alert-probe.mts"
   restore;;
 esac
 

@@ -50,6 +50,9 @@ node --experimental-strip-types "$HERE/test-wa-first-units.mts"
 node --experimental-strip-types "$HERE/test-consent-gate-units.mts"
 # F-W4-1c: klasifikasi hasil cancel + verifikasi response (nol DB/HTTP).
 node --experimental-strip-types "$HERE/test-cancel-ttl-units.mts"
+# F-W4-1c ronde V (V-7): streak sapuan yang tidak bisa disimpan wajib tetap ber-alert.
+# Stub HTTP lokal + child proses sapuan; nol DB.
+FW41C_V7_PROBE_PORT=$((HARNESS_PORT_BASE + 90)) node --experimental-strip-types "$HERE/harness/fw41c-v7-alert-probe.mts"
 # RX2-4: higiene harness — port wajib eksplisit, nol anak yatim, pemilik port
 # harus run ini (nol DB/HTTP nyata, ~2 s).
 node --experimental-strip-types "$HERE/test-harness-isolation.mts"
