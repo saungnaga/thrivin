@@ -426,6 +426,70 @@ Menunggu review Sentinel. Batasan jujur: slot port = hash(path) % 1200 (tabrakan
 `HARNESS_PORT_BASE`/`HARNESS_PG_DB` tetap dihormati); DB bersama lama sengaja **tidak** di-drop
 karena worktree yang belum di-patch masih memakai default itu.
 
+## 6f. Ronde 4 — RX2-5: merah asersi race "dua kunci berbeda paralel" pernah melihat 2 order (2026-10-17)
+
+Temuan **R5** delta-review Sentinel `t_9f78ca4d` (delta-review RX2-2/3 @ `8033ef6`). Kartu `t_370981ec`.
+**Nol** perubahan `src/`, **nol** perubahan `staging/*.sql`, nol apply Supabase/staging/produksi,
+nol data pelanggan (nomor dummy), nol Scalev nyata, nol push/merge. Bukti lengkap:
+`docs/w4-rx25-verification.txt` + `/home/ubuntu/w4rx25-evidence/`.
+
+### Verdict
+
+- **Di HEAD (`6ecdbec`) asersi itu tidak bisa direproduksi**: 20/20 putaran suite gate hijau
+  (`166 PASS, 0 FAIL` tiap putaran) + **1.000 putaran** probe race terarah (4 permintaan paralel
+  per putaran ⇒ 4.000 permintaan) bersih, dan invarian DB (tepat satu klaim hidup per nomor)
+  utuh di setiap putaran.
+- **Merah itu BUKAN flake dan bukan artefak uji**: itu kebocoran **nyata** pada skema saat itu
+  (index per-nomor masih `WHERE status='in_flight'`), yang ditutup kemudian oleh `7d8389d`
+  (W4RX4 T1). Buktinya masih tersimpan di DB run 01:18: **dua** baris `checkout_claims` untuk
+  `6281200000807`, dua-duanya `status='created'` + `paid_at NULL` (`test_4_*` dan `test_5_*`,
+  35 ms apart) — keadaan yang mustahil di HEAD.
+- **Mekanismenya direproduksi dua arah, deterministik**: index pra-fix ⇒ 6/6 putaran **bocor**
+  (1 order baru, 2 klaim hidup); index HEAD ⇒ 6/6 putaran **ditahan** (`409 ORDER_IN_FLIGHT`,
+  0 order baru, 1 klaim hidup).
+- Tidak perlu "fix asersi": asersi itulah yang menangkap kebocoran asli. Yang diusulkan sebagai
+  higienitas test: tulisan file mock atomik (lihat §7 di dokumen bukti).
+
+### Perubahan
+
+| File | Isi |
+|---|---|
+| `tests/test-rx25-race-probe.mts` (baru) | Probe **frekuensi**: N putaran race 4-permintaan paralel (1 kunci ter-arm + 3 kunci baru) lewat jalur app, plus pemeriksaan invarian DB per putaran (`count(*) … paid_at is null and status in ('in_flight','created','cancel_pending','cancel_failed')` = 1) dan dump anomali (claims + `pg_locks` + `pg_stat_activity` + log server). `RX25_STAGGER_MS` menambahkan jitter keberangkatan. |
+| `tests/test-rx25-window-probe.mts` (baru) | Probe **jendela deterministik** langkah 6→7: `complete_checkout_claim(A)` ditahan terbuka di sesi lain, dua pra-syarat diverifikasi dari DB (sesi penahan aktif; baris A terbaca `in_flight` oleh sesi lain), lalu request B dijatuhkan lewat HTTP. |
+| `tests/harness/rx25-index-mutation.sh` (baru) | `narrow` / `restore` / `show` predikat `uq_checkout_claims_live_phone` untuk bukti negatif (hanya DB throwaway; menolak nama yang mengandung staging/prod). |
+| `docs/w4-rx25-verification.txt` (baru) | Dokumen bukti: run asli, frekuensi di HEAD, mekanisme, penilaian hipotesis "artefak file mock", usulan lanjutan. |
+
+Sengaja TIDAK diubah: asersi `tests/test-consent-gate-e2e.mts:464-509`, `src/**`, `staging/*.sql`,
+`tests/run-all.sh` (instrumen baru belum diikutkan gate — pemilik yang memutuskan beban tambahannya).
+
+### Bukti
+
+| Kondisi | Hasil (terukur) | Artefak |
+|---|---|---|
+| 20 putaran suite penuh di HEAD, DB/port/prefix unik per putaran | 20/20 exit 0; tiap putaran `166 PASS, 0 FAIL` | `w4rx25-evidence/rounds-head.txt` + `rounds/head-round-N.log` |
+| Probe race di HEAD, total **3.000 putaran** (12.000 permintaan; termasuk 800 putaran ber-jitter dan 1.200 putaran arm A/B di bawah beban) | **0** anomali, nol order kedua | `probe-head1000.json`, `probe-head-stagger40.json`, `probe-ab-head-index.json` |
+| Probe race yang sama pada **index pra-fix** (bukti negatif jalur app) | 1.000 bersih (host tenang) · 1.200 bersih (arm A/B) · **83 kebocoran / 3.000 putaran** (2,8 %; semua di putaran 1856–3000) | `probe-mut3000.json` + `anomalies/iter-1856.txt` dst. |
+| Jendela, index HEAD | 6/6 B tertahan 2,46–2,52 s ⇒ `409 ORDER_IN_FLIGHT`; 0 order baru; 1 klaim hidup | `window-head-index.json` |
+| Jendela, index pra-fix (`rx25-index-mutation.sh narrow`) | 6/6 B ⇒ `200`, 1 order baru, **2 klaim hidup** | `window-mut-index.json` + `anomalies/mut-index-window-round-*.txt` |
+| Bukti invarian ditegakkan DB | apply index HEAD ke DB yang masih memuat jejak kebocoran: `ERROR: could not create unique index … Key (tenant_id, phone)=(thrivin, 628128810001) is duplicated` | §5 dokumen bukti |
+| Run asli 01:18 | `/tmp/w4-runall-final.log` (126 PASS, 2 FAIL) + 2 baris klaim `created` unpaid di DB `thrivin_shared_sim` | §1 dokumen bukti |
+
+### Catatan kejujuran
+
+- Hipotesis awal "artefak baca file order mock" **tidak terbukti** dan tidak memadai:
+  pembacaan non-atomik hanya bisa **mengurangi** hitungan (JSON separuh ⇒ parse gagal ⇒ 0),
+  sedangkan gejala aslinya **+2**, dan overcount itu dikuatkan dua sumber independen
+  (baris klaim kedua di DB + dua `order_id` berbeda di respons HTTP).
+- **Angkanya, apa adanya**: pada **index pra-fix** kebocoran itu bisa lahir juga lewat jalur app
+  tanpa penahan buatan — **83 dari 3.000 putaran** (2,8 %) probe 4-permintaan-paralel, dan
+  semuanya menumpuk di putaran 1856–3000 (host sedang ramai oleh uji lain). Di jendela yang
+  lebih tenang: 0/1.000 dan 0/1.200. Jadi lajunya bergantung jitter penjadwalan; yang **tidak**
+  bergantung jitter adalah jawabannya di HEAD — **0 kejadian dari 3.000 putaran race
+  (12.000 permintaan) + 20 putaran suite**, karena sejak `7d8389d` jendela itu ditutup DB
+  (index), bukan ditutup oleh urutan baca.
+
+
+
 ## 7. Temuan untuk Sentinel / keputusan pemilik
 
 - **F-W4-1 — ✅ SELESAI (opsi a, ronde 3).** Owner memutuskan 16/10: kunci baru dari nomor yang
@@ -484,6 +548,10 @@ karena worktree yang belum di-patch masih memakai default itu.
   versi = `terms-2026-10-15-v1`, dan tidak ada placeholder yang bocor ke `/privacy`.
 - `tests/harness/seed.sh` (migrasi 006) + `tests/run-all.sh` (step SQL & e2e consent +
   legal shape masuk gate).
+- (ronde 4, §6f / RX2-5) `tests/test-rx25-race-probe.mts` + `tests/test-rx25-window-probe.mts`
+  + `tests/harness/rx25-index-mutation.sh` (baru) dan `docs/w4-rx25-verification.txt` — instrumen
+  bukti kelas race jalur uang. Nol perubahan `src/`, nol perubahan `staging/*.sql`, `run-all.sh`
+  tidak disentuh.
 - (ronde 4, §6e) `tests/harness/isolate.mts` + `drop-stale.sql` (baru), `tests/harness/stack.mts`,
   `tests/run-all.sh`, 5 suite e2e + `test-promo-sql.mts` + `tests/mock-scalev.mjs`,
   `tests/test-probe-cross-phone.mts` — infrastruktur verifikasi (DB/port/prefix `/tmp` per-worktree

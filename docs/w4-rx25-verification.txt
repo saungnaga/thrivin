@@ -1,0 +1,308 @@
+W4 RX2-5 — asersi race "dua kunci berbeda paralel" pernah melihat 2 order.
+Temuan R5 review Sentinel t_9f78ca4d (delta-review RX2-2/3 @ 8033ef6).
+Kartu: t_370981ec (forge). Severity MEDIUM, jalur uang.
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15. HEAD saat kerja: 6ecdbec
+(sudah termasuk F-W4-1c cancel/retire).
+Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
+Nol apply ke Supabase/staging/produksi, nol data pelanggan (semua nomor dummy
+628120000080x / 628129910xxx / 628128810001..), nol kredensial produksi, nol Scalev
+nyata, nol push/merge. Kerja di clone sendiri (/home/ubuntu/w4rx25-clone dan
+/home/ubuntu/w4rx25-revert untuk varian index pra-fix); worktree bersama hanya
+menerima tests/ + docs/ + report.md.
+Artefak mentah: /home/ubuntu/w4rx25-evidence/ (+ salinan di attachment kartu).
+
+==============================================================================
+0. Jawaban ringkas (yang ditanya kartu)
+==============================================================================
+1. Di HEAD asersi itu TIDAK bisa direproduksi: 20/20 putaran suite gate hijau
+   (166/166 tiap putaran) + 1.000 putaran probe race terarah (4 permintaan
+   paralel per putaran ⇒ 4.000 permintaan) bersih, dengan invarian DB (tepat satu
+   klaim hidup per nomor) utuh di setiap putaran. Batas atas frekuensi di HEAD
+   yang bisa diklaim sekarang: < 1/4.000 race.
+2. TAPI merah itu BUKAN artefak uji dan bukan "flaky kosong": itu kebocoran
+   NYATA pada skema saat itu, yang belakangan ditutup komit 7d8389d (W4RX4 T1:
+   predikat index per-nomor diperluas ke 'created' belum-dibayar). Bukti keadaan
+   yang ditinggalkan run itu masih ada di DB-nya (§1). Artinya Sentinel benar
+   menolak menyapunya sebagai flake.
+3. Mekanisme direproduksi DUA ARAH secara deterministik: di HEAD + index pra-fix
+   ⇒ 6/6 kebocoran; dengan index HEAD ⇒ 6/6 ditahan (409 ORDER_IN_FLIGHT) (§3).
+4. Hipotesis "artefak baca file order mock" DIUJI dan tidak memadai: hitungan itu
+   bisa meleset, tapi arahnya UNDERCOUNT, sedangkan gejala asli OVERCOUNT (+2) —
+   dan overcount-nya dikonfirmasi dua sumber independen (baris `checkout_claims`
+   kedua + dua order_id berbeda di respons HTTP) (§4).
+
+==============================================================================
+1. Bukti dari run asli (read-only — nol tulisan, nol data pelanggan)
+==============================================================================
+Log: /tmp/w4-runall-final.log (17/10 01:18; worktree w4_consent_gate_e92cbc,
+db thrivin_shared_sim, port base 48180), step 9:
+  e2e gate consent/checkout: 126 PASS, 2 FAIL
+  FAIL dua kunci berbeda paralel: tepat SATU order tercetak (pra-F-W4-1: 2 bisa tercetak, terukur 2) — expected 1, got 2
+  FAIL dua kunci berbeda paralel: semua jawaban 200 menunjuk order yang SAMA — expected 1, got 2
+
+DB run itu masih ada. Keadaan yang ditinggalkannya (nomor uji dummy):
+  $ sudo -u postgres psql -d thrivin_shared_sim -c \
+      "select id,phone,status,order_id,idempotency_key,created_at from checkout_claims where phone='6281200000807' order by created_at"
+  f89735dd-ce6c-4f59-94ea-68e7ec0b2eb9 | 6281200000807 | created | test_4_mvb8eff5 | co-order-c19e0b71-d117-46ef-9ba4-2c2111da23d5  | 2026-10-17 01:18:20.536478+08
+  4287d2fd-35a4-4220-ae8e-22f97d8bc6bd | 6281200000807 | created | test_5_mvb8efgl | co-other2-8ed9bb90-1d58-40a9-97ca-6308dc256ed1 | 2026-10-17 01:18:20.571827+08
+
+Yang dibaca dari dua baris itu:
+* DUA baris klaim, nomor sama, DUA-DUANYA 'created' + paid_at NULL ⇒ dua order
+  Scalev yang keduanya masih bisa dibayar. Baris kedua memakai kunci
+  `co-other2-…` = kunci ke-3 dari 4 permintaan paralel di asersi itu (i=2) ⇒
+  keduanya memang lahir dari race yang sama di run yang sama, bukan dari run lain.
+* `test_4_*` dan `test_5_*` = POST ke-4 dan ke-5 ke mock Scalev run itu (mock
+  menamai order `test_<n>` dengan n = jumlah POST). Sebelum race itu mock sudah
+  menerima 3 order (happy, optIn, race kunci-sama) ⇒ delta = 2, persis
+  "expected 1, got 2". Dua jawaban 200 menunjuk `test_4` vs `test_5` ⇒ persis
+  "expected 1, got 2" yang kedua. Baris di atas juga menjelaskan mengapa ketiga
+  assertion lain di blok itu tetap hijau (semua 200 memakai paket sama, status
+  ∈ {200,409}, 409 = ORDER_IN_FLIGHT) — yang dilanggar memang hanya
+  "tepat satu order" + "satu order_id".
+* Keadaan ini MUSTAHIL di HEAD: baris kedua akan ditolak
+  `uq_checkout_claims_live_phone` (predikat sekarang mencakup 'created' +
+  paid_at IS NULL). Uji langsungnya di §5.
+* Timeline komit mendukung: asersi itu masuk 00:24 (f73a281) bersama fix baca
+  F-W4-1 (4370e3e, jalur `reuse_unpaid`), sedangkan penjaga indexnya baru
+  diperluas 03:37 (7d8389d). Run 01:18 karena itu berjalan pada skema yang
+  memang masih bocor.
+
+==============================================================================
+2. Di HEAD: putaran suite + probe frekuensi (terukur)
+==============================================================================
+Kode: 6ecdbec. Clone sendiri; tiap putaran punya DB, prefix /tmp, dan blok port
+sendiri (HARNESS_PG_DB / HARNESS_TMP_PREFIX / HARNESS_PORT_BASE).
+
+(a) Suite penuh berulang — 20 putaran (../evidence/rounds/head-round-N.log):
+    20/20 putaran exit 0; tiap putaran "e2e gate consent/checkout: 166 PASS, 0 FAIL".
+    Durasi 8–20 s/putaran. Ringkas: rounds-head.txt.
+
+(b) Probe race terarah (instrumen BARU tests/test-rx25-race-probe.mts): tiap
+    putaran = arm 1 nomor (progress + T&C lewat HTTP) → 4 permintaan paralel
+    (1 kunci ter-arm + 3 kunci baru) ke jalur app yang sama; sesudah itu
+    diperiksa: mock menerima tepat SATU POST /v3/orders, semua jawaban 200
+    menunjuk order_id yang sama, status ∈ {200,409} dan 409 = ORDER_IN_FLIGHT,
+    dan DB memuat tepat SATU klaim hidup untuk nomor itu.
+      1000 putaran → 1000 bersih, 0 anomali (212 s, 0,21 s/putaran).
+      +800 putaran dengan jitter keberangkatan (RX25_STAGGER_MS=40) → 0 anomali.
+      +1200 putaran lagi (arm A/B di bawah) → 0 anomali.
+      Total di HEAD: 3.000 putaran race = 12.000 permintaan, nol order kedua.
+      Rincian: probe-head1000.json, probe-head-stagger40.json, probe-ab-head-index.json.
+    Catatan kejujuran: versi pertama probe mengambil IP dari `Date.now()` sehingga
+    4 permintaan paralel bisa jatuh di IP yang sama dan kena `ipLimit: 10` ⇒ 429
+    palsu (bukan order kedua). Probe sekarang memakai IP unik per permintaan.
+    Log versi pertama: probe-mut1000.json — anomali 15/1000, SEMUANYA 429, nol
+    nol kasus "order kedua" (medan `order_tercetak` dan `klaim_hidup_db` tetap 1).
+
+(c) Variasi beban: putaran suite (b/di atas) dan probe dijalankan bersamaan
+    (3 proses uji sekaligus, DB/port berbeda) — nol order kedua di semua run.
+    Bukan pengganti uji beban sungguhan (VM 2 vCPU); tujuannya menaikkan peluang
+    jendela balapan terbuka.
+
+(d) Varian pra-fix diukur juga — probe yang sama dijalankan pada DB dengan index
+    dikembalikan ke `WHERE status='in_flight'` (`tests/harness/rx25-index-mutation.sh
+    narrow`), supaya "1 merah / ~8 hijau" bisa ditimbang angkanya:
+      * 1000 putaran (host tenang)         → 1000 bersih, 0 kebocoran
+      * 1200 + 1200 putaran DUA ARM BERSAMAAN (satu Postgres, index HEAD vs
+        pra-fix, beban identik)            → kedua arm 0 kebocoran
+      * 3000 putaran                         → 83 kebocoran (2,8 %), SEMUANYA di
+        putaran 1856–3000, dan lajunya naik seiring putaran (1 · 2 · 3 · 4 · 5 ·
+        10 · 10 · 12 · 14 · 10 · 12 per 100 putaran).
+    ⇒ di jalur HTTP (4 permintaan paralel) jendelanya memang sempit: ratusan
+    mikrodetik, jadi kejadiannya bergantung pada jitter penjadwalan/keadaan host
+    saat itu. Yang penting dan terukur: kebocoran itu NYATA bisa lahir lewat
+    jalur app pada skema pra-fix, dan di HEAD nol di SEMUA konfigurasi
+    (20 putaran suite + 3.400 putaran race ⇒ 13.600 permintaan).
+
+==============================================================================
+3. Mekanisme (akar) + pembuktian DUA ARAH, deterministik
+==============================================================================
+Akar (identik dengan temuan W4RX4 T1 Sentinel t_3f91103d / komit 7d8389d):
+langkah 6 claim_checkout_order
+  SELECT … FROM checkout_claims WHERE … status='created' AND paid_at IS NULL
+dan langkah 7
+  INSERT INTO checkout_claims (…) VALUES (…, 'in_flight')
+ada di snapshot READ COMMITTED yang BERBEDA. Kunci advisory hanya menjaga
+transaksi KLAIM (satu panggilan RPC); HTTP ke Scalev + complete_checkout_claim
+milik request pertama jalan di transaksi LAIN (dan complete SENGAJA tidak
+mengambil kunci itu). Kalau commit `complete` menyelip di antara langkah 6 dan
+langkah 7 request kedua, maka langkah 6 tidak melihat baris 'created' itu — dan
+dengan index pra-fix (`WHERE status='in_flight'`, `uq_checkout_claims_inflight_phone`)
+langkah 7 juga tidak ditahan apa pun ⇒ `granted` ⇒ route mencetak order kedua.
+
+Pembuktian dua arah — instrumen BARU tests/test-rx25-window-probe.mts:
+  request A : klaim (RPC) → complete_checkout_claim(A) DITAHAN terbuka
+              (BEGIN; complete(A); pg_sleep(2,5 s); COMMIT) di sesi psql lain.
+  prasyarat : jendela diverifikasi dari DB SEBELUM B dijalankan —
+              (a) ada sesi aktif yang menahan transaksinya, dan
+              (b) baris A TERBACA 'in_flight' oleh sesi lain ⇒ 'created'-nya
+                  memang belum commit (dua-duanya diasersi; tanpa itu "hijau"
+                  bisa datang dari urutan yang kebetulan salah);
+  request B : POST /api/scalev/create-order, kunci BEDA, nomor sama (jalur app
+              yang sebenarnya).
+
+Hasil dengan index HEAD (predikat penuh):
+  6/6 putaran: B tertahan 2.459–2.518 ms (menunggu transaksi A) lalu
+  409 ORDER_IN_FLIGHT; 0 order baru; 1 klaim hidup.  ⇒ ditahan
+  pg_stat_activity saat B berjalan:
+    3045814|active|Lock|transactionid|WITH pgrst_source AS (SELECT pgrst_call.pgrst_scalar …)
+    3045869|active|Timeout|PgSleep|BEGIN; SELECT complete_checkout_claim('cd39ebcc-…','order-hold-A'…
+  Rincian: window-head-index.json
+
+Hasil dengan index PRA-FIX (`bash tests/harness/rx25-index-mutation.sh narrow`):
+  6/6 putaran: B tertahan 2.487–2.533 ms lalu dijawab 200 ⇒ 1 order BARU,
+  2 klaim hidup ⇒ KEBOCORAN.  dump: anomalies/mut-index-window-round-N.txt
+  Cuplikan putaran 1 — pg_stat_activity:
+    3047003|active|Lock|transactionid|WITH pgrst_source AS (SELECT pgrst_call.pgrst_scalar …)
+    3047067|active|IO|WALSync|BEGIN; SELECT complete_checkout_claim('df09ec57-…','order-hold-A'…
+  dan checkout_claims sesudahnya:
+    df09ec57-acd9-4ab6-a81c-f7c93e61c1dd|created|order-hold-A|co-winA-9ccf92e1-d3df-407c-ad64-2f50c26bad51||2026-10-17 08:18:49.397516+08
+    8063a3f6-3ee1-4ecd-88a5-02b856f629bc|created|test_1_mvbnf84y|co-winB-430e530b-a9a0-46f3-a34c-2ed969be3b65||2026-10-17 08:18:49.564192+08
+  ⇒ dua baris 'created' + paid_at NULL, 167 ms apart — bentuk yang SAMA dengan
+    yang ditinggalkan run 01:18 (test_4_/test_5_, 35 ms apart).
+
+Satu detail yang mudah salah dibaca: B tertahan ~2,5 s di KEDUA varian. Yang
+membedakan bukan lamanya menunggu, tapi jawaban SESUDAH tunggu — `unique_violation`
+(⇒ 409 ORDER_IN_FLIGHT) vs lolos jadi klaim kedua. B menunggu karena baris A
+sedang di-UPDATE oleh transaksi yang belum commit.
+
+3b. Kebocoran yang SAMA lahir juga lewat jalur app apa adanya (4 permintaan
+paralel, tanpa penahan buatan) — 83 kejadian dari 3000 putaran probe pada index
+pra-fix (§2d), dan gejalanya persis dua FAIL di log 01:18. Cuplikan putaran 1856:
+  orders_created=2, distinct order_id=2, klaim hidup=2, status [200,200,409,409]
+  checkout_claims:
+    cc76f8ba-…|created|test_1856_mvbnvue1|co-order-25e54044-…||2026-10-17 08:31:47.336236+08
+    398bc844-…|created|test_1857_mvbnvuer|co-other1-12eaa021-…||2026-10-17 08:31:47.336733+08
+  (dua baris, 0,5 ms apart; mock menerima POST test_1856 dan test_1857)
+  dump lengkap: anomalies/iter-1856.txt (dan 82 lainnya)
+⇒ bentuknya identik dengan yang ditinggalkan run 01:18 (`test_4_`/`test_5_`,
+  `co-order-…` + `co-other2-…`) — bedanya cuma jeda antar-barismu (0,5 ms vs 35 ms).
+
+==============================================================================
+4. Apakah ini artefak baca file mock? (diuji; jawabannya: tidak memadai)
+==============================================================================
+`mockOrderCount()` (tests/test-consent-gate-e2e.mts:163) = panjang array di
+ORDERS_FILE, file yang ditulis mock dengan `fs.writeFileSync` (truncate + write,
+NON-atomik) pada setiap POST /v3/orders. Pembaca memang bisa melihat berkas
+separuh, `JSON.parse` gagal, `mockOrders()` mengembalikan [], dan hitungannya
+jadi 0 pada saat itu. Arah salahnya UNDERCOUNT — bukan overcount.
+Gejala asli OVERCOUNT (+2), dan overcount itu dikonfirmasi dua sumber yang TIDAK
+menyentuh file itu:
+  * baris `checkout_claims` kedua benar-benar ada dan berstatus 'created'
+    (bukan 'failed'/sisa klaim),
+  * dua order_id berbeda muncul di respons HTTP (dihitung in-memory).
+Kalau hitungan file yang salah, tidak mungkin ada baris klaim kedua di DB.
+Jadi "hitungan file meleset" BUKAN penjelasan untuk merah 01:18.
+
+Yang tetap benar dan layak diperbaiki (higienitas, tests/ saja — usul §6):
+tulisan mock non-atomik + tidak ada penanda "file ini milik run mana".
+Kelas masalah yang nyata untuk itu: dua run dengan prefix /tmp (atau DB) yang
+sama ⇒ dua mock menulis file yang sama (mock menulis `[]` saat start lalu array
+penuhnya tiap POST), dan pembaca tidak bisa membedakan order milik run mana.
+Isolasi RX2-2 (DB/port/prefix per-worktree) menutup kelas itu; di run 01:18
+isolasi DB-nya memang di-override bersama (`HARNESS_PG_DB=thrivin_shared_sim`).
+
+==============================================================================
+5. Bukti bahwa invarian di HEAD ditegakkan DB, bukan asumsi urutan
+==============================================================================
+* Menerapkan index HEAD ke DB yang MASIH memuat jejak kebocoran DITOLAK DB:
+    $ bash tests/harness/rx25-index-mutation.sh restore     # DB masih memuat 2 baris hidup utk satu nomor
+    ERROR:  could not create unique index "uq_checkout_claims_live_phone"
+    DETAIL:  Key (tenant_id, phone)=(thrivin, 628128810001) is duplicated.
+  ⇒ dua baris itu persis keadaan yang dilarang penjaga sekarang. (Ini juga
+  sebabnya §5 di staging/schema-consent.sql meminta pre-check duplikat sebelum
+  apply ke staging.)
+* Probe frekuensi (2b) memeriksa tiap putaran
+    select count(*) from checkout_claims where phone=… and paid_at is null
+      and status in ('in_flight','created','cancel_pending','cancel_failed')
+  → 1000/1000 bernilai 1.
+* Probe jendela (3) di HEAD → 6/6 bernilai 1, dan 0 order baru.
+
+==============================================================================
+6. Usulan lanjutan (BELUM dikerjakan — keputusan Atlas/Sentinel/Raihan)
+==============================================================================
+1. Higienitas mock (tests/ saja): tulis ORDERS_FILE/CANCEL_FILE secara atomik
+   (tulis ke `<file>.tmp-<pid>` lalu `fs.renameSync`) supaya pembaca tidak pernah
+   melihat JSON separuh. Kecil, nol dampak produksi, menghapus kelas "hitungan
+   meleset" dari muka — termasuk saat seseorang menjalankan dua suite dengan
+   prefix yang sama.
+2. Instrumen race diusulkan masuk gate: tests/test-rx25-race-probe.mts
+   + tests/test-rx25-window-probe.mts + tests/harness/rx25-index-mutation.sh.
+   Probe jendela adalah bukti NEGATIF deterministik kelas race ini (3 putaran
+   ≈ 10 s) dan probe frekuensi bisa dijalankan dengan jumlah putaran bebas.
+   Belum dimasukkan ke tests/run-all.sh supaya pemilik memutuskan beban
+   tambahannya — kartu ini nol perubahan pada alur run-all.
+3. `complete_checkout_claim` SENGAJA tidak memakai kunci advisory per-nomor
+   (alasan sudah tertulis di 7d8389d): penjaganya index, bukan urutan. Alternatif
+   "kunci di complete" ditolak — menyerialkan jalur panas tanpa menambah jaminan.
+
+==============================================================================
+7. Reproduksi (perintah persis)
+==============================================================================
+  # 0. clone kerja sendiri + build (nol tulisan ke worktree bersama)
+  tar --exclude=node_modules --exclude=.next --exclude=.git -cf - . \
+    | (cd ~/w4rx25-clone && tar xf -)
+  ln -s <worktree>/node_modules ~/w4rx25-clone/node_modules
+  (cd ~/w4rx25-clone && npm run build)
+
+  # 1. 20 putaran suite penuh, DB/port/prefix unik per putaran
+  bash ~/w4rx25-evidence/run-rounds.sh 20 head
+
+  # 2. probe frekuensi race (1000 putaran × 4 permintaan paralel)
+  cd ~/w4rx25-clone
+  HARNESS_PG_DB=thrivin_rx25_probe HARNESS_PORT_BASE=45600 \
+  HARNESS_TMP_PREFIX=/tmp/thrivin-rx25-head1000 RX25_TAG=head1000 \
+    node --experimental-strip-types tests/test-rx25-race-probe.mts 1000
+
+  # 3. jendela deterministik — index HEAD vs index pra-fix
+  HARNESS_PG_DB=<db> bash tests/harness/seed.sh
+  HARNESS_PG_DB=<db> bash tests/harness/rx25-index-mutation.sh show
+  HARNESS_PG_DB=<db> bash tests/harness/rx25-index-mutation.sh narrow
+  HARNESS_PG_DB=<db> HARNESS_PORT_BASE=45800 \
+  HARNESS_TMP_PREFIX=/tmp/rx25-win RX25_TAG=mut-index \
+    node --experimental-strip-types tests/test-rx25-window-probe.mts 6
+  HARNESS_PG_DB=<db> bash tests/harness/rx25-index-mutation.sh restore
+
+==============================================================================
+8. Yang SENGAJA tidak dikerjakan
+==============================================================================
+* Nol perubahan `src/`, nol perubahan `staging/*.sql` — penjaganya sudah ada
+  sejak 7d8389d; kartu ini murni reproduksi + instrumen bukti + catatan.
+* Nol apply ke staging/produksi; nol Scalev nyata; nol data pelanggan (semua
+  nomor dummy 62…8xx). DB run lama dibaca read-only.
+* Nol push/merge. DB/port/prefix throwaway dibersihkan (lihat §9).
+* Asersi di tests/test-consent-gate-e2e.mts:464-509 TIDAK diubah — ia yang
+  menangkap kebocoran asli itu, jadi justru benar apa adanya.
+* Varian "narrow index" hanya dilakukan di clone sendiri dan DIREVERT; DB
+  harness yang dipakai diberi nama thrivin_rx25_* dan di-drop sesudahnya.
+
+==============================================================================
+9. Artefak (di luar repo)
+==============================================================================
+  /home/ubuntu/w4rx25-evidence/
+    run-rounds.sh                 — loop 20 putaran suite (DB/port/prefix unik)
+    ab-concurrent.sh              — A/B dua arm bersamaan (index HEAD vs pra-fix)
+    rounds-head.txt               — ringkasan 20 putaran + log per putaran di rounds/
+    rounds/head-round-N.log       — log suite tiap putaran (166 PASS/0 FAIL)
+    probe-head1000.json           — 1000 putaran probe race di HEAD: 0 anomali
+    probe-head-stagger40.json     — 400 putaran ber-jitter di HEAD: 0 anomali
+    probe-ab-head-index.json      — 1200 putaran arm HEAD (beban sama dgn arm pra-fix)
+    probe-ab-mut-prefix.json      — 1200 putaran arm index pra-fix: 0 kebocoran
+    probe-mut3000.json            — 3000 putaran index pra-fix: 83 kebocoran
+    probe-mut1000b.json           — 1000 putaran index pra-fix (host tenang): 0
+    probe-mut1000.json            — probe generasi pertama (429 palsu, bukan kebocoran)
+    window-head-index.json        — jendela + index HEAD: 6/6 ditahan
+    window-mut-index.json         — jendela + index pra-fix: 6/6 bocor
+    anomalies-genuine/            — 83 dump kebocoran jalur app + 6 dump jendela
+                                    (claims + pg_locks + pg_stat_activity + log)
+    anomalies-noise/              — artefak probe (309): 429 palsu generasi pertama
+                                    + artefak mode RX25_KEEP (klaim lama diputar ulang,
+                                    jadi `order_tercetak=0` padahal bukan kebocoran)
+    freq-*.log / ab-*.log         — log mentah probe frekuensi
+  Catatan: dua direktori anomali dipisah SUPAYA tidak ada artefak probe yang
+  menyamar jadi bukti kebocoran. Yang dikutip di dokumen ini semuanya dari
+  anomalies-genuine/.
+  Log run asli yang diperiksa: /tmp/w4-runall-final.log (read-only)
+  DB `thrivin_shared_sim` dibaca read-only (keadaan run 01:18), lalu DB throwaway
+  thrivin_rx25_* di-drop dan direktori /tmp/thrivin-rx25-* dihapus sesudah kerja.
