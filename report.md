@@ -520,7 +520,7 @@ menyebut pid DAN jalur artefak orders-nya, dan `assertMockOwner` harus LULUS unt
 - Pasca-fix: mock tanpa argumen exit 2 + 4111 ECONNREFUSED; R2 throw + 0 yatim + pemanggil keluar
   sendiri (exit 1); R3 throw dengan identitas pemilik; jalur normal tetap naik, adopsi intra-run
   tetap jalan, `stop()` bersih (0 port/proses sisa); guard 14 PASS.
-- Gate: `bash tests/run-all.sh` → **ALL SUITES PASSED** exit 0 (`/tmp/rx24-runall.log`), step 9
+- Gate: `bash tests/run-all.sh` → **ALL SUITES PASSED** exit 0 (`/tmp/rx24-runall-final.log`), step 9
   **166 PASS, 0 FAIL**, nol port tersisa; `run-all.sh` kedua dari worktree yang sama ditolak lock
   di muka (`/tmp/rx24-lock.log`).
 

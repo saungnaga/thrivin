@@ -132,7 +132,7 @@ perbaikan R2 berubah jadi kebocoran baru: stack "normal" pun tidak mati saat sto
     nol port/proses tersisa sesudahnya.
 
 (d) Gate penuh `bash tests/run-all.sh` di HEAD ronde ini -> ALL SUITES PASSED, exit 0
-    (log /tmp/rx24-runall.log): unit 27/27 + 16/16 + 44/44 + 27/27, guard harness isolation
+    (log /tmp/rx24-runall-final.log, ada juga salinan di ~/rx24-evidence/): unit 27/27 + 16/16 + 44/44 + 27/27, guard harness isolation
     14 PASS, SQL gate 155 PASS, promo e2e ALL PASS, WA-first 136/136, gate consent/checkout
     166 PASS 0 FAIL, cancel TTL 86 PASS 0 FAIL; sesudahnya `ss -ltn | grep -c ':4xxxx'` = 0.
     Lock R4: menjalankan `run-all.sh` kedua dari worktree yang sama sekarang berhenti
