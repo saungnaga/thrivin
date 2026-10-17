@@ -42,7 +42,7 @@ const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || tmpPath("rx25-orders.
 const CANCEL_FILE = process.env.MOCK_SCALEV_CANCEL_FILE || tmpPath("rx25-cancel.json");
 const CANCEL_MODE_FILE = process.env.MOCK_SCALEV_CANCEL_MODE_FILE || tmpPath("rx25-cancel-mode.txt");
 const LOG = tmpPath("rx25-server.log");
-const OUT_DIR = process.env.RX25_OUT || "/home/ubuntu/w4rx25-evidence";
+const OUT_DIR = process.env.RX25_OUT || tmpPath("rx25-out");
 
 let pass = 0;
 const anomalies: any[] = [];

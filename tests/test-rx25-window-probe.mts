@@ -45,7 +45,7 @@ const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || tmpPath("rx25w-orders
 const CANCEL_FILE = process.env.MOCK_SCALEV_CANCEL_FILE || tmpPath("rx25w-cancel.json");
 const CANCEL_MODE_FILE = process.env.MOCK_SCALEV_CANCEL_MODE_FILE || tmpPath("rx25w-cancel-mode.txt");
 const LOG = tmpPath("rx25w-server.log");
-const OUT_DIR = process.env.RX25_OUT || "/home/ubuntu/w4rx25-evidence";
+const OUT_DIR = process.env.RX25_OUT || tmpPath("rx25-out");
 const TAG = process.env.RX25_TAG || "window";
 const HOLD_MS = Number(process.env.RX25_HOLD_MS || 2500);
 
@@ -303,11 +303,20 @@ async function main() {
     try { mock.kill("SIGKILL"); } catch {}
   }
 
+  // FG-1: putaran yang tidak pernah membuka jendela TIDAK mengukur apa pun —
+  // melaporkannya sebagai "0 kebocoran" adalah hijau palsu di gate. Yang sah =
+  // observasi yang benar-benar menjalankan B di dalam jendela (verdict bukan
+  // "PRA-SYARAT GAGAL"); putaran yang dilewati pra-syarat A juga terhitung
+  // tidak sah karena jumlahnya dihitung terhadap ROUNDS yang direncanakan.
+  const validRounds = observations.filter((o) => o.verdict !== "PRA-SYARAT GAGAL").length;
+  const invalidRounds = ROUNDS - validRounds;
   const leaks = observations.filter((o) => o.verdict.startsWith("KEBOCORAN")).length;
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const summary = {
     tag: TAG,
     rounds: observations.length,
+    valid_rounds: validRounds,
+    invalid_rounds: invalidRounds,
     leaks,
     index_definition: indexDefinition(),
     db: PG_DB,
@@ -315,8 +324,18 @@ async function main() {
     observations,
   };
   fs.writeFileSync(`${OUT_DIR}/window-${TAG}.json`, JSON.stringify(summary, null, 2));
-  console.log(`\nRX2-5 window probe (${TAG}): ${leaks} kebocoran dari ${observations.length} putaran`);
+  console.log(
+    `\nRX2-5 window probe (${TAG}): ${leaks} kebocoran dari ${validRounds} putaran sah ` +
+      `(${invalidRounds} tidak sah dari ${ROUNDS} putaran direncanakan)`
+  );
   console.log(`ringkasan: ${OUT_DIR}/window-${TAG}.json`);
+  if (validRounds !== ROUNDS) {
+    console.log(
+      `GAGAL (exit 3): hanya ${validRounds}/${ROUNDS} putaran SAH — jendela tidak terbuka pada ` +
+        `${invalidRounds} putaran. Hasil kebocoran di atas karena itu TIDAK sah sebagai bukti negatif.`
+    );
+    process.exit(3);
+  }
 }
 
 main().catch((err) => {
