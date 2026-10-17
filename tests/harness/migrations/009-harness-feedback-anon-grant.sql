@@ -1,0 +1,13 @@
+-- Harness-only. NOT part of the staging schema.
+--
+-- Supabase grants `anon`/`authenticated` privileges on every NEW object created in
+-- the public schema. Self-hosted Postgres does not, so on the harness the anon
+-- key would fail with "permission denied for table feedback" and the test
+-- "anon cannot read feedback" would pass because of a missing GRANT — not because
+-- the RLS deny policy works. That is the false-green we were bitten by with the
+-- promo view (see security skill: harness grants after REVOKE).
+--
+-- Mirroring the Supabase default here makes the anon negative test depend on the
+-- policy in staging/schema-feedback-kritiksaran.sql. Removing that policy in the
+-- tree must make the test FAIL — that is the mutation proof.
+GRANT SELECT ON TABLE public.feedback TO anon, authenticated;
