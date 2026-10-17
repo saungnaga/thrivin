@@ -1,0 +1,190 @@
+W4RX4 C-6 — fungsi yang di-DROP+CREATE (purge_expired_webhook_data) lahir dengan
+ACL longgar: `anon` (kunci publishable) boleh EXECUTE fungsi penghapus baris.
+Temuan C-6 delta-review Sentinel kartu t_ab1a3363
+(laporan ~/obsidian/kantor-ai/projects/thrivin/security/review-w4rx4-t3-delta-2026-10-17.md).
+Kartu: t_f05112a7 (forge). Severity: defense-in-depth (nol bug yang terpicu UI hari ini).
+Tanggal: 2026-10-17.
+Worktree: /home/ubuntu/workspaces/thrivin/forge-t_f05112a7
+Branch: fix/w4rx4-c6-purge-acl (basis a850dd0 = HEAD feat/checkout-consent-gate-2026-10-15)
+Isolasi apa adanya (tests/harness/isolate.mts): db thrivin_test_forge_t_f05112a7_616e74,
+port base 57880, TMP_PREFIX /tmp/thrivin-forge_t_f05112a7_616e74.
+
+Semua uji di harness LOKAL (Postgres lokal saja — suite ini nol HTTP). Nol apply ke
+Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi, nol push/merge/deploy.
+Mutasi uji DIREVERT (bagian 3); `git status` file skema pasca-mutasi = M (hanya diff fix ini).
+
+==============================================================================
+1. Akar + fix
+==============================================================================
+`staging/schema-webhook-onboarding.sql:94-96` membuat fungsi maintenance dengan
+
+  DROP FUNCTION IF EXISTS purge_expired_webhook_data();
+  CREATE OR REPLACE FUNCTION purge_expired_webhook_data() ... ;
+
+**tanpa GRANT/REVOKE eksplisit**. Fungsi itu menghapus baris (`webhook_events_inbox`,
+`onboarding_snapshots`) dan menulis `purge_audit_log`. ACL-nya karena itu bukan milik
+berkas, melainkan milik role yang meng-apply:
+
+  (a) apply PERTAMA — fungsi baru Postgres default EXECUTE ke PUBLIC, jadi `proacl` NULL
+      dan `has_function_privilege('anon', …)` = **true** sejak detik pertama;
+      diukur: proacl = <NULL>, anon=true, authenticated=true.
+  (b) apply ULANG — role apply yang punya `ALTER DEFAULT PRIVILEGES … GRANT ALL ON
+      FUNCTIONS TO anon, authenticated` (perilaku Supabase, dimodelkan harness di
+      tests/harness/migrations/003-harness-grants.sql:22) menambahkan entri eksplisit:
+      diukur: {=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres}.
+  (c) `DROP` di (94) membuat setiap apply ULANG me-reset ACL ke default ⇒ bocor (b)
+      kembali walau pernah dipaku manual di DB.
+
+Catatan akurasi klaim (pola C-1): kartu menyebut bocornya lewat "seed kedua / default
+privileges". Itu benar tapi BUKAN satu-satunya jalur — jalur (a) sudah cukup, dan itu
+sebabnya asersi suite ini juga berlaku untuk apply pertama. Kedua jalur dibuktikan di §2.
+
+=== Fix (2 baris + komentar, di berkas yang sama dengan DDL-nya) ===
+  REVOKE ALL ON FUNCTION purge_expired_webhook_data() FROM PUBLIC, anon, authenticated;
+  GRANT EXECUTE ON FUNCTION purge_expired_webhook_data() TO service_role;
+
+Preseden: pola identik di `staging/schema-consent.sql` (baris 1168-1206) dan
+`staging/schema-promo-codes.sql` (459-472), di mana setiap RPC di-REVOKE dari
+PUBLIC/anon/authenticated lalu di-GRANT ke service_role.
+Alasan `GRANT` eksplisit ke service_role: setelah `REVOKE … FROM PUBLIC`, hak warisan
+hilang — tanpa GRANT, jalur ops (service_role) kehilangan EXECUTE.
+pg_cron tidak terpengaruh: ia menjadwalkan `SELECT purge_expired_webhook_data()` sebagai
+role yang men-schedule (superuser), bukan sebagai anon/service_role.
+
+Fungsi lain di berkas yang sama: NOL (`grep -c 'CREATE OR REPLACE FUNCTION'
+staging/schema-webhook-onboarding.sql` = 1, dan itu fungsi ini). View di berkas itu
+(`v_webhook_retention_backlog`) sudah dipaku REVOKE/GRANT sejak awal (baris 148-149).
+
+==============================================================================
+2. Bukti positif (GREEN) — asersi baru + suite penuh
+==============================================================================
+Suite baru: `tests/test-webhook-purge-acl.mts` — menjalankan `seed.sh --fresh` LALU
+`seed.sh` tanpa flag (dua kali apply) dan meng-assert setelah TIAP apply:
+
+  * `has_function_privilege('anon'|'authenticated', 'public.purge_expired_webhook_data()',
+    'EXECUTE')` = false
+  * `pg_proc.proacl` mentah: bukan NULL, nol entri `=X/…` (PUBLIC), nol entri
+    `anon=X`/`authenticated=X`, ada `service_role=X`
+  * `has_function_privilege('service_role', …)` = true
+  * sanity: `SELECT count(*) FROM purge_expired_webhook_data()` = 1 dan `purge_audit_log`
+    bertambah (REVOKE tidak melumpuhkan pemilik/cron)
+  * gate berkas: tiap `CREATE OR REPLACE FUNCTION` di staging/schema-webhook-onboarding.sql
+    WAJIB punya pasangan `REVOKE ALL ON FUNCTION <nama>(` + `GRANT EXECUTE ON FUNCTION
+    <nama>(` — penjaga untuk fungsi berikutnya yang ditambah tanpa pin.
+
+Hasil (`~/t_f05112a7-evidence/green-fixed.log`, log juga di attachments kartu):
+
+  apply 1/2 (fresh)   proacl: {postgres=X/postgres,service_role=X/postgres}
+  apply 2/2 (ulang)   proacl: {postgres=X/postgres,service_role=X/postgres}
+  ACL C-6: 8 PASS / 0 FAIL        (exit 0)
+
+`bash tests/run-all.sh` penuh (termasuk `npm run build`, tanpa SKIP_BUILD) — log
+`~/t_f05112a7-evidence/runall-final.log`:
+
+  1/11 harness seed                                         ok
+  2/11 unit: remediation 27/27, consent 44/0, cancel 27/0, isolation 14/0
+  3/11 guard checks                                         ok
+  4/11 promo SQL 44/44
+  5/11 SQL gate consent/checkout 155 PASS / 0 FAIL
+  6/11 e2e webhook 61/61
+  7/11 e2e promo 118/118
+  8/11 e2e WA-first 136/136
+  9/11 e2e consent/checkout 166 PASS / 0 FAIL
+ 10/11 e2e cancel TTL 86 PASS / 0 FAIL
+ 11/11 ACL C-6: 8 PASS / 0 FAIL          <-- langkah baru
+  ALL SUITES PASSED      RUNALL_EXIT=0
+
+`npm run lint` exit 0 · `npx tsc --noEmit` exit 0 (nol perubahan src/ sama sekali).
+
+`run-all.sh` sekarang 11 langkah (renumber 1..10 → 1..11; langkah 11 di paling AKHIR
+supaya re-seed `--fresh` milik suite ini tidak menghapus state suite lain).
+`tests/harness/migrations/002-webhook-onboarding.sql` byte-identik dengan draf
+`staging/schema-webhook-onboarding.sql` (seed.sh yang menyalin; dicek `diff -q`).
+
+==============================================================================
+3. Bukti negatif (RED) — asersi bergigi
+==============================================================================
+(a) Pohon pra-fix APA ADANYA (a850dd0, tanpa pin) + suite baru:
+    log ~/t_f05112a7-evidence/red-prefix-tree.log
+      apply 1/2 (fresh)  proacl: <NULL>                                  anon=true
+      apply 2/2 (ulang)  proacl: {=X/postgres,postgres=X/postgres,anon=X/postgres,
+                                  authenticated=X/postgres}
+      ACL C-6: 3 PASS / 5 FAIL   (exit 1)
+    FAIL yang muncul: gate berkas (fungsi tanpa REVOKE+GRANT), apply #1 anon masih
+    EXECUTE, apply #1 ACL mentah (proacl NULL = warisan PUBLIC), apply #2 anon masih
+    EXECUTE, apply #2 ACL mentah (entri `=X/postgres`).
+
+(b) Mutasi SATU BARIS (`tests/harness/w4c6-acl-mutation.sh`) — baris `REVOKE ALL ON
+    FUNCTION purge_expired_webhook_data() …` dilepas, `GRANT` dibiarkan:
+      EXIT=1  ACL C-6: 3 PASS / 5 FAIL   (log $TMP_PREFIX/w4c6-mut-pre.log)
+      pulih:  EXIT=0  ACL C-6: 8 PASS / 0 FAIL
+      BUKTI NEGATIF OK: bermutasi FAIL (exit 1), pulih hijau (exit 0)
+    Catatan terukur: dengan `GRANT` masih ada, ACL TIDAK jadi NULL melainkan
+    `{=X/postgres,postgres=X/postgres,service_role=X/postgres}` — GRANT menata-ulang
+    ACL dari default, jadi entri PUBLIC kembali. Artinya `proacl IS NULL` bukan satu-
+    satunya bentuk longgar yang harus ditangkap asersi; itulah sebabnya suite memeriksa
+    entri `=X/` secara eksplisit, bukan hanya `has_function_privilege`.
+
+Semua mutasi DIREVERT: `bash tests/harness/w4c6-acl-mutation.sh` memakai trap restore,
+dan `git status staging/schema-webhook-onboarding.sql` pasca-run = hanya diff fix ini.
+
+==============================================================================
+4. Sapuan kelas — objek lain yang masih EXECUTE untuk anon (diukur, bukan diasumsikan)
+==============================================================================
+Di DB harness pasca-fix (`seed.sh --fresh` + re-apply):
+
+  SELECT oid::regprocedure, proacl FROM pg_proc
+   WHERE pronamespace='public'::regnamespace AND prokind='f'
+     AND has_function_privilege('anon', oid, 'EXECUTE');
+
+  * fungsi ekstensi (pgcrypto: crypt/armor/digest/pgp_* …) — `proacl` NULL = EXECUTE
+    warisan PUBLIC. Bukan objek aplikasi, nol baris aplikasi yang dibaca/dihapus
+    lewatnya; di Supabase pgcrypto hidup di schema `extensions`. TIDAK diubah di kartu ini.
+  * `consent_events_block_mutation()` — TRIGGER function, ACL memuat `=X/postgres` +
+    anon/authenticated. Tidak ada jalur eksploitasi: dipanggil sebagai fungsi biasa
+    selalu ERROR — diukur: `SELECT public.consent_events_block_mutation();` ⇒
+    `ERROR: trigger functions can only be called as triggers` (prorettype = `trigger`,
+    jadi PostgREST juga tidak mengeksposnya). SENGAJA tidak diubah di kartu ini:
+    memperbaikinya melebar ke `staging/schema-consent.sql` (diff kartu lain yang masih
+    di-review). Dicatat sebagai kandidat higiene, bukan risiko.
+  * fungsi `purge_expired_webhook_data()` — TIDAK ada lagi di daftar ini (inti kartu).
+
+`DROP FUNCTION` lain di staging/: hanya `redeem_promo(...)` di
+`staging/schema-promo-codes.sql:180`, dan signature hasil DROP-nya sudah di-REVOKE/GRANT
+di baris 459+ (nol temuan tambahan).
+
+==============================================================================
+5. Reproduksi (perintah persis)
+==============================================================================
+  cd /home/ubuntu/workspaces/thrivin/forge-t_f05112a7
+  eval "$(node --experimental-strip-types tests/harness/isolate.mts env)"
+
+  # GREEN: dua kali apply + asersi ACL
+  node --experimental-strip-types tests/test-webhook-purge-acl.mts        # 8 PASS / 0 FAIL
+
+  # RED (b): mutasi satu baris, dua arah
+  bash tests/harness/w4c6-acl-mutation.sh                                 # BUKTI NEGATIF OK
+
+  # suite penuh (11 langkah)
+  bash tests/run-all.sh                                                   # ALL SUITES PASSED
+
+  # RED (a): pohon pra-fix apa adanya (script tersimpan di luar repo)
+  bash /home/ubuntu/t_f05112a7-evidence/red-prefix.sh
+
+Cek manual ACL di DB apa pun (staging/produksi) — lihat checklist apply
+`~/obsidian/kantor-ai/projects/thrivin/ops/README.md` §3b:
+
+  SELECT oid::regprocedure, proacl FROM pg_proc
+   WHERE pronamespace='public'::regnamespace AND prokind='f' ORDER BY 1;
+  SELECT public.has_function_privilege('anon',
+         'public.purge_expired_webhook_data()','EXECUTE');   -- harus false
+
+==============================================================================
+6. Yang TIDAK dikerjakan (batas kartu)
+==============================================================================
+* Nol apply ke staging/produksi (draf masih DRAFT) — apply tetap gate ops, sekarang
+  dengan item checklist "cek ACL objek DROP+CREATE" (ops/README.md §3b).
+* Nol perubahan `src/` (nol jalur app terlibat), nol perubahan `staging/schema-consent.sql`
+  (kartu T3/C-3/C-4 jalan di branch sendiri: fix/w4rx4-t3c3-order-id-kosong).
+* Pembersihan ACL fungsi ekstensi & trigger function consent (nol eksploitasi terukur) —
+  kandidat higiene terpisah kalau Atlas mau.
