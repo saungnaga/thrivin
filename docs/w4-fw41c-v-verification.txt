@@ -1,0 +1,167 @@
+W4 F-W4-1c RONDE PATCH V-1..V-7 — cancel order Scalev saat TTL retire.
+Sumber: delta-review Sentinel t_9b3fc917 (review-fw41c-impl-2026-10-17.md, LULUS
+DENGAN CATATAN 0 veto) + arah operator Koron (kartu t_1d1cf77f).
+Tanggal: 2026-10-18. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15. Kode pasca-patch terakhir: 3415294
+(2f35ebe sql · fc6a607 worker/gate · 9025b1e sapuan · cab74f6 test e2e+mutasi ·
+3415294 probe V-7). Gate §1 dijalankan pada tree tersebut; satu-satunya delta
+sesudahnya = berkas docs/ ini (git diff --name-only 3415294..HEAD), jadi kode yang
+diuji identik dengan HEAD. Basis pra-patch untuk bukti negatif: a850dd0.
+Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial prod, nol
+Scalev nyata, nol push/merge. Klon privat untuk bukti negatif:
+/home/ubuntu/w4v-evidence/prefix-clone (DB sendiri thrivin_test_w4v_prefix_262828).
+Artefak mentah: /home/ubuntu/w4v-evidence/ (+ salinan di attachment kartu).
+
+==============================================================================
+0. Jawaban ringkas per temuan
+==============================================================================
+V-1 (GATE AKTIVASI) sapuan tidak menemukan order basi
+    -> RPC baru `nominate_stale_cancels(p_tenant_id, p_limit, p_unpaid_ttl_seconds)`
+       (SQL hanya memindahkan state; nol pg_net/http). Sapuan menjalankannya
+       SEBELUM klaim. Bukti: §11 (order basi TANPA checkout ulang -> retired,
+       tepat satu panggilan cancel, order kontrol yang belum TTL tidak tersentuh)
+       + mutasi V-1 (nominasi dibuang -> suite FAIL, 3 assertion).
+V-2 (GATE AKTIVASI) hasil batch dipukul rata
+    -> baris tanpa canonical ID dicatat `cancel_failed`
+       'missing_canonical_order_id' SATU PER SATU; hanya baris yang canonical
+       ID-nya benar-benar ikut dikirim yang boleh `retired`. Bukti: §12 (batch
+       campuran dua nomor: yang ber-uuid retired, yang warisan cancel_failed, dan
+       nomor warisan TETAP ditahan 423) + mutasi V-2 (blok per-ID dibuang ->
+       statusnya `cancel_pending`, suite FAIL).
+V-3 (WAJIB, jalur uang) lease 15 s < jendela worker 3x5 s
+    -> lease 30 s. Bukti: §10 mengukur lease dari DB setelah klaim nyata dan
+       membandingkannya dengan LANTAI yang diturunkan dari konstanta TS
+       (CANCEL_MAX_ATTEMPTS x CANCEL_TIMEOUT_MS + backoff = 16,25 s) — bukan angka
+       pilihan sendiri; + mutasi V-3 (30 s -> 15 s => FAIL).
+V-4 backoff ditulis tapi tidak dibaca
+    -> gerbang `cancel_next_retry_at` DIPINDAH ke titik yang mengikat:
+       `claim_checkout_cancel` (atomik). Listing sengaja TIDAK menyaring, karena
+       listing yang menyaring membuat `resolvedAll` bohong ("tidak ada yang perlu
+       dicancel" padahal barisnya cuma menunggu backoff) dan replacement bisa
+       tercetak di belakang link lama. Bukti: §10 (klaim DITOLAK selama jadwal
+       retry belum lewat, boleh setelah lewat) + mutasi V-4 (gerbang dibuang =>
+       FAIL).
+V-5 laporan worker menyesatkan
+    -> `record_checkout_cancel_result` kini mengembalikan `state`; worker menghitung
+       retired/pending/failed/latePayment dari keadaan yang DIKEMBALIKAN RPC, dan
+       `resolvedAll` hanya true kalau nol sisa yang belum terverifikasi (`not_found`
+       / error pencatatan dihitung pending = fail-closed, bukan "selesai").
+       Efek samping yang disadari: `resolvedAll` lebih ketat dari sebelumnya
+       (dulu `claimed.length === pendingRows.length`).
+V-6 higiene bukti negatif
+    -> bukti dipisah ke DB FRESH dengan nama dicetak (§2 di laporan ini) + skrip
+       reproducer ter-commit. Angka lama 28/58 TIDAK dipakai lagi.
+V-7 alarm sweep belum punya pembaca + streak gagal ditelan
+    -> `writeStreak` mengembalikan status; kalau streak tidak bisa disimpan, sapuan
+       ber-alert pada run PERTAMA yang tidak bersih (dulu: console.warn sunyi,
+       streak selalu dibaca 0, alert 2x berturut-turut tidak pernah menyala).
+       Contoh entri crontab diperjelas (path WAJIB diverifikasi di host tujuan;
+       belum terpasang di mana pun). Bukti: probe V-7 (nol DB) + mutasi V-7.
+       Sisa yang TIDAK ditutup kode (carry-over, dibuktikan saat aktivasi):
+       pembaca alert harian Koron/Mimir dan pemasangan crontab nyata di host prod.
+
+Catatan UX yang perlu diketahui owner: karena V-4 sekarang benar-benar dipatuhi,
+pelanggan yang menekan checkout LAGI dalam 30 detik setelah cancel transient
+mendapat 409 `ORDER_CANCEL_PENDING` ("tunggu sebentar lalu muat ulang") — pesan itu
+memang jalur retryable, bukan lockout. Konsekuensinya: nol lockout permanen, tapi
+satu klik cepat setelah gangguan upstream tidak langsung mencetak order kedua.
+
+==============================================================================
+1. Gate pasca-patch (full suite, DB worktree)
+==============================================================================
+bash tests/run-all.sh -> log /home/ubuntu/w4v-evidence/runall-postfix2.log
+  unit gate consent/checkout : 44 PASS, 0 FAIL
+  cancel TTL units           : 27 PASS, 0 FAIL
+  V-7 alert probe (baru)     : 5 PASS, 0 FAIL
+  harness isolation          : 14 PASS, 0 FAIL
+  SQL gate consent/checkout  : 155 PASS, 0 FAIL
+  e2e gate consent/checkout  : 166 PASS, 0 FAIL
+  cancel TTL e2e             : 112 PASS, 0 FAIL   (sebelum ronde ini: 86)
+  ALL SUITES PASSED (EXIT=0)
+npx tsc --noEmit -> exit 0.
+
+Diulang pada HEAD repo pasca-komit dokumen (evidence/runall-postfix3.log, atribusi
+lewat SHA bukan worktree kotor) -> angka IDENTIK: ALL SUITES PASSED (EXIT=0),
+cancel TTL units 27/0, probe V-7 5/0, harness isolation 14/0, SQL 155/0,
+consent e2e 166/0, cancel e2e 112/0; `npx tsc --noEmit` exit 0.
+
+==============================================================================
+2. Bukti negatif di DB FRESH (higiene V-6)
+==============================================================================
+bash tests/harness/fw41c-v-prefix-negative.sh
+  klon pra-fix  : a850dd0 (HEAD sebelum patch V)
+  DB            : thrivin_test_w4v_prefix_262828  (DROP dulu; seed exit=0)
+  probe skema   : db=thrivin_test_w4v_prefix_262828 | nominate_stale_cancels=0 |
+                  lease_30s=0        <-- nol sisa pasca-fix, memang DB lama
+  suite POST-fix di kode PRA-fix -> EXIT=1, "cancel TTL e2e: 102 PASS, 10 FAIL"
+  10 FAIL yang ketangkap (semuanya = asersi ronde V):
+    - V-1 sweep melaporkan baris basi dinominasi           (nol nominasi)
+    - V-1 baris basi jadi `retired` TANPA checkout ulang   (tetap `created`)
+    - V-1 canonical id baris basi dikirim tepat sekali     (0 panggilan)
+    - V-2 baris TANPA canonical ID => cancel_failed        (PRE-FIX: "retired|" —
+          sukses palsu; penjaga per-nomor terbuka)
+    - V-2 nomor itu TETAP ditahan (423)                    (PRE-FIX: 200)
+    - V-2 kode ORDER_CANCEL_FAILED                         (PRE-FIX: undefined)
+    - V-2 nol order baru dicetak                           (PRE-FIX: 16 vs 15 —
+          ORDER KEDUA lahir di belakang link lama yang masih hidup = P4)
+    - V-3 lease >= jendela worker                          (lease=15s < lantai 16,25s)
+    - V-4 backoff dibaca                                   (PRE-FIX: 'claimed'
+          padahal jadwal retry masih di depan)
+    - V-4 (turunan) setelah jadwal retry lewat => boleh     ('not_claimed', karena
+          klaim prematur di atas sudah memegang lease — efek lanjutan, bukan temuan
+          baru)
+  Log: /home/ubuntu/w4v-evidence/prefix-negative.log (klon + DB ditinggalkan sebagai
+  artefak; di-drop/dihapus setelah laporan dibaca reviewer).
+
+==============================================================================
+3. Bukti mutasi (tiap fix wajib FAIL saat dibalik)
+==============================================================================
+bash tests/harness/fw41c-v-mutation.sh   -> /tmp/fw41c-v-mutation.log + v2/v7
+Log per-kasus: /home/ubuntu/w4v-evidence/mutation/
+  V-1 nominasi dibuang dari sapuan           -> EXIT=1, 3 FAIL  (retired: got "created")
+  V-2 blok cancel_failed per-ID dibuang      -> EXIT=1, 3 FAIL  (got "cancel_pending|")
+  V-3 lease 30 s -> 15 s                     -> EXIT=1, 1 FAIL  (lease=15s < lantai)
+  V-4 gerbang cancel_next_retry_at dibuang   -> EXIT=1, 2 FAIL  (got "claimed")
+  V-7 streak gagal ditelan                   -> EXIT=1, 2 FAIL  (exit=0, nol alert)
+Catatan jujur: varian mutasi V-2 "SEMUA baris yang dilease dicap retired" (bentuk
+pra-fix) TIDAK membuat suite merah, karena `record_checkout_cancel_result` mengunci
+`WHERE status='cancel_pending'` — baris yang sudah di-cancel_failed tidak bisa
+dinaikkan jadi retired (lapisan kedua yang memang sudah ada). Karena itu mutasi yang
+dipakai = menghapus penanganan per-ID, bukan mengubah tujuannya.
+
+==============================================================================
+4. Perubahan berkas
+==============================================================================
+  staging/schema-consent.sql          cek/nominasi RPC, lease 30 s, gerbang backoff,
+                                      REVOKE/GRANT signature baru
+  staging/migration-fw41c-cancel.sql  catatan apply (fungsi/body baru lewat
+                                      re-apply schema-consent)
+  src/lib/checkout-gate.ts            nominateStaleCancels(), record* kembalikan
+                                      state, catatan kenapa filter tinggal di RPC
+  src/lib/checkout-cancel.ts          V-2 per-ID + V-5 tally dari balikan RPC
+  staging/cancel-sweep.mts            nominasi sebelum klaim, streak gagal = alert
+  tests/test-cancel-ttl-e2e.mts       §10-§12 (+clearCancelBackoff untuk §2/§3/§7)
+  tests/harness/fw41c-v7-alert-probe.mts     probe V-7 (nol DB, ikut run-all step 2)
+  tests/harness/fw41c-v-mutation.sh          5 mutasi pembalik
+  tests/harness/fw41c-v-prefix-negative.sh   reproducer bukti negatif DB-fresh
+  tests/run-all.sh                    step 2 memuat probe V-7
+Komit: 2f35ebe (sql) · fc6a607 (cancel) · 9025b1e (sweep) · cab74f6 (test e2e+mutasi)
+· 3415294 (probe V-7 + run-all) · komit dokumen ini.
+
+==============================================================================
+5. Pitfall yang ketemu di ronde ini
+==============================================================================
+1. `fs.mkdirSync(p, {recursive:true})` BUSY-LOOP 100% CPU tanpa melempar apa pun
+   kalau induknya `/proc/<pid>` (Node 22). Ditemukan saat menulis probe V-7 yang
+   memakai "/proc/1/..." sebagai STATE_DIR tidak-writable: proses tidak pernah
+   keluar, tanpa output, tanpa error. Untuk uji "tidak writable" pakai direktori
+   read-only (mode 500) — mkdir di dalamnya melempar EACCES dalam 0 ms.
+   Jangan pakai /proc sebagai kontainer uji.
+2. Menyaring lease/backoff di LISTING terlihat "murah" tapi membuat `resolvedAll`
+   bohong (nol baris terbaca = dianggap selesai) — gerbang harus di titik klaim
+   (atomik), bukan di pembacaan.
+3. Mutasi yang mengubah "tujuan tulis" bisa dinetralkan oleh penjaga state di RPC
+   (status='cancel_pending'); mutasi harus mengubah KELENGKAPAN penanganan
+   (baris yang tidak pernah ditangani), bukan hanya tujuannya. Kalau tidak, kita
+   mengira asersi load-bearing padahal ia lulus karena lapisan lain.

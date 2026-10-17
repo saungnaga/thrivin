@@ -19,6 +19,7 @@ import {
   sendWelcomeMessage,
 } from "@/lib/welcome-message";
 import { consumePromoForOrder } from "@/lib/promo";
+import { markCheckoutClaimPaid } from "@/lib/checkout-gate";
 
 /**
  * Scalev signs with HMAC-SHA256 and transmits base64 (L-1). The previous
@@ -206,6 +207,19 @@ export async function POST(req: Request) {
         const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
         const plan = resolveSubscriptionPlan(snapshot?.plan_key);
         const activation = await activateUserSubscription(cleanPhone, customerName, snapshot);
+        // F-W4-1: pembayaran masuk → klaim gate nomor ini ditandai lunas, jadi
+        // kunci checkout BARU dari nomor yang sama mencetak order baru (pembelian
+        // ulang sah), bukan memakai ulang / diblokir oleh order yang sudah dibayar.
+        // F-W4-1c: kalau order itu sudah `retired` / sedang-gagal dicancel, event
+        // ini TELAT — akses TETAP diberikan (dedup `fulfillment_key` tetap penentu),
+        // tapi ops diangkat alert-nya (refund manual hanya kalau duplikat nyata).
+        // Best effort: tidak pernah melempar ke jalur webhook. Tanpa PII.
+        const paid = await markCheckoutClaimPaid(String(orderUniqueId));
+        if (paid.latePayment) {
+          console.error(
+            `[webhook][ALERT] pembayaran TELAT untuk order ${orderUniqueId} (state=${paid.state}) — cek refund/duplikat, akses sudah diberikan`
+          );
+        }
         // Pembayaran diterima -> reservasi promo jadi 'consumed' (mengunci 1x
         // per nomor). Best effort: tidak pernah melempar ke jalur webhook.
         await consumePromoForOrder(String(orderUniqueId));

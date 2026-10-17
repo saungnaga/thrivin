@@ -1,0 +1,199 @@
+RX2-2 (isolasi harness per-worktree) + RX2-3 (probe F-S1 bocor proses di jalur gagal).
+Kartu kanban t_c85c2678 (temuan RX2-2 MEDIUM + RX2-3 LOW dari delta-review 2 Sentinel t_7f3a1042,
+laporan: ~/obsidian/kantor-ai/projects/thrivin/security/review-w4-rx2-2026-10-16.md).
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15
+
+Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi, nol push/merge.
+
+Commit: 4c89ff0 + 4b5412f (RX2-2), 2ad67bf (RX2-3), `a6a98d9` (prefix-proxy wajib argumen), lalu
+commit-commit dokumentasi bukti (docs-only, tidak mengubah kode: isi kode = `8033ef6`).
+Semua mutasi uji (schema guard F-S1) DIREVERT;
+`git status` bersih sesudahnya (hanya `?? graphify-out/` yang bukan milik iterasi ini).
+
+==============================================================================
+1. RX2-2 — apa yang berubah
+==============================================================================
+tests/harness/isolate.mts (baru) = satu sumber kebenaran, diturunkan dari path worktree:
+  SLUG        = <basename worktree>_<6 hex sha1(path)>          (aman buat nama DB)
+  PG_DB       = thrivin_test_<SLUG>        (override HARNESS_PG_DB)
+  PROMO_DB    = thrivin_promo_<SLUG>       (override HARNESS_PROMO_DB)
+  PORT_BASE   = 40000 + (hash(path) % 1200) * 20, 17 slot per worktree
+                (40000+ karena `fetch`/undici menolak daftar "bad port" WHATWG; tertinggi 10080)
+  TMP_PREFIX  = /tmp/thrivin-<SLUG>        (override HARNESS_TMP_PREFIX), dibuat otomatis
+  CLI: `node --experimental-strip-types tests/harness/isolate.mts db|env`
+       -> dipakai seed.sh & run-all.sh supaya bash dan node tidak pernah beda hitungan.
+
+Nilai nyata dua worktree (dibuktikan, bukan diasumsikan):
+  w4-consent-gate (batch-2026-10-15) -> SLUG w4_consent_gate_e92cbc, DB thrivin_test_w4_consent_gate_e92cbc, PORT_BASE 48180
+  /tmp/wt-brx2    (worktree kedua)   -> SLUG wt_brx2_cdf868,        DB thrivin_test_wt_brx2_cdf868,        PORT_BASE 44940
+
+Perubahan lain:
+  stack.mts      : PG_DB/port/config postgrest dari isolate.mts (env override tetap ada)
+  seed.sh        : nama DB turunan + menjalankan drop-stale.sql SEBELUM migrasi
+  drop-stale.sql : DROP tiap signature `cancel_promo_redemption` dari katalog pg_proc
+                   (DROP FUNCTION <nama> polos GAGAL saat ada overload: "function name is not unique")
+  run-all.sh     : `eval "$(isolate.mts env)"` + log build ke $TMP_PREFIX
+  prefix-proxy.mjs: argumen port WAJIB (default bersama 54321/54322 dibuang); tanpa
+                   argumen -> exit 2 + usage. Hanya stack.mts yang memanggilnya dan
+                   selalu dengan port isolate.mts, jadi tak ada jalur yang berubah.
+  5 suite e2e + promo-sql + mock-scalev: port/DB/path /tmp dari isolate.mts
+                   (semua default lama 3981-3998/4111/4121/4135/54321/54322/thrivin_*_test sudah hilang;
+                   fallback 4111 di `mock-scalev.mjs` masih hidup di ronde ini — ditutup RX2-4,
+                   lihat §5 dan docs/w4-rx2-4-verification.txt)
+
+Sisa yang JANGAN diubah: asersi H-3 `!/tmp/thrivin-onboarding` di test-webhook-e2e (§634) —
+itu memeriksa jalur fallback PII PRODUKSI harus tidak ada, bukan path harness.
+
+==============================================================================
+2. BUKTI NEGATIF RX2-2 (pra-fix) — dua mode kegagalan DB bersama
+==============================================================================
+(a) Overload asing => fungsi ambigu (akar masalah yang dilaporkan Sentinel).
+    DB segar + overload bentuk `promo-ws` R-4 (versinya ada di
+    ~/workspaces/thrivin/promo-ws/staging/schema-promo-codes.sql:518):
+
+$ sudo -u postgres psql -d thrivin_shared_sim -c "SELECT cancel_promo_redemption(gen_random_uuid());"
+ERROR:  function cancel_promo_redemption(uuid) is not unique
+HINT:  Could not choose a best candidate function. You might need to add explicit type casts.
+
+    (log mentah: /tmp/rx22-overload.log — termasuk daftar dua signature + hasil sesudah drop-stale)
+
+(b) Schema basi dari worktree lain di DB bersama => suite mati SEBELUM sampai kasus uji.
+    `HARNESS_PG_DB=thrivin_remediation_test node --experimental-strip-types tests/test-promo-e2e.mts`
+    exit 1 di bagian pertama; log server:
+      [checkout-gate] gagal memverifikasi gate: CheckoutGateError: [CheckoutGate]
+      claim_checkout_order: RPC gagal (400) {"code":"42703","message":"column \"paid_at\" does not exist"}
+    (`checkout_claims` di DB bersama dibuat versi worktree lain; CREATE TABLE IF NOT EXISTS jadi no-op.)
+    (log mentah: /tmp/rx22-legacy.log)
+
+Keduanya menjelaskan kenapa "ALL SUITES PASSED" TIDAK boleh dipakai sebagai gate antar-agent
+selama DB masih bersama: run 1 PASS, run berikutnya FAIL karena ulah worktree lain.
+
+==============================================================================
+3. BUKTI POSITIF RX2-2 (pasca-fix)
+==============================================================================
+3a. run-all satu worktree (nilai terisolasi terpakai, port 48180+):
+    $ bash tests/run-all.sh                       -> ALL SUITES PASSED   (log /tmp/w4-runall-A.log)
+    header log: "worktree: w4_consent_gate_e92cbc  db: thrivin_test_w4_consent_gate_e92cbc  port base: 48180"
+
+3b. DUA run-all BERSAMAAN dari DUA worktree (kriteria terima kartu):
+    /tmp/wt-brx2 = `git worktree add --detach /tmp/wt-brx2 HEAD` + symlink node_modules + `npm run build`
+    Keduanya: SKIP_BUILD=1 bash tests/run-all.sh, dijalankan paralel (skrip /tmp/rx22-parallel.sh):
+      A (/home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate) -> ALL SUITES PASSED, A_EXIT=0  (log /tmp/runall-A2.log)
+      B (/tmp/wt-brx2)                                                    -> ALL SUITES PASSED, B_EXIT=0  (log /tmp/runall-B2.log)
+    RAM VPS selama dua run bersamaan: available ~2,0 GB (aman, lihat skill vps-resource-guardrails).
+
+3b-bis. Ulangan kriteria terima di HEAD (`dd6fd6c`, sesudah drop-stale.sql versi "buang semua
+    overload"). Worktree kedua di-detach ke `dd6fd6c` lebih dulu
+    (`git -C /tmp/wt-brx2 checkout --detach dd6fd6c`; `git diff --name-only 2ad67bf..dd6fd6c` =
+    docs + drop-stale.sql saja, `src/` nol perubahan ⇒ build lama masih sah, SKIP_BUILD=1).
+      A (w4-consent-gate) -> ALL SUITES PASSED, A_EXIT=0   (log /tmp/rx22-r3-A.log)
+      B (/tmp/wt-brx2)    -> ALL SUITES PASSED, B_EXIT=0   (log /tmp/rx22-r3-B.log)
+      step 9 kedua sisi: "e2e gate consent/checkout: 128 PASS, 0 FAIL"
+      sesudah selesai: `ss -ltn | grep -cE ":4[0-9]{4}"` -> 0 (nol port tersisa)
+
+    Catatan: langkah 3b/3b-bis membuktikan isolasi DB/port/prefix tanpa perubahan `prefix-proxy.mjs`
+    (masuk SESUDAH kedua run itu). Lihat 3b-ter untuk run di HEAD final.
+
+3b-ter. Ulangan kriteria terima di HEAD FINAL `8033ef6` (isolate + drop-stale + prefix-proxy tanpa
+    default + dokumentasi). Worktree kedua di-detach ke `8033ef6`; `src/` masih nol perubahan
+    (`git diff --name-only dd6fd6c..8033ef6` = docs + tests/harness/prefix-proxy.mjs) ⇒ SKIP_BUILD=1.
+      A (w4-consent-gate) -> ALL SUITES PASSED, A_EXIT=0   (log /tmp/rx22-r4-A.log)
+      B (/tmp/wt-brx2)    -> ALL SUITES PASSED, B_EXIT=0   (log /tmp/rx22-r4-B.log)
+      step 9 kedua sisi: "e2e gate consent/checkout: 128 PASS, 0 FAIL"
+      sesudah selesai: `ss -ltn | grep -cE ":4[0-9]{4}"` -> 0 (nol port tersisa)
+    ⇒ kriteria terima kartu ("dua run-all bersamaan dari dua worktree sama-sama hijau") terpenuhi di
+    HEAD yang di-review. (Commit dokumen sesudahnya docs-only dan tidak mengubah kode: isi kode = `8033ef6`.)
+    Cara reproduksi: `git worktree add --detach /tmp/wt-brx2 8033ef6` + symlink
+    `node_modules` + `npm run build`, lalu `bash /tmp/rx22-parallel-4.sh` (dua `SKIP_BUILD=1 bash
+    tests/run-all.sh` paralel). Worktree `--detach` itu SUDAH DIHAPUS sesudah run (hindari drift);
+    `/tmp/rx22-r4-*.log` yang disimpan.
+
+    `prefix-proxy.mjs` tanpa argumen -> usage + exit 2; suite yang lewat proxy
+    (`test-webhook-e2e.mts`) 61/61 PASS, exit 0 (`/tmp/rx22-r3-prefixproxy-smoke.log`).
+
+3c. drop-stale.sql punya gigi (memulihkan DB yang SUDAH tercemar overload, tanpa drop DB):
+    DB yang sama + overload asing -> `bash tests/harness/seed.sh` -> hanya 1 signature tersisa ->
+    suite `tests/test-promo-e2e.mts` 118/118 ALL PROMO E2E CHECKS PASSED (log /tmp/rx22-sim-prefix.log).
+    Tanpa langkah itu, panggilan bare-nya ERROR "not unique" (bagian 2a).
+
+3d. Bukti tambahan bahwa isolasi bekerja: DUA salinan suite yang SAMA (consent-gate e2e) dijalankan
+    BERSAMAAN dari dua worktree (w4-consent-gate + /tmp/wt-brx2), 2× berturut-turut:
+      A 1 exit=0 128 PASS / 0 FAIL      B 1 exit=0 128 PASS / 0 FAIL
+      A 2 exit=0 128 PASS / 0 FAIL      B 2 exit=0 128 PASS / 0 FAIL
+    (log /tmp/w4-load-A-*.log, /tmp/w4-load-B-*.log, ringkasan /tmp/w4-load-summary.txt)
+
+==============================================================================
+4. RX2-3 — apa yang berubah + bukti dua arah
+==============================================================================
+tests/test-probe-cross-phone.mts:
+  - jalur GAGAL: `process.exit(1)` di dalam `try` diganti `throw new Error(...)` =>
+    `finally` tetap jalan (kill app + mock, stop postgrest) => `main().catch` set `process.exitCode = 1`.
+  - port/path probe ikut isolate.mts (slot probeApp/probeMock, /tmp prefix SLUG).
+  - Audit kelas yang sama: `process.exit` lain di suite e2e semuanya sudah DI LUAR `try`
+    (setelah `finally`), jadi tidak ada kebocoran serupa; `main().catch` pada probe kini pakai exitCode.
+
+Mutasi uji (sementara, SUDAH DIREVERT): guard F-S1 di `staging/schema-consent.sql:425`
+  `IF v_existing.phone <> p_phone THEN` -> `IF FALSE THEN` (persis mutasi Sentinel di clone-nya).
+  Probe tetap mendeteksi: B memakai kunci A -> `200 {"orderId":…,"paymentUrl":…,"replay":true}`.
+
+(a) PRA-FIX (probe versi HEAD~1, `git show HEAD~1:tests/test-probe-cross-phone.mts`):
+    $ node --experimental-strip-types tests/zz-old-probe.mts    -> EXIT=1
+      >>> [PROBE F-S1 FAIL] Terjadi kegagalan: { passed409: false, passedCode: false, noLeak: false }
+    $ ss -ltn | grep -E ":3995|:4135"
+      LISTEN 0 511 127.0.0.1:4135   (mock-scalev)
+      LISTEN 0 511 *:3995           (next-server)
+    Plus `pgrep`: /tmp/postgrest … + prefix-proxy (48180) masih hidup => 4 proses yatim.
+    (log /tmp/rx23-pre.log; proses yatim dibersihkan manual sebelum uji berikutnya)
+
+(b) PASCA-FIX (probe HEAD, mutasi guard yang sama masih aktif):
+    $ node --experimental-strip-types tests/test-probe-cross-phone.mts   -> EXIT=1
+      Probe error: Error: PROBE F-S1 FAIL: order lintas nomor TIDAK ditolak dengan benar
+        (409=false code=false tanpa-bocor=false) — status 200 body {"orderId":"…","paymentUrl":"…","replay":true}
+      [postgrest] Received termination unix signal SIGTERM
+    $ ss -ltn | grep -E ":4819[0-9]|:4818[0-9]"        -> TIDAK ADA (NO LEFTOVER PORTS)
+    $ pgrep -x postgrest / prefix-proxy                -> kosong
+    (log /tmp/rx23-post.log)
+
+(c) Sesudah revert mutasi + `bash tests/harness/seed.sh`: probe hijau lagi
+    `>>> [PROBE F-S1 PASS] … 409 IDEMPOTENCY_KEY_CONFLICT (0 data bocor)` -> EXIT=0.
+
+==============================================================================
+5. Status apply & batasan
+==============================================================================
+- Nol apply ke Supabase/staging/produksi. Ini murni infra verifikasi (tests/) + 1 file SQL harness
+  (`drop-stale.sql`), jadi TIDAK mengubah artefak yang menunggu apply (`staging/*.sql` tak tersentuh:
+  `git status` bersih untuk `staging/`).
+- DB bersama lama `thrivin_remediation_test` **tidak** di-drop (worktree yang belum menerima patch ini
+  masih memakai default lama). Efek samping yang wajar: seed.sh terbaru membersihkan overload asingnya.
+- Batasan yang jujur: slot port = hash(path) % 1200, jadi dua worktree bisa tabrakan (~1/1200).
+  Jalan keluar: set `HARNESS_PORT_BASE` / `HARNESS_PG_DB` eksplisit (sudah dihormati semua suite).
+- **Mode yang TIDAK didukung: satu worktree = satu run pada satu waktu.** Dua `run-all.sh`
+  (atau dua suite e2e) sekaligus dari worktree yang SAMA memakai DB dan set path `/tmp` yang
+  sama: run kedua gagal keras di dalam `seed.sh` (DDL bersamaan, exit 1) — diprobe Sentinel
+  (run1 exit 1, run2 128 PASS), jadi tidak ada pencampuran senyap, tapi tetap bukan setup yang
+  didukung. Sejak RX2-4 ada lock `flock` di `$TMP_PREFIX/run-all.lock` yang menolak run kedua
+  di muka; dua worktree BERBEDA tetap didukung seperti sebelumnya.
+- **RX2-4 (`t_38804fb8`) menutup sisa isolasi** (mock tanpa port → exit 2, `startPostgrest()`
+  membersihkan diri saat gagal, port proxy/mock gagal keras kalau dipegang listener asing).
+  Konsekuensinya klaim "default bersama sudah hilang" di §1 di atas baru benar untuk SEMUA
+  jalur (termasuk mock yang dijalankan manual) SESUDAH RX2-4; detail + bukti pra/pasca-fix:
+  `docs/w4-rx2-4-verification.txt`.
+- Belum: `seed.sh --fresh` masih manual (bukan default run-all) — sengaja, karena drop+recreate DB
+  setiap run memperlambat gate; drop-stale.sql sudah menutup kasus signature berubah.
+
+==============================================================================
+6. CATATAN JUJUR — satu `run-all` penuh sempat merah (flaky, bukan akibat ronde ini)
+==============================================================================
+`bash tests/run-all.sh` pada head beku SEKALI exit 1 di step 9:
+  e2e gate consent/checkout: 126 PASS, 2 FAIL
+  FAIL dua kunci berbeda paralel: tepat SATU order tercetak (…) — expected 1, got 2
+  FAIL dua kunci berbeda paralel: semua jawaban 200 menunjuk order yang SAMA — expected 1, got 2
+(log /tmp/w4-runall-final.log)
+
+Tidak bisa direproduksi: 7 run berikutnya hijau 128/128 (3× suite itu sendiri: /tmp/w4-cge-{1,2,3}.log;
+dan 4× di bawah beban paralel: /tmp/w4-load-A-{1,2}.log + /tmp/w4-load-B-{1,2}.log).
+`src/` tidak tersentuh di ronde ini (hanya tests/ + docs/), jadi ini sifat timing-sensitive yang sudah
+ada — kelas yang sama dengan flakiness F-S2 yang didokumentasikan Sentinel. Penyebab BELUM diklaim;
+ronde ini tidak memperbaikinya (di luar lingkup kartu: DB/port/path, bukan logika gate).

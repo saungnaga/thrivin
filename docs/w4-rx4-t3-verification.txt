@@ -1,0 +1,180 @@
+W4RX4 T3 — `order_id = ''` dianggap "punya order" ⇒ kunci idempotensi nyangkut permanen
+dan klien menerima `200 { orderId: "", paymentUrl: <link order LAMA> }`.
+Temuan T3 delta-review 4 Sentinel (kartu induk t_3f91103d; laporan
+~/obsidian/kantor-ai/projects/thrivin/security/review-w4-rx4-fw41b-2026-10-17.md).
+Kartu: t_42e00da2 (forge), dipisah dari kartu index T1 (t_e57ee77b) dan T2 (t_91e53bfe).
+Severity LOW, jalur uang.
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15
+
+Semua uji di harness LOKAL (Postgres lokal + PostgREST lokal + mock Scalev lokal).
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
+nol Scalev nyata, nol push/merge/deploy. Mutasi uji DIREVERT (bagian 3).
+Isolasi worktree ini apa adanya (tests/harness/isolate.mts): db
+thrivin_test_w4_consent_gate_e92cbc, port base 48180.
+
+==============================================================================
+1. Akar + fix (pilihan yang diambil dan alasannya)
+==============================================================================
+Akar: cabang replay `claim_checkout_order` (langkah 2) memakai
+`v_existing.order_id IS NOT NULL` sebagai arti "baris ini sudah punya order".
+String kosong `''` MEMUASKAN `IS NOT NULL`, jadi baris `failed` yang `order_id`-nya
+`''`:
+  * menjawab `already_created` dengan `order_id = ''` + `payment_url` SISA ORDER
+    LAMA (blok retire 3b tidak mengosongkan `payment_url`) ⇒ route 200
+    `{orderId:"", paymentUrl:"<link lama>", replay:true}` — klien menganggap ada
+    order, dan UI (`onboarding/[step]/page.tsx:536-549`) redirect ke `paymentUrl`
+    itu;
+  * TIDAK bisa dipakai ulang secara sah: pemakaian ulang hanya dicapai lewat
+    cabang "failed TANPA order" di bawahnya, dan pemeriksaan itu dilewati ⇒ kunci
+    idempotensi nyangkut PERMANEN (nomor/kunci itu tidak punya jalan keluar
+    selain tiket CS).
+Jangkauan: hanya RPC langsung. `complete_checkout_claim` satu-satunya penulis
+`order_id`, dan pemanggilnya (`src/app/api/scalev/create-order/route.ts:540,584-595`)
+memakai `orderData.order_id || orderData.id || null` lalu melepas klaim kalau
+kosong. Jadi ini penguatan invariant, bukan bug yang terpicu UI.
+
+=== Pilihan fix: NULLIF di jalur BACA (bukan CHECK di tabel) ===
+Diambil (kartu menawarkan dua): satu baris di cabang replay,
+
+  v_existing.order_id := NULLIF(v_existing.order_id, '');
+
+Alasan (dan kenapa BUKAN `CHECK (order_id <> '')` di tabel):
+1. Nol risiko pada DATA yang sudah ada. `checkout_claims` dibuat dengan
+   `CREATE TABLE IF NOT EXISTS`, jadi CHECK baru HANYA masuk ke DB segar —
+   untuk DB yang sudah ada perlu `ALTER TABLE … ADD CONSTRAINT`. Versi `NOT VALID`
+   pun tetap DIPERIKSA pada setiap baris yang di-UPDATE: baris warisan
+   `order_id=''` akan membuat UPDATE jalur uang gagal (retire 3b baris 506,
+   `mark_checkout_claim_paid`, pemakaian ulang langkah 2) ⇒ ERROR mentah di jalur
+   uang, bukan penolakan rapi. Versi validasi penuh jelas lebih buruk: apply
+   gagal di DB yang punya baris `''`. Kartu meminta heartbeat kalau CHECK akan
+   menolak data lama: benar — karena itu pilihan itu TIDAK diambil, dan
+   pembersihan/validasi data adalah keputusan ops, bukan kartu LOW ini.
+2. Perilaku yang diminta kartu ("baris `failed` dengan `order_id=''` tetap boleh
+   diklaim ulang") hanya butuh jalur baca; menutup jalur tulis justru mengubah
+   kegagalan jauh dari pemanggil (RPC langsung dapat ERROR 500 alih-alih jawaban
+   yang bisa ditangani).
+3. Preseden di file yang sama: `mark_checkout_claim_paid` (baris 651) sudah
+   memperlakukan `order_id` kosong sebagai BUKAN order (`IF p_order_id IS NULL OR
+   length(p_order_id) = 0 THEN RETURN json_build_object('status',
+   'invalid_order')`). Normalisasi di replay memakai aturan yang sama, di satu
+   titik masuk, tanpa signature baru.
+4. Diff tetap ~1 baris + komentar; kartu ini LOW dan tujuannya penguatan
+   invariant, bukan perubahan skema.
+
+Sengaja SEMPIT, dan tidak melebar ke cabang `created`: status `created` MENGAKU
+ada order (barisnya lahir dari `complete_checkout_claim`). Baris `created` tanpa
+`order_id` TIDAK digrant ulang oleh fix ini — melepasnya berarti mencetak order
+KEDUA untuk baris yang statusnya bilang order sudah ada. Trade-off-nya jujur
+dicatat di bagian 4 (residual).
+
+Nol perubahan signature: `claim_checkout_order` tetap pronargs=7, satu overload,
+nol GRANT berubah. Nol perubahan `src/`.
+
+==============================================================================
+2. Bukti positif (jalur app)
+==============================================================================
+2a. SQL gate consent/checkout: **113 PASS, 0 FAIL**, EXIT=0  (/tmp/w4t3-postfix-sql.log)
+    (+7 asersi dibanding pra-kartu 106: blok "T3" = 7 asersi; suite yang sama,
+    hanya skema + asersi yang berbeda.)
+2b. e2e gate consent/checkout (HTTP → PostgREST → Postgres, mock Scalev):
+    **158 PASS, 0 FAIL**, EXIT=0 pada SETIAP run  (/tmp/w4t3-postfix-e2e.log,
+    /tmp/w4t3-mut-post-e2e.log, /tmp/w4t3-runall.log) — 3 run, 3/3 hijau.
+    (+10 asersi; blok "T3" = 10 asersi baru di e2e.)
+2c. Asersi T3 yang baru (jalur app, bukan RPC dengan parameter pilihan):
+    SQL suite — baris `''` disemai lewat SQL (bentuk yang dimaksud temuan; hanya RPC
+    langsung yang bisa menulisnya), selebihnya RPC asli `claim_checkout_order`:
+      - pra-syarat: klaim pertama `granted`, `status='failed'` + `order_id=''` tersimpan PASS
+      - replay kunci yang sama ⇒ `granted` (bukan `already_created`)      PASS
+      - jawaban TIDAK membawa `order_id` kosong sebagai "order"           PASS
+      - baris klaim yang SAMA dipakai ulang (kunci tidak nyangkut)        PASS
+      - tidak ada baris klaim kedua lahir                                 PASS
+      - klaim ulang memakai order yang BENAR-BENAR tercetak (`ord-T3-A`)   PASS
+    e2e suite (lewat HTTP `/api/scalev/create-order` + cookie sesi WA):
+      - pra-syarat order pertama 200 + punya orderId; baris dijadikan
+        `failed` + `order_id=''`                                          PASS
+      - retry kunci yang sama ⇒ **200** (dulu 200 juga, tapi palsu)        PASS
+      - `orderId` TIDAK kosong / tidak ada "order" palsu dari `''`         PASS
+      - `replay` bukan `true` (kunci dipakai untuk order BARU)             PASS
+      - tepat SATU order baru dicetak di mock Scalev                       PASS
+      - baris klaim yang sama dipakai ulang, statusnya `created`           PASS
+    Penjaga regresi yang ikut hijau di suite yang sama: `already_created` untuk
+    baris `failed` BER-order (F-W4-1b, §10(5b)), `reuse_unpaid`, `unpaid_conflict`,
+    `key_conflict` (F-S1), retry `failed` tanpa order (blok retry F-W4-1b,
+    tepat di atas blok T3), `already_paid` (T2), beli ulang sesudah lunas, gate
+    onboarding/T&C, retire TTL, `anon` ditolak, T1 dua sesi (§11).
+2d. `bash tests/run-all.sh` penuh: **ALL SUITES PASSED**, EXIT=0  (/tmp/w4t3-runall.log)
+      step 5/9 SQL gate consent/checkout: 113 PASS, 0 FAIL
+      step 9/9 e2e gate consent/checkout: 158 PASS, 0 FAIL
+      step 2/9 unit gate consent/checkout: 44 PASS, 0 FAIL (suite lain tak tersentuh)
+2e. `npx tsc --noEmit` EXIT=0 (/tmp/w4t3-tsc.log);
+    `npm run lint` (= tsc --noEmit) EXIT=0 (/tmp/w4t3-lint.log).
+2f. `staging/schema-consent.sql` vs `tests/harness/migrations/006-consent-gate.sql`
+    byte-identik (diff kosong) — salinan harness tidak boleh drift dari draft.
+
+==============================================================================
+3. Bukti negatif (mutasi pembalik: baris normalisasi dibuang)
+==============================================================================
+Reproduksi: `bash tests/harness/w4t3-mutation.sh`  (log: /tmp/w4t3-mutation.log)
+Yang dilakukan: SATU baris `v_existing.order_id := NULLIF(v_existing.order_id, '');`
+di staging/schema-consent.sql dihapus (satu hal saja — bukan revert commit), lalu
+`seed.sh --fresh` dan KEDUA suite dijalankan; sesudahnya file dipulihkan + seed
+ulang (trap EXIT).
+
+(a) SQL suite: **110 PASS / 3 FAIL**, EXIT=1  (/tmp/w4t3-mut-sql.log)
+      FAIL T3: `failed` dengan order_id KOSONG tetap boleh diklaim ulang
+               — expected "granted", got "already_created"
+      FAIL T3: jawaban TIDAK membawa order_id kosong sebagai 'order'
+               — {"status":"already_created","claim_id":"…","order_id":"","payment_url":null}
+      FAIL T3: klaim ulang memakai order yang BENAR-BENAR tercetak
+               — expected "ord-T3-A", got ""
+    Semua pra-syarat T3 HIJAU di run ini juga ⇒ yang berubah hanya jawabannya,
+    persis temuan T3 (bukan efek samping urutan).
+(b) e2e suite (jalur app, HTTP + mock Scalev): **153 PASS / 5 FAIL**, EXIT=1
+    (/tmp/w4t3-mut-e2e.log). Jawaban mentah pra-fix = temuan T3 apa adanya:
+      FAIL T3: ... orderId TIDAK kosong
+               — {"orderId":"","paymentUrl":"https://thrivin.myscalev.com/pay/test_12_…","replay":true}
+      FAIL T3: ... tidak ada 'order' palsu dari string kosong   (jawaban yang sama)
+      FAIL T3: ... bukan jalur replay palsu — expected undefined, got true
+      FAIL T3: tepat SATU order baru dicetak di Scalev — expected 1, got 0
+      FAIL T3: barisnya kini memegang order yang BENAR-BENAR tercetak
+               — expected "created", got "failed"
+    Dua hal yang temuan T3 TIDAK sebut dan terbaca di sini: (i) `paymentUrl`
+    yang dikirim itu SISA order lama (blok retire 3b tidak mengosongkannya), jadi
+    klien diarahkan ke halaman pembayaran order lama dengan `orderId` kosong;
+    (ii) nol panggilan Scalev (kolom `order_id=''` → `already_created` → route
+    memakai jalur replay). Risiko uang tetap nol (tak ada order kedua dicetak),
+    yang hilang adalah kebenaran status + akses keluar dari kunci itu.
+(c) Dijalankan juga pada pohon pra-fix APA ADANYA sebelum fix masuk (tanpa mutasi):
+    SQL **110 PASS / 3 FAIL** exit 1 (/tmp/w4t3-prefix-sql.log) dan e2e
+    **153 PASS / 5 FAIL** exit 1 (/tmp/w4t3-prefix-e2e.log) — asersi membuktikan
+    dirinya bergigi sebelum ada baris fix di file.
+(d) Sesudah dipulihkan (`normalisasi: ADA`): SQL 113 PASS / 0 FAIL dan e2e
+    158 PASS / 0 FAIL (/tmp/w4t3-mut-post-sql.log, /tmp/w4t3-mut-post-e2e.log).
+    `git status staging/schema-consent.sql` = perubahan ber-fix milik kartu ini
+    (nol sisa mutasi).
+
+==============================================================================
+4. Batasan & catatan jujur
+==============================================================================
+- RESIDUAL yang SENGAJA tidak disentuh (kartu ini LOW, jalur baca saja):
+  (a) baris `created` dengan `order_id` kosong/NULL: replay kunci itu masih
+      menjawab `already_created` dengan `order_id` kosong + `payment_url` sisa.
+      Tidak digrant ulang karena `created` MENGAKU ada order — melepasnya berarti
+      mencetak order kedua. Untuk kasus itu satu-satunya penutup yang benar adalah
+      invariant di jalur TULIS (CHECK), dan itu keputusan ops (bagian 1).
+  (b) langkah 6 (`reuse_unpaid`, kunci BERBEDA pada nomor yang sama) masih bisa
+      mengembalikan `order_id`/`payment_url` milik baris `created` yang
+      `order_id`-nya kosong. Sama: hanya bisa lahir dari RPC langsung.
+  Keduanya tidak bisa lahir dari jalur app yang ada; pembungkusnya = CHECK
+  `order_id <> ''` setelah data lama dibersihkan (ops).
+- `staging/schema-consent.sql` masih DRAFT; staging masih memuat badan fungsi
+  pra-fix. Jalur uang ⇒ apply ke staging/produksi = keputusan ops terpisah, dan
+  kartu ini WAJIB delta-review Sentinel sebelum merge/deploy.
+- Nol perubahan `src/`: kontrak route yang sudah ada (`granted` ⇒ cetak order,
+  `already_created` ⇒ replay tanpa panggilan Scalev) sudah benar; yang salah
+  adalah jawaban DB-nya. Asersi e2e memaku `orderId` tak boleh kosong supaya
+  kontrak itu tidak diam-diam kembali.
+- Bukan lingkup kartu ini: F-1 §4 urutan DDL fail-open (`t_3139e05f`),
+  F-2 re-grant replay tanpa `EXCEPTION` (`t_26909c87`), T5 link Scalev lama tetap
+  hidup setelah retire (F-W4-1c `t_16dd8537` / release `t_7a21689e`).

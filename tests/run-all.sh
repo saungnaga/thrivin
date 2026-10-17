@@ -12,24 +12,58 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 cd "$REPO"
 
+if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
+
+# RX2-4 R4: satu worktree = satu run pada satu waktu. Dua run dari worktree yang
+# sama berebut DB yang sama (DDL bersamaan) dan dulu baru gagal jauh di dalam
+# seed.sh; lock ini menggagalkannya di muka dengan pesan yang jelas. flock
+# dilepas otomatis saat proses mati, jadi tidak ada lock basi.
+export HARNESS_RUN_ID="${HARNESS_RUN_ID:-$$}"
+
+# DB / port / prefix /tmp per-worktree (RX2-2). Satu sumber kebenaran supaya
+# bash dan node tidak pernah menghitung nilai berbeda.
+eval "$(node --experimental-strip-types "$HERE/harness/isolate.mts" env)"
+echo "worktree: $HARNESS_SLUG  db: $HARNESS_PG_DB  port base: $HARNESS_PORT_BASE  run: $HARNESS_RUN_ID"
+
+# Lock per-worktree (RX2-4 R4). Kalau `flock` tidak ada, lewati — jangan bikin
+# gate gagal karena tooling opsional.
+if command -v flock >/dev/null; then
+  exec 9>"$TMP_PREFIX/run-all.lock"
+  if ! flock -n 9; then
+    echo "run-all SUDAH berjalan untuk worktree ini ($TMP_PREFIX/run-all.lock)." >&2
+    echo "Satu worktree = satu run pada satu waktu (docs/w4-rx2-4-verification.txt §4)." >&2
+    exit 1
+  fi
+fi
+
 echo "=============================================================="
-echo "1/9  harness: local Postgres stand-in + mock Scalev"
+echo "1/11 harness: local Postgres stand-in + mock Scalev"
 echo "=============================================================="
 bash "$HERE/harness/seed.sh"
 
-if ! command -v node >/dev/null; then echo "node is required" >&2; exit 1; fi
-
 echo
 echo "=============================================================="
-echo "2/9  unit checks (pure helpers + shipped-source properties)"
+echo "2/11 unit checks (pure helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-remediation-units.mts"
 node --experimental-strip-types "$HERE/test-wa-first-units.mts"
+node --experimental-strip-types "$HERE/test-consent-gate-units.mts"
+# F-W4-1c: klasifikasi hasil cancel + verifikasi response (nol DB/HTTP).
+node --experimental-strip-types "$HERE/test-cancel-ttl-units.mts"
+# F-W4-1c ronde V (V-7): streak sapuan yang tidak bisa disimpan wajib tetap ber-alert.
+# Stub HTTP lokal + child proses sapuan; nol DB.
+FW41C_V7_PROBE_PORT=$((HARNESS_PORT_BASE + 90)) node --experimental-strip-types "$HERE/harness/fw41c-v7-alert-probe.mts"
+# RX2-4: higiene harness — port wajib eksplisit, nol anak yatim, pemilik port
+# harus run ini (nol DB/HTTP nyata, ~2 s).
+node --experimental-strip-types "$HERE/test-harness-isolation.mts"
+# A6: teks legal yang dipublikasikan harus tetap = teks yang disetujui owner.
+node --experimental-strip-types "$HERE/test-legal-draft-shape.mts"
+# A8: feedback — helper/redaksi/batas input (nol DB/HTTP).
 node --experimental-strip-types "$HERE/test-feedback-units.mts"
 
 echo
 echo "=============================================================="
-echo "2b/9 copy checks (W1: pricing claims, promo label, guarantee)"
+echo "2b/11 copy checks (W1: pricing claims, promo label, guarantee)"
 echo "     source-level: COPY_ROOT=<tree> reruns against another revision"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-web-copy-units.mts"
@@ -37,50 +71,69 @@ node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
 
 echo
 echo "=============================================================="
-echo "2c/9 copy check, tree-wide (W1: retired price claims + promo gates)"
+echo "2c/11 copy check, tree-wide (W1: retired price claims + promo gates)"
 echo "     walks every shipped file, so new components are covered too"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-web-copy-treewide.mts"
 
 echo
 echo "=============================================================="
-echo "3/9  guard checks (existing redaction/replay helpers)"
+echo "3/11 guard checks (existing redaction/replay helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-webhook-guards.mts"
 
 echo
 echo "=============================================================="
-echo "4/9  promo SQL: atomic redeem, kuota, kedaluwarsa, race"
+echo "4/11 promo SQL: atomic redeem, kuota, kedaluwarsa, race"
 echo "    (own throwaway DB — redeems fired from parallel psql conns)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-promo-sql.mts"
 
 echo
 echo "=============================================================="
-echo "5/9  end-to-end: webhook routes -> PostgREST -> Postgres"
+echo "5/11 consent/checkout gate SQL: urutan, idempotensi, append-only,"
+echo "     single-flight klaim, hak akses anon"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-consent-gate-sql.mts"
+
+echo
+echo "=============================================================="
+echo "6/11 end-to-end: webhook routes -> PostgREST -> Postgres"
 echo "=============================================================="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo ">> next build"
-  npm run build >/tmp/thrivin-test-build.log 2>&1 || { tail -40 /tmp/thrivin-test-build.log; exit 1; }
+  npm run build >"$TMP_PREFIX/build.log" 2>&1 || { tail -40 "$TMP_PREFIX/build.log"; exit 1; }
   echo ">> build ok"
 fi
 node --experimental-strip-types "$HERE/test-webhook-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "6/9  end-to-end: promo (dashboard auth/CRUD + checkout + webhook)"
+echo "7/11 end-to-end: promo (dashboard auth/CRUD + checkout + webhook)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-promo-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "7/9  end-to-end: WA-first identity (OTP mock) + status + kandidat promo"
+echo "8/11 end-to-end: WA-first identity (OTP mock) + status + kandidat promo"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-wa-first-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "8/9  end-to-end: /api/feedback + /companion/nina/kritiksaran (A8)"
+echo "9/11 end-to-end: checkout gate + consent (T&C wajib, opt-in terpisah)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-consent-gate-e2e.mts"
+
+echo
+echo "=============================================================="
+echo "10/11 end-to-end: cancel order Scalev saat TTL retire (F-W4-1c)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-cancel-ttl-e2e.mts"
+
+echo
+echo "=============================================================="
+echo "11/11 end-to-end: /api/feedback + /companion/nina/kritiksaran (A8)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-feedback-e2e.mts"
 

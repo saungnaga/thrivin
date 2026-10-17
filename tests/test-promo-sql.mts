@@ -13,10 +13,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
+// Nama DB per-worktree (RX2-2): dua worktree bisa jalan bersamaan.
+import { PROMO_DB as DB } from "./harness/isolate.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
-const DB = process.env.HARNESS_PROMO_DB || "thrivin_promo_test";
 /**
  * Skema yang diuji. Bisa diarahkan ke file lain lewat `PROMO_SCHEMA_PATH` —
  * dipakai untuk UJI KEBALIKAN: jalankan suite ini terhadap skema PRA-FIX

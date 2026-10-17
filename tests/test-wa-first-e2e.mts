@@ -40,8 +40,10 @@ import {
   ANON_KEY,
   SERVICE_KEY,
   POSTGREST_URL,
+  PORTS,
   startPostgrest,
   psqlSuper,
+  tmpPath,
 } from "./harness/stack.mts";
 import {
   catalogPlans,
@@ -51,13 +53,13 @@ import {
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 
-const APP_PORT = Number(process.env.HARNESS_WA_APP_PORT || 3986);
-const BROKEN_APP_PORT = Number(process.env.HARNESS_WA_BROKEN_APP_PORT || 3987);
-const NOPROVIDER_APP_PORT = Number(process.env.HARNESS_WA_NOPROVIDER_PORT || 3985);
+const APP_PORT = Number(process.env.HARNESS_WA_APP_PORT || PORTS.waApp);
+const BROKEN_APP_PORT = Number(process.env.HARNESS_WA_BROKEN_APP_PORT || PORTS.waBroken);
+const NOPROVIDER_APP_PORT = Number(process.env.HARNESS_WA_NOPROVIDER_PORT || PORTS.waNoProvider);
 /** Instance dengan KUOTA DEFAULT app (WA_OTP_MAX_PER_HOUR tidak di-set → 5). */
-const QUOTA_APP_PORT = Number(process.env.HARNESS_WA_QUOTA_PORT || 3988);
+const QUOTA_APP_PORT = Number(process.env.HARNESS_WA_QUOTA_PORT || PORTS.waQuota);
 /** Instance produksi + provider mock TANPA pintu darurat (harus gagal-tertutup). */
-const MOCKPROD_APP_PORT = Number(process.env.HARNESS_WA_MOCKPROD_PORT || 3989);
+const MOCKPROD_APP_PORT = Number(process.env.HARNESS_WA_MOCKPROD_PORT || PORTS.waMockProd);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const BROKEN_URL = `http://127.0.0.1:${BROKEN_APP_PORT}`;
 const NOPROVIDER_URL = `http://127.0.0.1:${NOPROVIDER_APP_PORT}`;
@@ -70,15 +72,16 @@ const ADMIN_USER = "promo-admin";
 const ADMIN_PASS = "promo-admin-pass-1234";
 const ADMIN_SECRET = "promo-session-secret-at-least-32-chars-long";
 
-const SINK = "/tmp/thrivin-wa-first-otp-sink.jsonl";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const SINK = tmpPath("wa-otp-sink.jsonl");
 /** Sink terpisah: instance kuota default (F-1) dan instance mock-di-produksi. */
-const QUOTA_SINK = "/tmp/thrivin-wa-first-quota-sink.jsonl";
-const MOCKPROD_SINK = "/tmp/thrivin-wa-first-mockprod-sink.jsonl";
-const LOG_FILE = "/tmp/thrivin-wa-first-server.log";
-const BROKEN_LOG = "/tmp/thrivin-wa-first-broken.log";
-const NOPROVIDER_LOG = "/tmp/thrivin-wa-first-noprovider.log";
-const QUOTA_LOG = "/tmp/thrivin-wa-first-quota.log";
-const MOCKPROD_LOG = "/tmp/thrivin-wa-first-mockprod.log";
+const QUOTA_SINK = tmpPath("wa-quota-sink.jsonl");
+const MOCKPROD_SINK = tmpPath("wa-mockprod-sink.jsonl");
+const LOG_FILE = tmpPath("wa-server.log");
+const BROKEN_LOG = tmpPath("wa-broken.log");
+const NOPROVIDER_LOG = tmpPath("wa-noprovider.log");
+const QUOTA_LOG = tmpPath("wa-quota.log");
+const MOCKPROD_LOG = tmpPath("wa-mockprod.log");
 /** Port yang tidak ada apa-apa: mensimulasikan Supabase/upstream mati. */
 const DEAD_SUPABASE = "http://127.0.0.1:59997";
 

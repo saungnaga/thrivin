@@ -4,6 +4,14 @@ import Link from "next/link";
 import { ArrowLeft, ShieldCheck, Lock, CheckCircle2 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import {
+  CS_HOURS,
+  LEGAL_ADDRESS,
+  LEGAL_ENTITY,
+  LEGAL_LAST_UPDATED,
+  TERMS_PATH,
+  TERMS_VERSION,
+} from "@/lib/legal";
 
 export default function PrivacyPage() {
   return (
@@ -30,7 +38,9 @@ export default function PrivacyPage() {
             Kebijakan Privasi Thrivin
           </h1>
           <p className="text-xs sm:text-sm text-text-secondary">
-            Terakhir diperbarui: Oktober 2026. Kami berkomitmen menjaga data pribadimu tetap aman.
+            Terakhir diperbarui: {LEGAL_LAST_UPDATED} (versi{" "}
+            <span className="font-mono">{TERMS_VERSION}</span>). Kami berkomitmen menjaga data pribadimu
+            tetap aman.
           </p>
         </div>
 
@@ -40,7 +50,10 @@ export default function PrivacyPage() {
             <Lock className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
             <div>
               <strong className="font-bold block mb-0.5">Komitmen Privasi Utama:</strong>
-              Data nomor WhatsApp, foto makanan, riwayat olahraga, dan percakapan pribadimu dengan AI Companion 100% aman, dienkripsi, dan tidak pernah dijual atau disebarkan ke pengiklan pihak ketiga mana pun.
+              Data nomor WhatsApp, foto makanan, riwayat olahraga, dan percakapan pribadimu dengan AI
+              Companion dienkripsi saat dikirim, tidak pernah dijual, dan tidak disebarkan ke pengiklan
+              pihak ketiga. Data hanya diteruskan ke pihak yang diperlukan untuk menjalankan layanan
+              (lihat pasal 6).
             </div>
           </div>
 
@@ -56,7 +69,19 @@ export default function PrivacyPage() {
                 <strong>Data Profil Fisik & Target:</strong> Usia, berat, tinggi, fokus program, dan tingkat aktivitas untuk kalkulasi blueprint metabolisme harian (TDEE dan target protein).
               </li>
               <li>
-                <strong>Media yang Kamu Kirim:</strong> Foto makanan untuk estimasi kalori dan tangkapan layar Strava/smartwatch untuk evaluasi olahraga harian.
+                <strong>Preferensi Panggilan:</strong> nama panggilan yang kamu isi, dipakai Nina untuk menyapamu.
+              </li>
+              <li>
+                <strong>Status Persetujuan:</strong> catatan kapan dan dari mana kamu menyetujui Syarat &amp; Ketentuan serta pengingat WhatsApp, termasuk versi teks yang kamu lihat. Catatan ini bersifat <em>append-only</em>: kami menambah baris baru, tidak menimpa riwayat.
+              </li>
+              <li>
+                <strong>Kanal WhatsApp &amp; Catatan Kanal:</strong> jenis kanal yang kamu pakai (WhatsApp Business/Cloud API atau kanal WhatsApp lain), ID nomor pengirim untuk kanal Cloud, serta waktu pesan masuk terakhir. Data ini dipakai untuk menentukan apakah Nina boleh mengirim pesan bebas di luar template resmi.
+              </li>
+              <li>
+                <strong>Status Pengingat:</strong> ikut/tidak ikut pengingat proaktif — pilihan ini terpisah dari persetujuan transaksi.
+              </li>
+              <li>
+                <strong>Media yang Kamu Kirim:</strong> foto makanan untuk estimasi kalori dan tangkapan layar Strava/smartwatch untuk evaluasi olahraga harian. Tangkapan layar aktivitas diperlakukan sebagai <strong>data sensitif</strong>: tidak dipakai untuk melatih model dan dihapus bersama akunmu.
               </li>
             </ul>
           </section>
@@ -77,19 +102,81 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              3. Garansi Uang Kembali 3 Hari
+              3. Pengingat WhatsApp &amp; Cara Berhenti
             </h2>
             <p>
-              Kami mengutamakan kepuasan pengguna. Jika dalam 3 hari pertama setelah pembelian kamu merasa pendampingan AI Companion tidak cocok dengan kebutuhanmu, kamu berhak mengajukan klaim garansi pengembalian dana 100% tanpa pertanyaan berbelit.
+              Pengingat proaktif dari Nina bersifat <strong>opsional</strong>: hanya dikirim kalau kamu
+              mengaktifkannya sendiri lewat kotak centang terpisah saat checkout, dan menolaknya tidak
+              menghalangi pembelian. Pengingat hanya dikirim antara <strong>07.00–21.00</strong> waktu
+              lokal, dengan jeda minimal 20 jam antar pengingat.
+            </p>
+            <p>
+              Kamu bisa berhenti kapan saja: tekan tombol berhenti pada pesan pengingat (berlaku
+              langsung), atau balas <span className="font-mono">BERHENTI</span>/
+              <span className="font-mono">STOP</span> — untuk kata kunci, kami minta konfirmasi singkat
+              dulu. Setelah berhenti, kamu tetap bisa memakai layanan, dan bisa mengaktifkan kembali
+              lewat Customer Service.
             </p>
           </section>
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              4. Hubungi Kami
+              4. Garansi Uang Kembali 3 Hari
+            </h2>
+            <p>
+              Kami mengutamakan kepuasan pengguna. Dalam <strong>72 jam</strong> sejak pembayaran kami
+              terima, kamu berhak mengajukan pengembalian dana <strong>100% tanpa potongan</strong> kalau
+              merasa pendampingan Nina tidak cocok dengan kebutuhanmu. Klaim diajukan lewat Customer
+              Service WhatsApp dan diproses maksimal 3 hari kerja setelah data klaim lengkap.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="font-serif text-xl font-bold text-brand-950">
+              5. Berapa Lama Kami Menyimpan Data
+            </h2>
+            <p>
+              Setelah langgananmu berakhir, data profil dan media disimpan paling lama{" "}
+              <strong>30 hari</strong> sebelum dihapus atau dianonimkan. Kamu bisa meminta akses, salinan,
+              atau penghapusan data lewat Customer Service WhatsApp — permintaan diproses maksimal{" "}
+              <strong>7 hari</strong>. Menghapus akun juga menghapus tangkapan layar aktivitas yang kamu
+              kirim.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="font-serif text-xl font-bold text-brand-950">
+              6. Pihak Ketiga yang Kami Pakai
+            </h2>
+            <p>
+              Untuk memproses pembelian kami memakai penyedia pembayaran <strong>Scalev</strong>; untuk
+              mengirim pesan WhatsApp kami memakai kanal <strong>Meta</strong> (WhatsApp Business). Data
+              minimum yang diperlukan (nama, nomor WhatsApp, dan rincian paket) diteruskan ke penyedia
+              tersebut. Syarat &amp; kebijakan privasi mereka berlaku pada layanan mereka. Profil
+              kesehatanmu (berat, tinggi, usia) sengaja <strong>tidak</strong> dikirim ke penyedia
+              pembayaran.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="font-serif text-xl font-bold text-brand-950">
+              7. Perubahan Kebijakan &amp; Versi
+            </h2>
+            <p>
+              Kalau kebijakan ini berubah secara material, kami memberitahukan lewat WhatsApp dan halaman
+              ini sebelum berlaku. Versi teks yang kamu setujui tersimpan bersama bukti persetujuanmu
+              (nomor terverifikasi, timestamp server, nilai persetujuan, dan sumbernya).
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="font-serif text-xl font-bold text-brand-950">
+              8. Hubungi Kami
             </h2>
             <p className="leading-relaxed">
-              Jika memiliki pertanyaan mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun, silakan{" "}
+              Layanan ini disediakan oleh {LEGAL_ENTITY} ({LEGAL_ADDRESS}). Jika memiliki pertanyaan
+              mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun,
+              silakan{" "}
               <a
                 href="https://wa.me/6287788141388?text=Halo%20Customer%20Service%20Thrivin,%20saya%20punya%20pertanyaan%20seputar%20kebijakan%20privasi%20atau%20data%20akun"
                 target="_blank"
@@ -97,7 +184,12 @@ export default function PrivacyPage() {
                 className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2"
               >
                 hubungi Customer Service Thrivin via WhatsApp
-              </a>.
+              </a>{" "}
+              pada jam {CS_HOURS}. Syarat &amp; Ketentuan layanan ada di{" "}
+              <Link href={TERMS_PATH} className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
+                halaman Syarat &amp; Ketentuan
+              </Link>{" "}
+              (versi <span className="font-mono">{TERMS_VERSION}</span>).
             </p>
           </section>
         </div>

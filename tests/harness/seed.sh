@@ -4,12 +4,18 @@
 #   ./tests/harness/seed.sh          # create db + apply migrations (idempotent)
 #   ./tests/harness/seed.sh --fresh  # drop and recreate first
 #
+# Nama DB diturunkan dari path worktree (tests/harness/isolate.mts) supaya dua
+# worktree bisa `run-all` bersamaan tanpa berebut Postgres (RX2-2). Override
+# dengan HARNESS_PG_DB.
+#
 # Migrations applied in order:
 #   001-core-schema.sql          users/subscriptions/subscription_plans (harness core)
 #   002-webhook-onboarding.sql   webhook_events_inbox + onboarding_snapshots + purge (from staging/)
 #   003-harness-grants.sql       harness-only: mirrors Supabase default grants
 #   004-promo-codes.sql          promo dashboard/quota schema (copy from staging/)
 #   005-wa-identity.sql          WA-first identity/OTP/session schema (copy from staging/)
+#   006-consent-gate.sql         checkout consent gate schema (copy from staging/)
+#   007-fw41c-cancel.sql         F-W4-1c additif: state/lease cancel order (copy from staging/)
 #   008-feedback-kritiksaran.sql feedback table + grant/RLS (DRAFT copy from staging/)
 #   009-harness-feedback-anon-grant.sql  harness-only: anon/authenticated get SELECT on
 #                                the NEW table, exactly like Supabase. Without it the
@@ -22,7 +28,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-DB="${HARNESS_PG_DB:-thrivin_remediation_test}"
+DB="${HARNESS_PG_DB:-$(node --experimental-strip-types "$HERE/isolate.mts" db)}"
 
 FRESH=0
 for a in "$@"; do [ "$a" = "--fresh" ] && FRESH=1; done
@@ -39,6 +45,10 @@ if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB';"
   run_pg postgres -c "CREATE DATABASE $DB OWNER postgres;"
 fi
 
+# Fungsi yang signature-nya berubah menyisakan overload lama di DB yang sudah
+# ada -> panggilan tanpa cast jadi ambigu. Lihat drop-stale.sql.
+run_pg "$DB" -f - < "$HERE/drop-stale.sql" >/dev/null
+
 # Keep the harness copies in lock-step with the schema under review. Copying
 # (instead of hand-maintaining a second file) is what keeps the leak/quota tests
 # honest: the harness runs the exact draft that is going to be applied.
@@ -46,6 +56,11 @@ cp "$REPO/staging/schema-webhook-onboarding.sql" "$HERE/migrations/002-webhook-o
 cp "$REPO/staging/schema-promo-codes.sql" "$HERE/migrations/004-promo-codes.sql"
 cp "$REPO/staging/schema-wa-identity.sql" "$HERE/migrations/005-wa-identity.sql"
 cp "$REPO/staging/schema-feedback-kritiksaran.sql" "$HERE/migrations/008-feedback-kritiksaran.sql"
+cp "$REPO/staging/schema-consent.sql" "$HERE/migrations/006-consent-gate.sql"
+# F-W4-1c: migrasi cancel (aditif). Diapply SESUDAH schema-consent di sini karena
+# file 006 sudah memuat state/kolom/index baru; file 007 tetap ikut dijalankan
+# supaya jalur apply-untuk-DB-lama (007 lalu 006) ikut diuji oleh harness.
+cp "$REPO/staging/migration-fw41c-cancel.sql" "$HERE/migrations/007-fw41c-cancel.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"

@@ -16,9 +16,19 @@ import {
   redeemPromo,
   releasePromo,
 } from "@/lib/promo";
-import { validateOnboardingProfile } from "@/lib/validate-onboarding";
 import { limitRequest } from "@/lib/rate-limit";
-import { saveOnboardingSnapshot, redactError } from "@/lib/onboarding-store";
+import { saveOnboardingSnapshot, redactError, type OnboardingProfile } from "@/lib/onboarding-store";
+import { getWaSessionPhone } from "@/lib/wa-session";
+import {
+  authoritativeProfile,
+  claimCheckoutOrder,
+  completeCheckoutClaim,
+  getOnboardingProgress,
+  releaseCheckoutClaim,
+  type ClaimOutcome,
+} from "@/lib/checkout-gate";
+import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
+import { TERMS_VERSION } from "@/lib/consent";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
@@ -99,9 +109,26 @@ function planKeyFromVariantPrice(price: number): PlanKey | null {
 }
 
 export async function POST(req: Request) {
+  // Klaim single-flight milik percobaan ini; dilepas kalau order eksternal gagal
+  // (atau exception) supaya nomor tidak terkunci oleh percobaan yang mati.
+  let activeClaimId: string | null = null;
+  /** Lepas klaim percobaan ini (kalau ada). Satu jalur, satu null-check. */
+  const releaseActiveClaim = async () => {
+    if (activeClaimId) {
+      await releaseCheckoutClaim(activeClaimId);
+      activeClaimId = null;
+    }
+  };
   try {
     const body = await req.json();
-    const { planId, customerName, customerPhone, promoCode, checkPromoOnly, onboarding } = body;
+    const {
+      planId,
+      customerName,
+      customerPhone,
+      promoCode,
+      checkPromoOnly,
+      idempotencyKey,
+    } = body;
 
     const apiKey = process.env.SCALEV_API_KEY;
     if (!apiKey) {
@@ -137,16 +164,41 @@ export async function POST(req: Request) {
     }
     const plan = planId;
 
-    // B-2: server-side validation of the onboarding profile. 400 on anything
-    // outside the documented ranges/enums — the browser form is not a control.
-    const validated = validateOnboardingProfile(onboarding);
-    if (!validated.ok) {
+    // ── A2: pintu identitas. Nomor pelanggan WAJIB nomor sesi terverifikasi ──
+    // Langkah 1: kunci idempotensi. Tanpa ini, klik dua kali / retry jaringan
+    // bisa mencetak dua order di Scalev.
+    const cleanIdempotencyKey =
+      typeof idempotencyKey === "string" ? idempotencyKey.trim().slice(0, 200) : "";
+    if (cleanIdempotencyKey.length < 8) {
       return NextResponse.json(
-        { error: "Data onboarding tidak valid.", code: "INVALID_ONBOARDING", details: validated.errors },
+        { error: "Kunci idempotensi checkout tidak ada/terlalu pendek.", code: "IDEMPOTENCY_KEY_REQUIRED" },
         { status: 400 }
       );
     }
-    const onboardingProfile = validated.profile;
+
+    // Langkah 2: sesi server (cookie HMAC hasil verifikasi OTP). Tidak ada state
+    // onboarding dari body yang dipercaya di bawah ini.
+    const sessionPhone = await getWaSessionPhone();
+    if (!sessionPhone) {
+      return NextResponse.json(
+        {
+          error: "Sesi tidak valid atau kedaluwarsa. Verifikasi nomor WhatsApp dulu.",
+          code: "SESSION_REQUIRED",
+        },
+        { status: 401 }
+      );
+    }
+    if (cleanPhone !== sessionPhone) {
+      // Nomor di body bukan nomor sesi: request ini bukan milik pemilik sesi.
+      return NextResponse.json(
+        { error: "Nomor tidak cocok dengan sesi terverifikasi.", code: "PHONE_SESSION_MISMATCH" },
+        { status: 403 }
+      );
+    }
+
+    // Profil otoritatif diambil dari langkah onboarding yang TERSIMPAN di server
+    // setelah klaim di bawah; `body.onboarding` diabaikan sepenuhnya.
+    let onboardingProfile: OnboardingProfile | null = null;
 
     // Harga katalog server (B-2). Client `amount` diabaikan sepenuhnya.
     const variant = await lookupVariant(storeId, apiKey, plan);
@@ -238,6 +290,215 @@ export async function POST(req: Request) {
       });
     }
 
+    // ── A2: GATE otoritatif sebelum efek samping eksternal ───────────────────
+    // Satu panggilan RPC atomik memutuskan: langkah wajib lengkap (dari baris
+    // `onboarding_progress`, bukan dari body), T&C versi `terms-2026-10-15-v1`
+    // sudah tersimpan, dan klaim single-flight per idempotency key didapat.
+    // Urutan ini SENGAJA sebelum Scalev: gate gagal = tidak ada order, tidak ada
+    // kursi promo yang diklaim, tidak ada sukses palsu.
+    const claimOnce = () =>
+      claimCheckoutOrder({
+        phone: sessionPhone,
+        planKey,
+        idempotencyKey: cleanIdempotencyKey,
+        termsVersion: TERMS_VERSION,
+      });
+
+    // F-W4-1c: kalau gate menjawab nomor ini punya order basi yang cancel-nya
+    // BELUM terbukti, worker cancel dijalankan lebih dulu. Gate diulang SEKALI
+    // hanya jika seluruh baris yang perlu dicancel sudah terverifikasi `canceled`
+    // — bukan karena status code upstream enak dilihat.
+    let claim: ClaimOutcome;
+    let cancelBlocked: "breaker" | "unconfigured" | null = null;
+    let cancelRun: CancelRunResult | null = null;
+    try {
+      claim = await claimOnce();
+      if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
+        const run = await cancelStaleOrders({ phone: sessionPhone });
+        cancelRun = run;
+        if (run.circuitOpen) cancelBlocked = "breaker";
+        else if (run.unconfigured) cancelBlocked = "unconfigured";
+        else if (claim.status === "cancel_pending" && run.resolvedAll) claim = await claimOnce();
+      }
+    } catch (err) {
+      // Gate tidak bisa dipercaya ⇒ TIDAK ada order. Bukan "lanjut saja".
+      console.error("[checkout-gate] gagal memverifikasi gate:", redactError(err));
+      claim = { status: "error", detail: String(err) };
+    }
+
+    if (claim.status === "already_created") {
+      // Replay: kembalikan order yang SAMA. Tidak ada panggilan Scalev kedua.
+      return NextResponse.json({
+        orderId: claim.orderId,
+        paymentUrl: claim.paymentUrl,
+        replay: true,
+      });
+    }
+    if (claim.status === "reuse_unpaid") {
+      // F-W4-1(a): nomor ini masih punya order BELUM DIBAYAR untuk paket yang
+      // sama. Kunci baru dikembalikan ke order/link itu — tidak ada order kedua
+      // yang bisa dibayar. Tidak ada panggilan Scalev.
+      return NextResponse.json({
+        orderId: claim.orderId,
+        paymentUrl: claim.paymentUrl,
+        replay: true,
+        unpaidOrderReused: true,
+      });
+    }
+    if (claim.status === "unpaid_conflict") {
+      // F-W4-1(a): paket BEDA dari order yang masih belum dibayar ⇒ blokir
+      // eksplisit. Tanpa orderId/paymentUrl: tidak ada data order yang dibocorkan.
+      return NextResponse.json(
+        {
+          error:
+            "Masih ada pesanan yang belum dibayar untuk paket lain. Selesaikan atau bayar pesanan itu dulu sebelum ganti paket.",
+          code: "UNPAID_ORDER_EXISTS",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "already_paid") {
+      // W4RX4 T2: kunci ini milik order yang SUDAH LUNAS. Tidak ada
+      // orderId/paymentUrl di jawaban — kalau ada, UI akan melempar pembeli ke
+      // halaman pembayaran order yang sudah dibayar. 409 (bukan 200) supaya UI
+      // yang sudah ada berhenti di jalur error, bukan redirect.
+      console.warn("[checkout-gate] replay kunci order yang sudah lunas:", claim.claimId);
+      return NextResponse.json(
+        {
+          error:
+            "Langganan kamu sudah aktif untuk pesanan ini — tidak perlu bayar lagi. Cek WhatsApp kamu untuk akses Nina.",
+          code: "ALREADY_PAID",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "in_flight") {
+      return NextResponse.json(
+        {
+          error: "Pesanan sebelumnya masih diproses. Tunggu sebentar lalu muat ulang halaman.",
+          code: "ORDER_IN_FLIGHT",
+        },
+        { status: 409 }
+      );
+    }
+    // F-W4-1c: nomor ini punya order basi yang cancel-nya BELUM tuntas. Worker
+    // sudah dijalankan di atas; kalau masih di sini, cancel tidak (belum) bisa
+    // dipercaya ⇒ JANGAN cetak order kedua. 423 untuk yang terminal (butuh owner),
+    // 409 untuk yang masih pending (boleh dicoba lagi nanti).
+    if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
+      if (cancelBlocked) {
+        // Credential cancel hilang / breaker 401: masalah KONFIGURASI, bukan nomor
+        // pelanggan. Fail-closed + alarm; jangan mengunci nomor satu per satu.
+        console.error(
+          `[checkout-gate] cancel tidak tersedia (${cancelBlocked}) — checkout ditahan (fail-closed)`
+        );
+        return NextResponse.json(
+          {
+            error: "Verifikasi pesanan sebelumnya belum bisa diselesaikan. Coba lagi sebentar lagi.",
+            code: "CANCEL_UNAVAILABLE",
+          },
+          { status: 503 }
+        );
+      }
+      if (claim.status === "cancel_failed" || (cancelRun?.failed ?? 0) > 0) {
+        // Terminal: worker sudah mencatat `cancel_failed` untuk baris ini (atau
+        // barisnya memang sudah terminal sebelum request ini). Butuh owner.
+        return NextResponse.json(
+          {
+            error:
+              "Pesanan lama kamu perlu diselesaikan manual dulu sebelum bisa membuat pesanan baru. Hubungi CS Thrivin.",
+            code: "ORDER_CANCEL_FAILED",
+          },
+          { status: 423 }
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "Pesanan lama kamu sedang dibatalkan. Tunggu sebentar lalu muat ulang halaman.",
+          code: "ORDER_CANCEL_PENDING",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "checkout_reconciliation") {
+      // M-2: order lama tercatat tanpa link/ID lengkap. Jangan mengarang link baru
+      // (bisa mencetak order kedua) — tahan sampai ops menyelesaikan barisnya.
+      console.warn("[checkout-gate] baris klaim tidak lengkap — tahan untuk rekonsiliasi:", claim.claimId);
+      return NextResponse.json(
+        {
+          error: "Pesanan sebelumnya perlu diverifikasi tim kami. Hubungi CS Thrivin.",
+          code: "CHECKOUT_RECONCILIATION",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "key_conflict") {
+      // F-S1: Kunci idempotensi pernah dipakai nomor lain — tolak tanpa mengembalikan
+      // data apa pun (orderId / paymentUrl).
+      return NextResponse.json(
+        {
+          error: "Kunci idempotensi sudah pernah digunakan oleh nomor lain.",
+          code: "IDEMPOTENCY_KEY_CONFLICT",
+        },
+        { status: 409 }
+      );
+    }
+    if (claim.status === "incomplete_onboarding") {
+      return NextResponse.json(
+        {
+          error: "Profil belum lengkap. Selesaikan semua langkah dulu.",
+          code: "INCOMPLETE_ONBOARDING",
+          missingSteps: claim.missingSteps,
+        },
+        { status: 400 }
+      );
+    }
+    if (claim.status === "consent_required") {
+      return NextResponse.json(
+        {
+          error: "Persetujuan Syarat & Ketentuan versi terbaru belum tercatat.",
+          code: "CONSENT_REQUIRED",
+        },
+        { status: 400 }
+      );
+    }
+    if (claim.status === "error") {
+      return NextResponse.json(
+        { error: "Gate checkout tidak bisa diverifikasi.", code: "GATE_UNAVAILABLE" },
+        { status: 503 }
+      );
+    }
+
+    activeClaimId = claim.claimId;
+
+    // Profil otoritatif: dari langkah yang tersimpan, divalidasi ULANG dengan
+    // validator profil checkout. Body `onboarding` tidak pernah dibaca.
+    let progress;
+    try {
+      progress = await getOnboardingProgress(sessionPhone);
+    } catch (err) {
+      await releaseActiveClaim();
+      console.error("[checkout-gate] gagal membaca progress:", redactError(err));
+      return NextResponse.json(
+        { error: "Profil tidak bisa diverifikasi sekarang.", code: "GATE_UNAVAILABLE" },
+        { status: 503 }
+      );
+    }
+    const authoritative = authoritativeProfile(progress.steps, sessionPhone);
+    if (!authoritative.ok) {
+      await releaseActiveClaim();
+      return NextResponse.json(
+        {
+          error: "Profil onboarding tidak valid. Ulangi langkah yang belum benar.",
+          code: "INVALID_ONBOARDING",
+          details: authoritative.errors,
+        },
+        { status: 400 }
+      );
+    }
+    onboardingProfile = authoritative.profile as OnboardingProfile;
+
     // Klaim kuota: atomik di dalam RPC (baris promo dikunci FOR UPDATE). Kalau
     // kalah race — kuota baru saja habis, atau nomor lain menyerobot slot
     // terakhir — checkout DITOLAK dengan pesan jelas.
@@ -250,6 +511,11 @@ export async function POST(req: Request) {
         dryRun: false,
       });
       if (promo.status !== "ok") {
+        // Klaim gate sudah diambil: WAJIB dilepas di sini juga. Tanpa ini,
+        // penolakan promo (kuota habis / kode sudah dipakai / nomor sudah pakai)
+        // mengunci nomor pelanggan selama TTL in-flight (10 menit) — checkout
+        // ulang dijawab 409 ORDER_IN_FLIGHT padahal tidak ada order apa pun.
+        await releaseActiveClaim();
         return NextResponse.json(
           {
             error: promo.message || "Kode promo tidak bisa dipakai.",
@@ -269,9 +535,9 @@ export async function POST(req: Request) {
     const grossVariantTotal = unitPrice * quantity;
     const productDiscount = Math.max(0, grossVariantTotal - targetAmount);
 
-    const cleanName = customerName
-      ? String(customerName).trim().substring(0, 60)
-      : "Kawan Thrivin";
+    // Nama diambil dari profil tersimpan (bukan `body.customerName`) supaya
+    // identitas di order = identitas yang diverifikasi, bukan ketikan bebas.
+    const cleanName = authoritative.name.substring(0, 60);
 
     // B-2: PII (weight/height/gender/age) is deliberately NOT written to the
     // Scalev order notes — that is a third-party system with its own retention.
@@ -313,6 +579,8 @@ export async function POST(req: Request) {
       );
       // Kuota sudah diklaim tapi ordernya gagal -> slotnya dikembalikan.
       if (promo?.redemptionId) await releasePromo(promo.redemptionId);
+      // Klaim gate juga dilepas: percobaan berikutnya boleh jalan lagi.
+      await releaseActiveClaim();
       return NextResponse.json(
         {
           error:
@@ -378,6 +646,29 @@ export async function POST(req: Request) {
       });
     }
 
+    // Klaim gate ditutup SETELAH order benar-benar ada: `created` menyimpan
+    // order_id + payment_url sehingga replay idempotency key mengembalikan
+    // order yang sama, bukan mencetak order kedua. Kalau Scalev menjawab 200
+    // TANPA order_id (bentuk jawaban tak terduga), klaim DILEPAS — kalau tidak,
+    // nomor ini terkunci 10 menit oleh klaim yang tidak pernah ada ordernya.
+    if (activeClaimId) {
+      if (createdOrderId) {
+        await completeCheckoutClaim(
+          activeClaimId,
+          String(createdOrderId),
+          paymentUrl,
+          Number(orderData.gross_revenue ?? targetAmount),
+          // F-W4-1c: canonical UUID disimpan terpisah dari nomor bisnis. Endpoint
+          // cancel hanya menerima yang ini; webhook tetap join ke `order_id`.
+          orderData.id ? String(orderData.id) : null
+        );
+      } else {
+        console.error("[checkout-gate] Scalev 200 tanpa order_id — klaim dilepas");
+        await releaseCheckoutClaim(activeClaimId);
+      }
+      activeClaimId = null;
+    }
+
     return NextResponse.json({
       orderId: orderData.order_id,
       uuid: orderData.id,
@@ -387,6 +678,8 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error("Scalev API exception:", redactError(error));
+    // Exception setelah klaim: lepas supaya tidak mengunci nomor ini.
+    await releaseActiveClaim();
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

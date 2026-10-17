@@ -1,0 +1,322 @@
+W4RX4 T1 — dua kunci berbeda paralel bisa mencetak DUA order belum-dibayar.
+Temuan T1 delta-review 4 Sentinel (kartu induk t_3f91103d; laporan
+~/obsidian/kantor-ai/projects/thrivin/security/review-w4-rx4-fw41b-2026-10-17.md).
+Kartu: t_e57ee77b (forge). Severity LOW-MEDIUM, jalur uang.
+Tanggal: 2026-10-17. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
+Branch: feat/checkout-consent-gate-2026-10-15
+
+Commit: 7d8389d (fix) + 9318dbb (asersi + bukti negatif); basis d0928b4.
+Follow-up F-1 (kartu t_3139e05f): c100096 (fix §4) + 70cc18e (bukti), kepala 57a1c4b —
+lihat bagian 6 di bawah.
+Follow-up F-2 (kartu t_26909c87): blok EXCEPTION langkah 2 replay + asersi §12 + skrip
+bukti negatif tests/harness/w4t1-regrant-mutation.sh — lihat bagian 7 di bawah.
+Semua uji di harness LOKAL (Postgres lokal + PostgREST lokal + mock Scalev lokal).
+Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial produksi,
+nol Scalev nyata, nol push/merge. Mutasi uji DIREVERT (bagian 3).
+Isolasi worktree ini apa adanya (tests/harness/isolate.mts): db
+thrivin_test_w4_consent_gate_e92cbc, port base 48180.
+
+==============================================================================
+1. Akar + fix (pilihan yang diambil dan alasannya)
+==============================================================================
+Akar (bukan dugaan — Sentinel sudah membuktikannya deterministik, dan mekanismenya
+direproduksi ulang di asersi di sini): langkah 6
+  SELECT ... FROM checkout_claims WHERE ... status='created' AND paid_at IS NULL
+dan langkah 7
+  INSERT INTO checkout_claims (...) VALUES (..., 'in_flight')
+ada di snapshot READ COMMITTED yang BERBEDA di dalam satu transaksi. Kunci advisory
+hanya menjaga transaksi KLAIM: panggilan Scalev + complete_checkout_claim milik
+request pertama jalan di transaksi lain. Kalau commit `complete` itu menyelip di
+antara langkah 6 dan langkah 7 milik request kedua:
+  * langkah 6 tidak melihat baris 'created' (saat itu masih 'in_flight'), dan
+  * langkah 7 tidak ditahan `uq_checkout_claims_inflight_phone`
+    (`WHERE status='in_flight'`) karena baris pertama SUDAH BUKAN in_flight lagi.
+=> request kedua `granted` => route mencetak order kedua yang juga bisa dibayar.
+
+Fix yang dipilih: **unique partial index yang juga menjaga baris hidup 'created'**
+(staging/schema-consent.sql, blok §4), dipasang dalam SATU transaksi dengan urutan
+CREATE dulu / DROP belakangan (follow-up F-1, bagian 6):
+  BEGIN;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
+    ON checkout_claims (tenant_id, phone)
+    WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+  DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+  COMMIT;
+
+Alasan memilih index (bukan re-check + INSERT di bawah kunci yang sama):
+- Penjaganya jadi sifat DB, bukan urutan baca-tulis di plpgsql: tidak ada lagi
+  "baca dulu" yang bisa ketinggalan snapshot. INSERT ditahan index sampai transaksi
+  yang mengubah baris itu commit, lalu langsung `unique_violation` — ditangkap blok
+  EXCEPTION yang SUDAH ADA di langkah 7 (`in_flight` -> route 409 ORDER_IN_FLIGHT).
+- Nol perubahan badan fungsi, nol perubahan `src/`, kontrak sukses
+  (`already_created` / `reuse_unpaid` / `granted`) tidak disentuh.
+- Alternatif re-check + ROLLBACK membawa risiko yang tidak perlu: ROLLBACK di tengah
+  transaksi membatalkan juga UPDATE retire 3/3b dan INSERT-nya sendiri, dan pola
+  "INSERT lalu cek apakah ada baris lain" rentan deadlock dua arah kalau dua sesi
+  sama-sama memegang barisnya. Index menyerahkan urutan itu ke penguncian baris
+  standar Postgres (penunggu tidak menahan apa pun).
+
+Detail yang penting:
+- `paid_at IS NULL` ada di predikat karena pembelian ULANG setelah lunas harus tetap
+  boleh (mark_checkout_claim_paid mengisi paid_at -> baris keluar dari index), dan
+  baris yang sudah di-retire 3b (`status='failed'`) juga keluar. Keduanya dijaga
+  asersi (lihat bagian 2c), bukan asumsi.
+- Nama index DIGANTI + `DROP INDEX IF EXISTS` yang lama, bukan
+  `CREATE ... IF NOT EXISTS` dengan nama lama. Alasan: seed.sh dan apply ke staging
+  menjalankan ulang file ini ke DB yang SUDAH ada; nama yang sama + IF NOT EXISTS
+  akan diam-diam mempertahankan index lama yang sempit (lubang tetap terbuka) dan
+  membuat "migrasi sukses" itu palsu. Bukti pg_indexes di bagian 2d + 3.
+- Batas: index UNIQUE per (tenant_id, phone) — kalau di DB mana pun sudah ada DUA
+  baris hidup untuk satu nomor (mis. hasil race ini di produksi), CREATE INDEX akan
+  GAGAL. Untuk staging/produksi itu keputusan ops (bagian 5).
+
+==============================================================================
+2. Bukti positif (HEAD 9318dbb)
+==============================================================================
+2a. SQL gate consent/checkout: 95 PASS, 0 FAIL, EXIT=0     (/tmp/w4t1-sql-post.log)
+    (92 PASS pra-kartu + 3 asersi baru; total asersi sama-sama 95 di kedua versi.)
+
+2b. e2e gate consent/checkout (HTTP, mock Scalev): 138 PASS, 0 FAIL, EXIT=0
+    - di dalam run-all: /tmp/w4t1-runall.log
+    - 4 run berdiri sendiri: /tmp/w4t1-e2e-{1,2,3,4}.log — 4/4 138 PASS / 0 FAIL.
+    Blok "dua kunci berbeda paralel" (4 request, kunci beda) tetap: tepat SATU order
+    tercetak, semua jawaban 200 menunjuk order yang SAMA, sisanya 409
+    ORDER_IN_FLIGHT (asersi kode 409 ditambahkan di kartu ini).
+
+2c. Asersi baru di SQL suite §11 (jalur app: RPC asli `claim_checkout_order` tanpa
+    override TTL, dua sesi psql nyata):
+      - pra-syarat: transaksi A sudah menjalankan complete dan masih MENAHANNYA
+        (uncommitted, `wait_event_type='Timeout'`)                       PASS
+      - pra-syarat: request kedua benar-benar TERTAHAN di langkah 7
+        (`wait_event_type='Lock'`)                                       PASS
+      - kunci berbeda + nomor sama => `in_flight` (bukan `granted`)      PASS
+      - tepat SATU order belum-dibayar hidup untuk nomor itu             PASS
+      - baris klaim kedua tidak lahir                                    PASS
+    Penjaga regresi yang membuktikan index TIDAK kebablasan (semua PASS):
+      - setelah lunas (mark_checkout_claim_paid) kunci baru boleh mencetak order baru
+        (§10(4)) — inilah bukti predikat `paid_at IS NULL` tidak menyumbat pembelian
+        ulang;
+      - order belum dibayar > TTL 61 menit di-retire jadi 'failed' dan nomor bebas
+        lagi (§10(5));
+      - paket beda => unpaid_conflict, paket sama => reuse_unpaid, F-S1 key_conflict,
+        gate onboarding/T&C tetap duluan, anon ditolak (§5, §9, §10).
+
+2d. Migrasi index terbukti di katalog (DB harness, sesudah seed --fresh):
+      uq_checkout_claims_idempotency  ... btree (tenant_id, idempotency_key)
+      uq_checkout_claims_live_phone   ... btree (tenant_id, phone)
+        WHERE ((status = ANY (ARRAY['in_flight','created'])) AND (paid_at IS NULL))
+    `uq_checkout_claims_inflight_phone` TIDAK ada lagi (di-drop).
+
+2e. `bash tests/run-all.sh` penuh: ALL SUITES PASSED, SUITE_EXIT=0  (/tmp/w4t1-runall.log)
+      step 5/9 SQL gate consent/checkout: 95 PASS, 0 FAIL
+      step 9/9 e2e gate consent/checkout: 138 PASS, 0 FAIL
+2f. `npx tsc --noEmit` EXIT=0 (/tmp/w4t1-tsc.log) — `npm run lint` = perintah yang sama,
+    EXIT=0 (/tmp/w4t1-lint.log).
+
+==============================================================================
+3. Bukti negatif (mutasi pembalik: index dikembalikan ke bentuk pra-fix)
+==============================================================================
+Reproduksi: `bash tests/harness/w4t1-mutation.sh`   (log: /tmp/w4t1-mutation.log)
+Yang dilakukan: predikat index di staging/schema-consent.sql diganti kembali ke
+`WHERE status = 'in_flight'` (satu hal saja — bukan revert commit), `seed.sh --fresh`,
+lalu suite dijalankan; sesudahnya file dipulihkan + seed ulang (trap EXIT).
+
+(a) pg_indexes pra-pembalik (mutasi aktif):
+      CREATE UNIQUE INDEX uq_checkout_claims_inflight_phone ... WHERE (status = 'in_flight')
+(b) Suite: 92 PASS, 3 FAIL, EXIT=1   (/tmp/w4t1-mut-sql.log)
+      FAIL T1: kunci berbeda + nomor sama => request kedua DITOLAK (in_flight => route
+               409 ORDER_IN_FLIGHT), bukan granted — expected "in_flight", got "granted"
+      FAIL T1: tepat SATU order belum-dibayar hidup untuk nomor itu — expected 1, got 2
+      FAIL T1: baris klaim kedua tidak lahir (tolak = tidak ada kursi kedua)
+               — expected 0, got 1
+    Catatan yang membuat bukti ini bernilai: DUA pra-syarat mekanisme (A menahan
+    complete uncommitted; B tertahan di langkah 7) HIJAU di run pra-fix juga — jadi
+    yang berubah hanya hasilnya (`granted` + 2 order hidup), persis temuan T1, bukan
+    efek samping urutan yang kebetulan berbeda.
+(c) Sesudah dipulihkan: index `uq_checkout_claims_live_phone` kembali, suite ulang
+    95 PASS / 0 FAIL (/tmp/w4t1-mut-post-sql.log). `git status staging/schema-consent.sql`
+    = perubahan ber-fix milik kartu ini (nol sisa mutasi).
+
+==============================================================================
+4. Pilihan cakupan: T2 & T3 TIDAK dimasukkan ke kartu ini
+==============================================================================
+Kartu mengizinkan T2/T3 "kalau murah, jangan sampai memperbesar diff; kalau tidak,
+buat kartu terpisah". Keduanya berarti perubahan BADAN fungsi / kontrak status di
+jalur uang yang harus di-review Sentinel satu per satu, jadi keduanya dibuat sebagai
+kartu terpisah (bukan diselundupkan ke diff fix index yang sempit ini):
+  - T2 (order lunas: replay baris 'failed' ber-`order_id` masih mengembalikan
+    `payment_url` order yang SUDAH dibayar; UI page.tsx:549 redirect ke situ)
+    => pertimbangkan status `already_paid`.
+  - T3 (`order_id = ''` dianggap "punya order" oleh `IS NOT NULL` => kunci nyangkut
+    permanen; hanya terjangkau lewat RPC langsung) => `NULLIF(order_id,'')` atau CHECK.
+
+==============================================================================
+5. Batasan & catatan jujur
+==============================================================================
+- UNIQUE index ini mensyaratkan DB yang di-apply TIDAK sedang memuat dua baris hidup
+  untuk satu nomor. Kalau pernah terjadi di staging/produksi, CREATE INDEX akan gagal
+  (by design: lebih baik gagal keras daripada index-nya diam-diam tidak ada). Deteksi
+  + pembersihan data = keputusan ops.
+  LANGKAH OPS WAJIB SEBELUM APPLY (pre-check duplikat, F-1 poin 4) — jalankan dulu ke
+  DB target; ADA baris keluaran = CREATE-nya memang akan gagal, jangan dipaksa:
+    SELECT tenant_id, phone, count(*) FROM checkout_claims
+     WHERE status IN ('in_flight','created') AND paid_at IS NULL
+     GROUP BY 1,2 HAVING count(*) > 1;
+  Kalau ada hasil, bersihkan/retire barisnya dulu (keputusan ops, lihat
+  data-cleanup-plan) lalu apply ulang. `CREATE INDEX` non-concurrent memegang
+  ACCESS EXCLUSIVE sebentar -> apply saat trafik rendah (aturan baris apply ada di
+  §4 file skema, blok BEGIN/COMMIT).
+- `staging/schema-consent.sql` masih DRAFT dan staging masih memuat badan fungsi
+  pra-fix; apply ke staging/produksi adalah keputusan ops terpisah (dan wajib
+  delta-review ulang Sentinel untuk jalur uang ini sebelum merge/deploy).
+- Nol perubahan `src/`: route `create-order` sudah membalas 409 ORDER_IN_FLIGHT untuk
+  `in_flight`, dan tidak ada kontrak sukses yang disentuh. Asersi e2e memaku kode 409
+  itu supaya tidak diam-diam berubah jadi kode lain.
+- Residual T5 dari review 4 masih terbuka dan BUKAN milik kartu ini: link Scalev lama
+  tetap hidup setelah retire TTL (lingkup F-W4-1c, kartu atlas t_16dd8537).
+- Flaky pra-ada "dua kunci berbeda paralel" (1 dari 6 run merah, dilaporkan Sentinel)
+  kini punya penjaga deterministik di level DB + 5 run e2e hijau berturut-turut.
+  Klaim yang jujur: yang dibuktikan adalah celah snapshot-nya tertutup; flaky HISTORIS
+  itu sendiri tidak pernah diklaim sebagai satu-satunya penyebab merah.
+
+==============================================================================
+6. Follow-up F-1 — §4 apply fail-OPEN (kartu t_3139e05f, temuan Sentinel)
+==============================================================================
+Temuan (delta-review Sentinel t_19cf9c8f): §4 file ini diapply PER-STATEMENT
+(`psql -v ON_ERROR_STOP=1 -f -`, autocommit lewat seed.sh). Urutan lama (DROP dulu,
+CREATE belakangan) karena itu COMMIT-kan DROP lebih dulu; CREATE lalu GAGAL di DB yang
+sudah memuat >=2 baris hidup untuk satu nomor -> DB tertinggal TANPA penjaga per-nomor
+sama sekali, dan apply utuh berhenti sebelum §5 (semua RPC + grant). Kegagalan apply
+justru meninggalkan DB LEBIH LEMAH dari sebelum apply — "gagal keras" != fail-safe.
+
+Fix (c100096): urutan dibalik + satu transaksi di `staging/schema-consent.sql` §4
+(salinan `tests/harness/migrations/006-consent-gate.sql` byte-identik, disalin seed.sh):
+  BEGIN;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_claims_live_phone
+    ON checkout_claims (tenant_id, phone)
+    WHERE status IN ('in_flight', 'created') AND paid_at IS NULL;
+  DROP INDEX IF EXISTS uq_checkout_claims_inflight_phone;
+  COMMIT;
+Postgres DDL transaksional => CREATE gagal = SELURUH blok batal = index lama masih
+berdiri, tidak ada keadaan separuh-apply. Nol perubahan `src/`, nol perubahan kontrak
+status, nol perubahan predikat index (bentuk ber-fix T1 tidak disentuh).
+
+Bukti negatif dua arah, satu perintah: `bash tests/harness/w4t1-apply-order.sh`
+(keluaran: /tmp/w4t1-apply-order.log; log mentah apply: /tmp/w4t1-apply-order-{pre,post}.log)
+Skrip: DB throwaway `thrivin_test_w4_consent_gate_e92cbc_f1order` (`seed.sh --fresh`,
+auto-DROP di akhir, nol staging/produksi), lalu disiapkan persis skenario dokumen §5
+ini — hanya index sempit pra-fix yang berdiri + DUA baris hidup satu nomor
+(`created`, `paid_at IS NULL`, phone 6281234567890) — lalu file skema penuh diapply
+dengan ON_ERROR_STOP=1. Arah pra-fix diperoleh dengan MUTASI satu hal (blok §4
+dikembalikan ke DROP-dulu tanpa BEGIN/COMMIT), bukan revert commit.
+  (a) pra-fix  : sebelum apply penjaga=[uq_checkout_claims_inflight_phone], baris hidup=2
+                 apply EXIT=3  `psql:<stdin>:176: ERROR: could not create unique index
+                 "uq_checkout_claims_live_phone"` / DETAIL: duplikat (thrivin, 6281234567890)
+                 SESUDAH apply: penjaga=[(kosong)] => FAIL-OPEN tereproduksi
+  (b) pasca-fix: sebelum apply penjaga=[uq_checkout_claims_inflight_phone], baris hidup=2
+                 apply EXIT=3  (error yang sama — CREATE memang HARUS gagal di data kotor)
+                 SESUDAH apply: penjaga=[uq_checkout_claims_inflight_phone] => penjaga lama
+                 BERTAHAN; `uq_checkout_claims_live_phone` TIDAK setengah terpasang
+  (c) penjaga urutan statis di skrip yang sama: BEGIN < CREATE < DROP < COMMIT wajib,
+      jadi pembalikan urutan di masa depan menabrak tes, bukan cuma direview.
+EXIT=0 skrip hanya kalau (a) mereproduksi fail-open DAN (b) mempertahankan penjaga —
+pra-fix yang gagal mereproduksi juga membuat skrip merah (bukti tidak boleh vakum).
+`tests/harness/w4t1-mutation.sh` (mutasi predikat T1) ikut disesuaikan ke blok baru
+(70cc18e) dan tetap berjalan: 110/3 exit 1 pra-fix, 113/0 pasca-fix.
+Batas yang tetap jujur: apply utuh ke DB ber-duplikat TETAP exit 3 dan §5 ke atas tetap
+tidak ter-apply (perilaku sengaja: gagal keras, tapi kali ini tanpa merusak penjaga).
+Karena itu pre-check duplikat di §5 + apply saat trafik rendah = langkah ops wajib.
+
+Bukti positif sesudah perubahan (kepala 57a1c4b + perubahan ini):
+  - SQL gate consent/checkout : 113 PASS, 0 FAIL, EXIT=0   (/tmp/w4f1-runall.log)
+  - e2e  gate consent/checkout : 158 PASS, 0 FAIL, EXIT=0
+  - `bash tests/run-all.sh` penuh: ALL SUITES PASSED, SUITE_EXIT=0
+  - apply file penuh ke DB bersih DUA kali (`psql -v ON_ERROR_STOP=1 -f -`): EXIT=0 keduanya,
+    `pg_indexes` akhir = `uq_checkout_claims_live_phone` (predikat ber-fix) — idempotensi
+    yang sudah diklaim sebelum F-1 tetap berlaku setelah blok BEGIN/COMMIT dibungkus.
+  - `npx tsc --noEmit` EXIT=0 + `npm run lint` EXIT=0
+  Catatan angka: kartu menyebut "95/0 dan 138/0" — itu angka di kepala T1 (`eda4966`).
+  Di cabang ini asersi T2 (`bd37533`) dan T3 (`57a1c4b`) sudah merge, jadi baseline
+  sekarang 113/0 dan 158/0; yang penting tidak ada regresi (sama dengan kepala 57a1c4b).
+  Salinan harness byte-identik dengan draft (dicek `diff`, nol beda).
+
+==============================================================================
+7. Follow-up F-2 — langkah 2 replay tanpa EXCEPTION ⇒ 503 GATE_UNAVAILABLE
+   (kartu t_26909c87, temuan Sentinel)
+==============================================================================
+Temuan (delta-review Sentinel t_19cf9c8f): langkah 2 `claim_checkout_order` (jalur
+replay kunci yang barisnya `failed` TANPA order, yaitu sisa `release_checkout_claim`
+saat Scalev gagal) melakukan `UPDATE checkout_claims SET status='in_flight' …
+RETURNING id INTO v_claim_id` TANPA blok penangkap — beda dengan langkah 7 (INSERT).
+Dengan index baru `uq_checkout_claims_live_phone`, UPDATE itu ditahan kalau nomor
+tersebut sudah punya order HIDUP dari kunci LAIN ⇒ unique_violation naik mentah ⇒
+PostgREST 500 ⇒ route (`src/app/api/scalev/create-order/route.ts`) membalas 503
+GATE_UNAVAILABLE, BUKAN 409 ORDER_IN_FLIGHT. Data tetap fail-closed (nol order kedua),
+tapi pelanggan mentok: retry 503 terus sampai order penahan lunas atau di-retire TTL.
+Konteks yang penting: di skema PRA-fix jalur yang sama membalas `granted` TANPA race
+apa pun ⇒ jalur kedua menuju DUA order belum-dibayar. Index inilah yang menutupnya,
+jadi fix TIDAK boleh dengan melonggarkan index.
+
+Reproduksi sendiri sebelum fix (psql langsung ke DB harness, RPC apa adanya):
+  K1 grant ⇒ release_checkout_claim(K1) ⇒ K2 grant ⇒ complete_checkout_claim(K2, order)
+  ⇒ replay K1:
+    ERROR:  duplicate key value violates unique constraint "uq_checkout_claims_live_phone"
+    DETAIL:  Key (tenant_id, phone)=(thrivin, 6281200000799) already exists.
+    CONTEXT:  SQL statement "UPDATE checkout_claims
+          SET status = 'in_flight', plan_key = p_plan_key, updated_at = now()
+          WHERE id = v_existing.id
+          RETURNING id"
+    PL/pgSQL function claim_checkout_order(...) line 84 at SQL statement
+  Keadaan akhir: 1 order belum-dibayar hidup (fail-closed), baris K1 tetap `failed`.
+
+Fix (staging/schema-consent.sql + salinan tests/harness/migrations/006-consent-gate.sql,
+disalin seed.sh): UPDATE langkah 2 dibungkus penangkap yang SAMA dengan langkah 7 —
+`BEGIN … EXCEPTION WHEN unique_violation THEN RETURN json_build_object('status','in_flight')`.
+Route sudah memetakan `in_flight` ⇒ 409 `ORDER_IN_FLIGHT` (route.ts:351, dikonfirmasi),
+jadi NOL perubahan `src/`, nol perubahan kontrak status sukses, nol perubahan index.
+
+Audit SEMUA penulis `checkout_claims` di file skema (`grep -n "SET status\|INSERT INTO
+checkout_claims"`), tiap penulis + alasan aman:
+  1. langkah 2  UPDATE failed→in_flight (replay)      : SATU-SATUNYA yang bolong ⇒ DIBUNGKUS
+  2. langkah 3  UPDATE in_flight→failed (TTL basi)    : MENINGGALKAN index (relax) ⇒ aman
+  3. langkah 3b UPDATE created→failed (TTL unpaid)    : MENINGGALKAN index (relax) ⇒ aman
+  4. langkah 7  INSERT … 'in_flight'                  : sudah dibungkus sejak T1 ⇒ aman
+  5. complete_checkout_claim in_flight→created        : baris yang SAMA, kunci (tenant,phone)
+                                                        tidak berubah ⇒ nol entri index baru;
+                                                        plus `AND status='in_flight'` ⇒ aman
+  6. release_checkout_claim in_flight→failed          : relax ⇒ aman
+  7. mark_checkout_claim_paid (set paid_at)           : paid_at non-null ⇒ keluar dari index ⇒ aman
+  8. purge_expired_consent_data                        : DELETE saja ⇒ tidak bisa melanggar
+Nol penulis lain di `src/` (jalur app hanya lewat RPC; cek `grep -rn "checkout_claims" src/`).
+
+Asersi baru: tests/test-consent-gate-sql.mts §12 (phone 6281200000718, kunci f2-key-k1/k2):
+  K1 grant ⇒ release ⇒ K2 grant ⇒ complete(ord-F2-K2) ⇒ replay K1
+  ⇒ `in_flight` (bukan error 500/503) + tidak membawa claim/order/payment_url
+  ⇒ tepat 1 order belum-dibayar hidup + 0 baris `in_flight` (nol kursi kedua)
+  ⇒ pemulihan: mark_checkout_claim_paid('ord-F2-K2') ⇒ replay K1 berikutnya `granted`
+    (menjaga fix tidak jadi blokir permanen).
+Panggilan replay dibungkus `claimSafe()` supaya pra-fix terbaca FAIL, bukan crash.
+
+Bukti negatif (bergigi), satu perintah: `bash tests/harness/w4t1-regrant-mutation.sh`
+(keluaran /tmp/w4t1-regrant-{pre,post}-sql.log; EXIT=0 hanya kalau kedua arah terbukti)
+  (a) penjaga statis: jumlah blok `EXCEPTION WHEN unique_violation` di file skema
+      harus 2 pasca-fix (langkah 2 + 7), 1 setelah blok langkah 2 dilepas.
+  (b) pra-fix (mutasi satu hal: blok EXCEPTION langkah 2 dilepas, bukan revert commit)
+      ⇒ SQL gate consent/checkout 120 PASS, 1 FAIL, EXIT=1; FAIL-nya persis
+      "F-2: replay K1 saat nomor punya order hidup ⇒ in_flight …, expected in_flight,
+      got ERR …" ⇒ asersi memang yang menangkap, bukan crash sampingan.
+  (c) pasca-fix (file dipulihkan via trap) ⇒ 121 PASS, 0 FAIL, EXIT=0; `git status`
+      file skema bersih dari mutasi.
+
+Bukti positif sesudah fix:
+  - SQL gate consent/checkout : 121 PASS, 0 FAIL, EXIT=0   (/tmp/f2-sql-fixed.log)
+  - e2e  gate consent/checkout : 158 PASS, 0 FAIL, EXIT=0  (/tmp/f2-runall.log)
+  - `bash tests/run-all.sh` penuh: ALL SUITES PASSED, RUNALL_EXIT=0
+  - `npm run lint` EXIT=0 + `npx tsc --noEmit` EXIT=0
+  - Nol perubahan `src/` (`git status` hanya staging/schema-consent.sql,
+    tests/harness/migrations/006-consent-gate.sql, tests/test-consent-gate-sql.mts,
+    + skrip bukti baru).
+Batas jujur: yang diperbaiki HANYA jawabannya (409, bukan 503). Selama order penahan
+belum lunas/di-retire, kunci lama memang belum bisa jalan — itu perilaku yang benar
+(satu nomor = satu order belum dibayar), dan pemulihannya sudah ikut diasersi.
+

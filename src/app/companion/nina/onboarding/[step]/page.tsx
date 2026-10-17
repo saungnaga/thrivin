@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect, useRef, use } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import Script from "next/script";
@@ -24,6 +24,8 @@ declare global {
 }
 
 import { fbqTrack } from "@/components/MetaPixel";
+import { STEP_FIELDS } from "@/lib/onboarding-steps";
+import { PRIVACY_PATH, TERMS_PATH, TERMS_VERSION } from "@/lib/legal";
 import {
   ArrowLeft,
   ArrowRight,
@@ -122,6 +124,22 @@ export default function OnboardingStepPage({
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
 
+  // ── A7: dua persetujuan TERPISAH, dua-duanya mulai TIDAK tercentang ───────
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [reminderOptIn, setReminderOptIn] = useState(false);
+  // Peringatan progress server (langkah wajib). Bukan pengganti gate server:
+  // `create-order` tetap menolak kalau progress di server belum lengkap.
+  const [progressWarning, setProgressWarning] = useState("");
+  // Satu kunci per percobaan checkout: klik dua kali / retry jaringan memakai
+  // kunci yang sama, jadi server mengembalikan order yang SAMA (bukan dua order).
+  const checkoutKeyRef = useRef<string>("");
+  if (!checkoutKeyRef.current) {
+    checkoutKeyRef.current =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? `co-${crypto.randomUUID()}`
+        : `co-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   // 1-Hour Countdown Timer State for Applied Promo
   const [countdownSeconds, setCountdownSeconds] = useState(3600);
 
@@ -198,6 +216,41 @@ export default function OnboardingStepPage({
       return updated;
     });
   };
+
+  // ── A2: kirim langkah ke server (state onboarding punya rumah server-side) ──
+  // Server yang memutuskan "lengkap atau belum"; kartu ini hanya UX tambahan.
+  // Kalau simpan gagal, peringatan muncul dan gate `create-order` tetap menolak.
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!STEP_FIELDS[stepNum]) return;
+    const fields = STEP_FIELDS[stepNum];
+    const payload: Record<string, unknown> = {};
+    for (const field of fields) payload[field] = (data as unknown as Record<string, unknown>)[field];
+
+    const timer = setTimeout(() => {
+      fetch("/api/onboarding/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: stepNum, data: payload }),
+      })
+        .then(async (res) => {
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || !body?.ok) {
+            setProgressWarning(
+              body?.error ||
+                (body?.code === "SESSION_REQUIRED"
+                  ? "Sesi verifikasi nomor WhatsApp tidak ditemukan. Verifikasi ulang sebelum bayar."
+                  : "Profil belum tersimpan di server. Coba lanjutkan; kalau tetap gagal, verifikasi ulang nomor.")
+            );
+            return;
+          }
+          setProgressWarning("");
+        })
+        .catch(() => setProgressWarning("Gagal menyimpan profil ke server. Periksa koneksi."));
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [isLoaded, stepNum, data]);
 
   // 1-Hour Countdown Timer for Applied Promo (runs on Step 9, auto-resets if previous session expired)
   useEffect(() => {
@@ -442,6 +495,11 @@ export default function OnboardingStepPage({
 
   // Scalev API Dynamic Checkout (checkout.thrivin.id)
   const handleCheckout = async () => {
+    if (!termsAccepted) {
+      // Kontrol UI ini tambahan; server menolak sendiri kalau consent tidak ada.
+      setCheckoutError("Centang persetujuan Syarat & Ketentuan dulu sebelum bayar.");
+      return;
+    }
     setIsCheckingOut(true);
     setCheckoutError("");
 
@@ -453,27 +511,35 @@ export default function OnboardingStepPage({
     });
 
     try {
+      // 1) Simpan persetujuan SEBELUM popup pembayaran. Gagal ⇒ tidak lanjut.
+      const consentRes = await fetch("/api/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          termsAccepted: true,
+          reminderOptIn,
+          idempotencyKey: checkoutKeyRef.current,
+        }),
+      });
+      const consentBody = await consentRes.json().catch(() => ({}));
+      if (!consentRes.ok || !consentBody?.ok) {
+        setIsCheckingOut(false);
+        setCheckoutError(
+          consentBody?.error ||
+            "Persetujuanmu belum tersimpan. Coba lagi — pembayaran belum dibuka."
+        );
+        return;
+      }
+
+      // 2) Order. Harga, paket, dan kelengkapan profil ditentukan server.
       const response = await fetch("/api/scalev/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: data.selectedPlan,
-          planName: currentPlan.name,
-          amount: finalPrice,
-          customerName: data.name,
           customerPhone: data.whatsappNumber,
           promoCode: data.promoApplied ? activePromoCode : "",
-          onboarding: {
-            gender: data.gender,
-            age: data.age,
-            weight: data.weight,
-            height: data.height,
-            activityLevel: data.activityLevel,
-            workoutLocation: data.workoutLocation,
-            programFocus: data.programFocus,
-            biggestChallenge: data.biggestChallenge,
-            communicationStyle: data.communicationStyle,
-          },
+          idempotencyKey: checkoutKeyRef.current,
         }),
       });
 
@@ -1932,19 +1998,96 @@ export default function OnboardingStepPage({
                 </span>
               </div>
 
+              {/* ── A7: persetujuan checkout — dua kotak TERPISAH, awal kosong ── */}
+              <div className="p-4 rounded-2xl bg-white border border-brand-200 space-y-3 text-xs text-brand-950">
+                <div className="flex items-start gap-2.5">
+                  <input
+                    id="consent-terms"
+                    name="consent-terms"
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    aria-describedby="consent-terms-help"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-brand-400 text-brand-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-900 focus-visible:ring-offset-2 cursor-pointer"
+                  />
+                  <label htmlFor="consent-terms" className="leading-relaxed cursor-pointer">
+                    Saya sudah membaca dan menyetujui{" "}
+                    <a
+                      href={TERMS_PATH}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="font-semibold underline underline-offset-2 text-brand-900 hover:text-brand-700"
+                    >
+                      Syarat &amp; Ketentuan
+                    </a>{" "}
+                    dan{" "}
+                    <a
+                      href={PRIVACY_PATH}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="font-semibold underline underline-offset-2 text-brand-900 hover:text-brand-700"
+                    >
+                      Kebijakan Privasi
+                    </a>{" "}
+                    Thrivin (versi <span className="font-mono">{TERMS_VERSION}</span>).
+                  </label>
+                </div>
+                <p id="consent-terms-help" className="pl-6 text-[11px] text-text-muted leading-relaxed">
+                  Persetujuan ini wajib untuk melanjutkan pembelian. Kami menyimpan bukti persetujuan:
+                  nomor WhatsApp terverifikasi, waktu (timestamp server), versi teks yang kamu lihat,
+                  nilai persetujuan, dan sumbernya.
+                </p>
+
+                <div className="h-px bg-surface-border" />
+
+                <div className="flex items-start gap-2.5">
+                  <input
+                    id="consent-reminder"
+                    name="consent-reminder"
+                    type="checkbox"
+                    checked={reminderOptIn}
+                    onChange={(e) => setReminderOptIn(e.target.checked)}
+                    aria-describedby="consent-reminder-help"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-brand-400 text-brand-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-900 focus-visible:ring-offset-2 cursor-pointer"
+                  />
+                  <label htmlFor="consent-reminder" className="leading-relaxed cursor-pointer">
+                    Saya bersedia menerima <strong>pesan pengingat dari Nina</strong> di WhatsApp
+                    (opsional).
+                  </label>
+                </div>
+                <p id="consent-reminder-help" className="pl-6 text-[11px] text-text-muted leading-relaxed">
+                  Menolak pengingat tidak menghalangi pembelianmu. Kamu bisa berhenti kapan saja: tekan
+                  tombol berhenti pada pesan pengingat, atau balas <span className="font-mono">BERHENTI</span>{" "}
+                  / <span className="font-mono">STOP</span>.
+                </p>
+              </div>
+
               {/* Checkout Error Notice */}
               {checkoutError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+                <div
+                  role="alert"
+                  className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2"
+                >
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{checkoutError}</span>
+                </div>
+              )}
+
+              {progressWarning && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{progressWarning}</span>
                 </div>
               )}
 
               {/* Checkout Action Button with brand-900 background */}
               <button
                 onClick={handleCheckout}
-                disabled={isCheckingOut || checkoutComplete}
-                className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isCheckingOut || checkoutComplete || !termsAccepted}
+                aria-disabled={isCheckingOut || checkoutComplete || !termsAccepted}
+                className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
               >
                 {isCheckingOut ? (
                   <span className="text-white font-bold">Menyiapkan Halaman Pembayaran...</span>

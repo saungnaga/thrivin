@@ -29,24 +29,35 @@ import {
   SERVICE_KEY,
   ANON_KEY,
   POSTGREST_URL,
+  PORTS,
+  assertMockOwner,
   startPostgrest,
+  tmpPath,
   truncateAll,
   countRows,
   query,
   psqlSuper,
 } from "./harness/stack.mts";
+import {
+  DEFAULT_WA_SESSION_SECRET,
+  armCheckout,
+  newIdempotencyKey,
+  waSessionCookie,
+} from "./helpers/checkout-arm.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 
 const WEBHOOK_SECRET = "test_scalev_secret_12345";
-const APP_PORT = Number(process.env.HARNESS_APP_PORT || 3987);
-const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4111);
+const APP_PORT = Number(process.env.HARNESS_APP_PORT || PORTS.webhookApp);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.webhookMock);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 
-const DISK_DIR = "/tmp/thrivin-e2e-onboarding";
-const LOG_FILE = "/tmp/thrivin-e2e-server.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const ORDERS_FILE = tmpPath("webhook-orders.json");
+const DISK_DIR = tmpPath("e2e-onboarding");
+const LOG_FILE = tmpPath("webhook-server.log");
 
 const results: Array<[string, string]> = [];
 function record(ok: boolean, name: string, detail = "") {
@@ -86,10 +97,12 @@ interface Stack {
 
 async function startMockScalev(): Promise<Stack> {
   const child = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
+    env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", () => {});
   child.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, child.pid);
   await waitFor(`${MOCK_URL}/v3/stores/x/products`);
   return {
     stop: () => {
@@ -123,6 +136,10 @@ async function startApp(env: Record<string, string | undefined>): Promise<Stack>
       SCALEV_API_BASE_URL: MOCK_URL,
       SCALEV_STORE_ID: "store_test",
       SCALEV_API_KEY: "sk_test_key",
+      // Sesi pelanggan (kontrak W4 §2): `create-order` menuntut identitas
+      // terverifikasi; suite ini membuat cookie HMAC sendiri lewat helper.
+      WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
+      WA_SESSION_EPOCH: "0",
       ...env,
     },
     stdio: ["ignore", logFd, logFd],
@@ -272,9 +289,13 @@ async function main() {
     // ── B-2: client amount ignored ────────────────────────────────────────
     console.log("\n── B-2: server-side pricing, validation, no PII in notes ──");
     const phoneB2 = "6281299900001";
+    // Kontrak W4: identitas terverifikasi (cookie sesi) + langkah onboarding di
+    // server + persetujuan T&C. Tanpa tiga itu `create-order` menolak.
+    const cookieB2 = waSessionCookie(phoneB2);
+    const armB2 = await armCheckout({ base: BASE_URL, phone: phoneB2, cookie: cookieB2 });
     const orderRes = await fetch(`${BASE_URL}/api/scalev/create-order`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.2" },
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.2", cookie: cookieB2 },
       body: JSON.stringify({
         planId: "quarter",
         planName: "Nina 3 Bulan",
@@ -282,14 +303,13 @@ async function main() {
         customerName: "Raihan Test User",
         customerPhone: phoneB2,
         onboarding: sampleProfile,
+        idempotencyKey: armB2.idempotencyKey,
       }),
     });
     const orderJson = await orderRes.json();
     assertEq(orderRes.status, 200, "B-2  order created");
 
-    const mockOrders = JSON.parse(
-      fs.readFileSync("/tmp/thrivin-e2e-mock-orders.json", "utf-8")
-    );
+    const mockOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8"));
     const lastOrder = mockOrders[mockOrders.length - 1];
     assertEq(
       lastOrder.body.ordervariants[0].quantity * 219000 - lastOrder.body.product_discount,
@@ -303,16 +323,31 @@ async function main() {
     );
 
     // ── B-2: onboarding validation ───────────────────────────────────────
+    // Kontrak W4: profil dari body TIDAK lagi dibaca. Yang menentukan adalah
+    // langkah yang tersimpan di server, jadi nomor tanpa langkah ditolak —
+    // bukan "lolos dengan nilai aneh".
+    const phoneBad = "6281299900002";
     const badProfile = await fetch(`${BASE_URL}/api/scalev/create-order`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.9.9.3" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "10.9.9.3",
+        cookie: waSessionCookie(phoneBad),
+      },
       body: JSON.stringify({
         planId: "quarter",
-        customerPhone: "6281299900002",
+        customerPhone: phoneBad,
         onboarding: { ...sampleProfile, weight: 900, age: 4, gender: "Robot" },
+        idempotencyKey: newIdempotencyKey("badprofile"),
       }),
     });
-    assertEq(badProfile.status, 400, "B-2  out-of-range/enum-invalid onboarding -> 400");
+    const badProfileBody = await badProfile.json();
+    assertEq(badProfile.status, 400, "B-2  tanpa langkah server -> 400 (profil body diabaikan)");
+    assertEq(
+      badProfileBody.code,
+      "INCOMPLETE_ONBOARDING",
+      "B-2  kode INCOMPLETE_ONBOARDING (bukan nilai onboarding dari klien)"
+    );
 
     // ── H-5: snapshot written AFTER the order, keyed by order_id ─────────
     console.log("\n── H-5: snapshot timing + keying ──");
@@ -327,18 +362,63 @@ async function main() {
       "H-5  no pre-order (order_id IS NULL) rows are written"
     );
 
+    // ── F-W4-1: pembayaran menandai klaim gate lunas (jalur uang) ─────────
+    // Sebelum ini `paid_at` hanya diisi tes; di sini dibuktikan WEBHOOK yang
+    // mengisinya — pembeda antara "order belum dibayar" (dipakai ulang) dan
+    // riwayat lunas (pembelian ulang sah).
+    console.log("\n── F-W4-1: webhook pembayaran -> checkout_claims.paid_at ──");
+    assertEq(
+      psqlSuper(
+        `SELECT coalesce(paid_at::text,'') FROM checkout_claims WHERE order_id = '${orderJson.orderId}';`,
+        { csv: true }
+      ),
+      "",
+      "F-W4-1  pra-syarat: klaim order ini belum lunas"
+    );
+    const paidMark = await postWebhook(
+      paymentEvent({
+        eventId: `evt_fw1_${Date.now()}`,
+        orderId: orderJson.orderId,
+        phone: phoneB2,
+        paymentStatus: "paid",
+      })
+    );
+    assertEq(paidMark.status, 200, "F-W4-1  webhook pembayaran -> 200");
+    assertOk(
+      (
+        psqlSuper(
+          `SELECT coalesce(paid_at::text,'') FROM checkout_claims WHERE order_id = '${orderJson.orderId}';`,
+          { csv: true }
+        ) || ""
+      ).length > 0,
+      "F-W4-1  webhook mengisi checkout_claims.paid_at (bukan tes yang menulis)"
+    );
+
     // Re-run the same checkout twice: upsert, not an unbounded insert.
+    // (Kunci idempotensi baru per percobaan — kunci sama = replay, bukan order baru.)
+    // F-W4-1: order sebelumnya ditandai lunas dulu; kalau tidak, percobaan kedua
+    // hanya memakai ulang order itu (aturan (a)) dan upsert ini tidak teruji.
     for (let i = 0; i < 2; i++) {
-      await fetch(`${BASE_URL}/api/scalev/create-order`, {
+      const rearm = await armCheckout({ base: BASE_URL, phone: phoneB2, cookie: cookieB2 });
+      const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Forwarded-For": `10.9.9.${10 + i}` },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": `10.9.9.${10 + i}`,
+          cookie: cookieB2,
+        },
         body: JSON.stringify({
           planId: "quarter",
           customerPhone: phoneB2,
           customerName: "Raihan Test User",
           onboarding: sampleProfile,
+          idempotencyKey: rearm.idempotencyKey,
         }),
       });
+      const created = await res.json().catch(() => ({} as any));
+      if (created?.orderId) {
+        psqlSuper(`SELECT mark_checkout_claim_paid('${created.orderId}');`);
+      }
     }
     const perOrder = query<[string, string]>(
       `SELECT order_id, count(*) FROM onboarding_snapshots GROUP BY order_id ORDER BY order_id`
@@ -541,7 +621,11 @@ async function main() {
     assertOk(/deleted_inbox=[2-9]/.test(purgeOut), "H-4  purge deleted the expired inbox rows");
     assertOk(/deleted_snapshots=[1-9]/.test(purgeOut), "H-4  purge deleted the expired snapshot row");
     const auditRows = psqlSuper(
-      "SELECT count(*) FROM purge_audit_log WHERE ran_at > now() - interval '1 minute';",
+      // deleted_inbox IS NOT NULL: sejak RX2-1, purge_expired_onboarding_progress()
+      // juga menulis ke purge_audit_log (baris retensi PII). Tanpa filter ini asersi
+      // "H-4 every run leaves a row" puas walau job webhook tidak menulis apa pun.
+      // Filter yang sama dipakai v_webhook_retention_backlog.
+      "SELECT count(*) FROM purge_audit_log WHERE ran_at > now() - interval '1 minute' AND deleted_inbox IS NOT NULL;",
       { csv: true }
     );
     assertEq(Number(auditRows) >= 1, true, "H-4  every run leaves a purge_audit_log row");

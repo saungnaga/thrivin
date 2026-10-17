@@ -39,16 +39,29 @@ import {
   SERVICE_KEY,
   ANON_KEY,
   POSTGREST_URL,
+  PORTS,
+  assertMockOwner,
   startPostgrest,
+  tmpPath,
   truncateAll,
   psqlSuper,
 } from "./harness/stack.mts";
+import { normalizePhone } from "../src/lib/phone.ts";
+import {
+  DEFAULT_WA_SESSION_SECRET,
+  armCheckout,
+  fullStepPayloads,
+  waSessionCookie,
+} from "./helpers/checkout-arm.mts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
+// Sesi pelanggan untuk `create-order` (kontrak W4 §2).
+const WA_SESSION_SECRET = DEFAULT_WA_SESSION_SECRET;
 
-const APP_PORT = Number(process.env.HARNESS_PROMO_APP_PORT || 3988);
-const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || 4111);
+const APP_PORT = Number(process.env.HARNESS_PROMO_APP_PORT || PORTS.promoApp);
+const WEAK_APP_PORT = Number(process.env.HARNESS_PROMO_WEAK_PORT || PORTS.promoWeak);
+const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.promoMock);
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 
@@ -57,8 +70,10 @@ const ADMIN_PASS = "promo-admin-pass-1234";
 const ADMIN_SECRET = "promo-session-secret-at-least-32-chars-long";
 const WEBHOOK_SECRET = "promo_e2e_webhook_secret_12345";
 
-const MOCK_ORDERS_FILE = "/tmp/thrivin-promo-e2e-orders.json";
-const LOG_FILE = "/tmp/thrivin-promo-e2e-server.log";
+// Path /tmp di-prefix worktree (RX2-2): dua run paralel tidak boleh saling timpa.
+const MOCK_ORDERS_FILE = tmpPath("promo-orders.json");
+const LOG_FILE = tmpPath("promo-server.log");
+const WEAK_LOG = tmpPath("promo-weak.log");
 
 /**
  * Harga variant 3-bulan di Scalev. Katalog server (PLAN_CATALOG.quarter) =
@@ -106,6 +121,7 @@ async function startMockScalev(): Promise<Stack> {
     env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: MOCK_ORDERS_FILE },
   });
   child.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
+  await assertMockOwner(MOCK_PORT, child.pid);
   await waitFor(`${MOCK_URL}/v3/stores/x/products`);
   return {
     stop: () => {
@@ -140,6 +156,8 @@ async function startApp(
       ADMIN_USERNAME: ADMIN_USER,
       ADMIN_PASSWORD: ADMIN_PASS,
       ADMIN_SESSION_SECRET: ADMIN_SECRET,
+      WA_SESSION_SECRET,
+      WA_SESSION_EPOCH: "0",
       ...env,
     },
     stdio: ["ignore", logFd, logFd],
@@ -193,13 +211,29 @@ function nextPhone(): string {
 }
 
 async function checkout(body: Record<string, unknown>) {
+  // Kontrak W4: `create-order` butuh identitas terverifikasi + langkah
+  // onboarding di server + persetujuan T&C. Helper menyiapkannya lewat HTTP
+  // (jalur yang sama dengan UI), lalu permintaan uji dikirim dengan cookie itu.
+  const cleanPhone = normalizePhone(String(body.customerPhone ?? ""));
+  let cookie: string | undefined;
+  let idempotencyKey: string | undefined;
+  if (cleanPhone) {
+    cookie = waSessionCookie(cleanPhone, { secret: WA_SESSION_SECRET });
+    // Nama order diambil server dari profil tersimpan, jadi `customerName` uji
+    // harus masuk ke langkah 2 — mock Scalev menolak order bernama FAILORDER.
+    const steps = fullStepPayloads(cleanPhone);
+    if (body.customerName) steps[2] = { name: String(body.customerName) };
+    const armed = await armCheckout({ base: BASE_URL, phone: cleanPhone, cookie, steps });
+    idempotencyKey = armed.idempotencyKey;
+  }
   const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Forwarded-For": `10.20.${phoneCounter % 200}.${(Date.now() % 250) + 1}`,
+      ...(cookie ? { cookie } : {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, ...(idempotencyKey ? { idempotencyKey } : {}) }),
   });
   return { status: res.status, body: await res.json() };
 }
@@ -375,11 +409,11 @@ async function main() {
     // ══ C-2: secret sesi lemah tidak boleh diterima ═════════════════════════
     console.log("\n── C-2: ADMIN_SESSION_SECRET lemah ──");
     {
-      const weakPort = APP_PORT + 1;
+      const weakPort = WEAK_APP_PORT;
       const weak = await startApp(
         { ADMIN_SESSION_SECRET: "a".repeat(32) },
         weakPort,
-        "/tmp/thrivin-promo-e2e-weak.log"
+        WEAK_LOG
       );
       try {
         const weakBase = `http://127.0.0.1:${weakPort}`;
@@ -607,6 +641,52 @@ async function main() {
     psqlSuper("DELETE FROM webhook_events_inbox WHERE event_id='evt_backlog_probe';");
     psqlSuper("DELETE FROM purge_audit_log WHERE triggered_by='backlog-probe';");
 
+    // ══ RX2-1: v_onboarding_retention_backlog (view baru, pola sama) ════════
+    // Guard yang sama harus hidup di view alarm retensi PII: security_invoker +
+    // REVOKE. Baris basi disisipkan dulu supaya "kosong" berarti "tidak bocor",
+    // bukan "kebetulan tidak ada data".
+    console.log("\n── RX2-1: kunci anon vs v_onboarding_retention_backlog ──");
+    psqlSuper(
+      "INSERT INTO onboarding_progress (tenant_id, phone, steps, step_reached, created_at, updated_at) " +
+        "VALUES ('thrivin','6281200000901','{}'::jsonb,4, now() - interval '45 days', now() - interval '45 days') " +
+        "ON CONFLICT (tenant_id, phone) DO UPDATE SET updated_at = now() - interval '45 days';"
+    );
+    const anonPiiBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_onboarding_retention_backlog?select=expired_progress_rows,expired_claim_rows,last_purge_at`,
+      { headers: anonHeaders }
+    );
+    const anonPiiBody = await anonPiiBacklog.text();
+    let anonPiiRows: any[] = [];
+    try {
+      const parsed = JSON.parse(anonPiiBody);
+      if (Array.isArray(parsed)) anonPiiRows = parsed;
+    } catch {
+      /* bukan JSON (mis. pesan error PostgREST) -> tidak ada baris */
+    }
+    const anonPiiLeaked =
+      anonPiiBacklog.status === 200 &&
+      anonPiiRows.some(
+        (r: any) => Number(r?.expired_progress_rows) > 0 || Number(r?.expired_claim_rows) > 0 || r?.last_purge_at
+      );
+    assertOk(
+      anonPiiBacklog.status === 401 || anonPiiBacklog.status === 403 || !anonPiiLeaked,
+      "RX2-1: anon DITOLAK / melihat view kosong di v_onboarding_retention_backlog",
+      `status=${anonPiiBacklog.status} body=${anonPiiBody.slice(0, 120)}`
+    );
+    const svcPiiBacklog = await fetch(
+      `${POSTGREST_URL}/rest/v1/v_onboarding_retention_backlog?select=expired_progress_rows,expired_claim_rows,last_purge_at`,
+      { headers: svcHeaders }
+    );
+    const svcPiiRows = svcPiiBacklog.status === 200 ? await svcPiiBacklog.json() : [];
+    assertOk(
+      svcPiiBacklog.status === 200 &&
+        Array.isArray(svcPiiRows) &&
+        Number(svcPiiRows[0]?.expired_progress_rows) >= 1,
+      "RX2-1: service_role tetap membaca backlog retensi PII (kontrol positif)",
+      `status=${svcPiiBacklog.status} rows=${JSON.stringify(svcPiiRows)}`
+    );
+    psqlSuper("DELETE FROM onboarding_progress WHERE phone='6281200000901';");
+
     // ══ Dry run tidak menggerus kuota ══════════════════════════════════════
     console.log("\n── Promo: dry run (tombol Terapkan) ──");
     const quote = await checkout({
@@ -801,9 +881,16 @@ async function main() {
         "PARALEL: kuota terpakai 1 dari 2 (tidak dilampaui)"
       );
       assertEq(losers.length, 3, "PARALEL: 3 checkout ditolak");
+      // F-S2: Invariant yang benar-benar dijamin untuk penolak paralel:
+      // tepat 1 pemenang, tepat 1 order, penolak tanpa orderId/paymentUrl,
+      // dan kode penolakan ∈ {ORDER_IN_FLIGHT (409), PROMO_PENDING_ORDER (400)}.
       assertOk(
-        losers.every((r) => r.body?.code === "PROMO_PENDING_ORDER"),
-        "PARALEL: yang ditolak dapat PROMO_PENDING_ORDER",
+        losers.every(
+          (r) =>
+            (r.body?.code === "ORDER_IN_FLIGHT" && r.status === 409) ||
+            (r.body?.code === "PROMO_PENDING_ORDER" && r.status === 400)
+        ),
+        "PARALEL: yang ditolak dapat ORDER_IN_FLIGHT (409) atau PROMO_PENDING_ORDER (400)",
         JSON.stringify(losers.map(label))
       );
       // Yang ditolak tidak menerima order id / link pembayaran: tidak ada order
@@ -976,7 +1063,19 @@ async function main() {
       );
       const after = await checkout({ planId: "quarter", customerPhone: phone, customerName: "Dummy Retry", promoCode: code, onboarding: sampleOnboarding });
       assertEq(after.status, 200, "V-1 r2 retry: setelah pembatalan, nomor itu bisa checkout lagi");
-      assertEq(ordersForPhone(phone) - before, 2, "V-1 r2 retry: order kedua hanya setelah pembatalan eksplisit");
+      // F-W4-1(a): nomor ini masih memegang order BELUM DIBAYAR untuk paket yang
+      // sama, jadi checkout berikutnya mengembalikan order/link YANG SAMA —
+      // membatalkan reservasi promo mengembalikan kuota, bukan membuat order kedua.
+      assertEq(
+        after.body?.orderId,
+        first.body?.orderId,
+        "V-1 r2 retry: F-W4-1(a) — dipakai ulang order yang sama, bukan order kedua"
+      );
+      assertEq(
+        ordersForPhone(phone) - before,
+        1,
+        "V-1 r2 retry: tetap SATU order (tidak ada dua link yang bisa dibayar)"
+      );
     }
 
     // ══ Reservasi dilepas kalau order Scalev gagal ═════════════════════════
@@ -1007,9 +1106,11 @@ async function main() {
     // ══ RACE: kuota sisa 1, dua checkout paralel ═══════════════════════════
     console.log("\n── RACE: kuota=1, dua checkout paralel ──");
     await seedPromo({ code: "RACE1", type: "percentage", amount: 40, quota: 1, plans: ["quarter"] });
+    const racePhoneA = nextPhone();
+    const racePhoneB = nextPhone();
     const [raceA, raceB] = await Promise.all([
-      checkout({ planId: "quarter", customerPhone: nextPhone(), customerName: "Dummy Race A", promoCode: "RACE1", onboarding: sampleOnboarding }),
-      checkout({ planId: "quarter", customerPhone: nextPhone(), customerName: "Dummy Race B", promoCode: "RACE1", onboarding: sampleOnboarding }),
+      checkout({ planId: "quarter", customerPhone: racePhoneA, customerName: "Dummy Race A", promoCode: "RACE1", onboarding: sampleOnboarding }),
+      checkout({ planId: "quarter", customerPhone: racePhoneB, customerName: "Dummy Race B", promoCode: "RACE1", onboarding: sampleOnboarding }),
     ]);
     const statuses = [raceA.status, raceB.status].sort((a, b) => a - b);
     console.log(`   checkout x2 → ${JSON.stringify(statuses)} (${raceA.body?.code ?? "ok"}, ${raceB.body?.code ?? "ok"})`);
@@ -1028,6 +1129,28 @@ async function main() {
       ),
       1,
       "RACE: ledger punya tepat 1 baris aktif"
+    );
+
+    // Regresi W4: penolakan promo TIDAK boleh meninggalkan klaim gate in-flight.
+    // Kalau klaim tertinggal, nomor yang promo-nya ditolak terkunci 10 menit:
+    // checkout ulang (bahkan tanpa promo) dijawab 409 ORDER_IN_FLIGHT padahal
+    // tidak ada order apa pun yang tercetak.
+    const loserPhone = loser === raceA ? racePhoneA : racePhoneB;
+    const loserRetry = await checkout({
+      planId: "quarter",
+      customerPhone: loserPhone,
+      customerName: "Dummy Race",
+      onboarding: sampleOnboarding,
+    });
+    assertEq(
+      loserRetry.status,
+      200,
+      "RACE: nomor yang promo-nya ditolak tetap bisa checkout tanpa promo (klaim dilepas)"
+    );
+    assertEq(
+      countRows("checkout_claims", "phone=" + `'${loserPhone}'` + " AND status='in_flight'"),
+      0,
+      "RACE: nol klaim in-flight tertinggal untuk nomor yang ditolak"
     );
 
     // ══ Webhook: pembayaran -> consumed (mengunci 1x per nomor) ════════════
