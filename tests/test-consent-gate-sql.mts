@@ -869,6 +869,103 @@ eq(
   "T3: klaim ulang memakai order yang BENAR-BENAR tercetak ('' tidak lagi jadi 'order')"
 );
 
+// (5e) W4RX4 T3 follow-up C-3 (kartu t_bd4781a6, LOW jalur uang): normalisasi
+// `order_id = ''` di cabang replay melepas baris `failed` yang order lamanya
+// MASIH BISA DIBAYAR (payment_url hidup) ⇒ route boleh mencetak order KEDUA di
+// belakang link lama. Definisi "punya order" harus mencakup payment_url, bukan
+// hanya nomor bisnis.
+const P_c3 = "6281200000725";
+armPhone(P_c3, "c3-consent-1");
+const c3A = claim(P_c3, "quarter", "c3-key-1");
+eq(c3A.status, "granted", "C-3: pra-syarat — klaim pertama diberikan");
+complete(c3A, "ord-C3-A", "https://pay/c3-live");
+// Baris warisan (retire versi lama): `failed` + order_id kosong, tapi link
+// Scalev-nya masih hidup. scalev_order_uuid NULL supaya BUKAN baris rekonsiliasi.
+psqlSuper(
+  `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, updated_at=now() where id='${c3A.claim_id}'`
+);
+
+const c3B = claim(P_c3, "quarter", "c3-key-1");
+check(
+  c3B.status !== "granted",
+  "C-3: baris `failed` ber-payment_url HIDUP tidak boleh dilepas (order kedua di belakang link lama)",
+  JSON.stringify(c3B)
+);
+eq(c3B.status, "already_created", "C-3: ... dijawab `already_created` dengan link lama");
+eq(c3B.payment_url, "https://pay/c3-live", "C-3: ... membawa link yang masih bisa dibayar");
+eq(
+  num(`select count(*) from checkout_claims where phone='${P_c3}'`),
+  1,
+  "C-3: tidak ada baris klaim kedua yang lahir"
+);
+
+// Kontrol: tanpa link hidup baris itu memang boleh dipakai ulang (jangan
+// melebarkan penjaga sampai memblokir klaim yang aman).
+const P_c3dead = "6281200000726";
+armPhone(P_c3dead, "c3dead-consent-1");
+const c3DeadA = claim(P_c3dead, "quarter", "c3dead-key-1");
+complete(c3DeadA, "ord-C3-B", "");
+psqlSuper(
+  `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, payment_url='', updated_at=now() where id='${c3DeadA.claim_id}'`
+);
+eq(
+  claim(P_c3dead, "quarter", "c3dead-key-1").status,
+  "granted",
+  "C-3: `failed` tanpa order DAN tanpa link tetap boleh diklaim ulang (nol regresi)"
+);
+
+// (5f) W4RX4 T3 follow-up C-4 (kartu t_bd4781a6): jalur TULIS tidak boleh
+// melahirkan baris ber-order_id kosong/whitespace — itu sumber C-2 + C-3 + C-4.
+// Preseden di file yang sama: `mark_checkout_claim_paid` ⇒ `invalid_order`.
+// Urutan sengaja: jalur NORMAL dulu (bukti penjaga tidak menyentuh order sah),
+// baru bentuk-bentuk kosong.
+const P_c4 = "6281200000727";
+armPhone(P_c4, "c4-consent-1");
+const c4A = claim(P_c4, "quarter", "c4-key-1");
+eq(c4A.status, "granted", "C-4: pra-syarat — klaim pertama diberikan");
+eq(
+  rpc(
+    `select complete_checkout_claim('${c4A.claim_id}','ord-C4-A','https://pay/c4',231000,'ord-C4-A-uuid')`
+  ).status,
+  "completed",
+  "C-4: order_id sah tetap `completed` (nol regresi jalur normal)"
+);
+eq(
+  scalar(`select order_id from checkout_claims where id='${c4A.claim_id}'`),
+  "ord-C4-A",
+  "C-4: ... dan barisnya memegang nomor bisnis itu"
+);
+
+const P_c4empty = "6281200000728";
+armPhone(P_c4empty, "c4empty-consent-1");
+const c4B = claim(P_c4empty, "quarter", "c4-key-2");
+eq(c4B.status, "granted", "C-4: pra-syarat — klaim kedua diberikan");
+eq(
+  rpc(`select complete_checkout_claim('${c4B.claim_id}','','https://pay/c4')`).status,
+  "invalid_order",
+  "C-4: complete_checkout_claim menolak order_id '' (invalid_order)"
+);
+eq(
+  rpc(`select complete_checkout_claim('${c4B.claim_id}','   ','https://pay/c4')`).status,
+  "invalid_order",
+  "C-4: ... menolak order_id whitespace-only"
+);
+eq(
+  rpc(`select complete_checkout_claim('${c4B.claim_id}', NULL, 'https://pay/c4')`).status,
+  "invalid_order",
+  "C-4: ... menolak order_id NULL"
+);
+eq(
+  scalar(`select coalesce(order_id,'<null>') from checkout_claims where id='${c4B.claim_id}'`),
+  "<null>",
+  "C-4: baris TIDAK menyimpan order_id kosong"
+);
+eq(
+  scalar(`select status from checkout_claims where id='${c4B.claim_id}'`),
+  "in_flight",
+  "C-4: klaim tidak dipindah ke `created` tanpa order"
+);
+
 // (6) Reuse TIDAK mendahului gate: kalau langkah wajib hilang, tetap ditolak.
 armPhone(P_fw1gate, "fw1-gate-consent-1");
 const fw1Gate = claim(P_fw1gate, "quarter", "fw1-gate-key-1");

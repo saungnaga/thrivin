@@ -45,6 +45,9 @@ const ORDERS_FILE = process.env.MOCK_SCALEV_ORDERS_FILE || tmpPath("w4-orders.js
 // F-W4-1c: jalur cancel pada mock — mode hasil upstream diubah lewat file.
 const CANCEL_FILE = process.env.MOCK_SCALEV_CANCEL_FILE || tmpPath("w4-cancel-calls.json");
 const CANCEL_MODE_FILE = process.env.MOCK_SCALEV_CANCEL_MODE_FILE || tmpPath("w4-cancel-mode.txt");
+// C-4 (kartu t_bd4781a6): bentuk jawaban POST /orders dari mock — `ok` (default)
+// atau `ws_order_id` (order_id whitespace + `id` uuid), dibaca per request.
+const ORDER_MODE_FILE = process.env.MOCK_SCALEV_ORDER_MODE_FILE || tmpPath("w4-order-mode.txt");
 const CANCEL_KEY = "sk_cancel_w4_suite_key";
 const LOG = tmpPath("w4-server.log");
 const BROKEN_LOG = tmpPath("w4-broken.log");
@@ -73,6 +76,8 @@ const P = {
   paidReplay: "6281200000819",
   emptyOrderId: "6281200000820",
   reconciliation: "6281200000821",
+  c3LiveLink: "6281200000822",
+  wsOrderId: "6281200000823",
 };
 
 const results: Array<[string, string]> = [];
@@ -175,6 +180,10 @@ function cancelCalls(): any[] {
 function setCancelMode(mode: string): void {
   fs.writeFileSync(CANCEL_MODE_FILE, mode);
 }
+/** C-4: bentuk jawaban POST /orders dari mock (`ok` · `ws_order_id`). */
+function setOrderMode(mode: string): void {
+  fs.writeFileSync(ORDER_MODE_FILE, mode);
+}
 
 async function postJson(
   base: string,
@@ -248,6 +257,7 @@ async function main() {
       MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE,
       MOCK_SCALEV_CANCEL_FILE: CANCEL_FILE,
       MOCK_SCALEV_CANCEL_MODE_FILE: CANCEL_MODE_FILE,
+      MOCK_SCALEV_ORDER_MODE_FILE: ORDER_MODE_FILE,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -705,11 +715,13 @@ async function main() {
     assertEq(t3A.status, 200, "T3: pra-syarat — order pertama ⇒ 200");
     assertOk(!!t3A.body?.orderId, "T3: pra-syarat — order pertama punya orderId");
     // F-W4-1c: premis temuan T3 = order yang TIDAK pernah ada (Scalev balas tanpa
-    // order_id ⇒ klaim dilepas). Karena itu canonical UUID-nya juga kosong; baris
-    // warisan yang PUNYA canonical UUID tapi kehilangan nomor bisnis justru
-    // ditahan (lihat kasus di bawah), bukan di-grant ulang.
+    // order_id ⇒ klaim dilepas). Karena itu canonical UUID-nya kosong DAN
+    // `payment_url`-nya kosong — baris warisan yang PUNYA canonical UUID tapi
+    // kehilangan nomor bisnis justru ditahan (lihat kasus di bawah), dan baris
+    // yang masih memegang LINK HIDUP punya asersinya sendiri (C-3, bagian 7b):
+    // melepas baris ber-link hidup = mencetak order kedua di belakang link lama.
     psqlSuper(
-      `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, updated_at=now() where idempotency_key='${t3Arm.idempotencyKey}'`
+      `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, payment_url='', updated_at=now() where idempotency_key='${t3Arm.idempotencyKey}'`
     );
     assertEq(
       psqlSuper(
@@ -749,6 +761,77 @@ async function main() {
       "created",
       "T3: barisnya kini memegang order yang BENAR-BENAR tercetak"
     );
+
+    // (7b) W4RX4 T3 follow-up C-3 (kartu t_bd4781a6, LOW jalur uang): baris
+    // `failed` ber-order_id KOSONG tapi `payment_url`-nya MASIH HIDUP (link sisa
+    // retire versi lama) tidak boleh dilepas — kalau dilepas, route mencetak
+    // order KEDUA di belakang link lama yang masih bisa dibayar (kelas T2/T5).
+    const c3Arm = await armCheckout({
+      base: APP_URL,
+      phone: P.c3LiveLink,
+      cookie: waSessionCookie(P.c3LiveLink),
+    });
+    const c3First = await createOrder(P.c3LiveLink, c3Arm.idempotencyKey);
+    assertEq(c3First.status, 200, "C-3: pra-syarat — order pertama ⇒ 200");
+    assertOk(
+      String(c3First.body?.paymentUrl || "").startsWith("http"),
+      "C-3: pra-syarat — order pertama punya link bayar",
+      JSON.stringify(c3First.body)
+    );
+    psqlSuper(
+      `update checkout_claims set status='failed', order_id='', scalev_order_uuid=NULL, updated_at=now() where idempotency_key='${c3Arm.idempotencyKey}'`
+    );
+    const c3OldLink = psqlSuper(
+      `select payment_url from checkout_claims where idempotency_key='${c3Arm.idempotencyKey}'`,
+      { csv: true }
+    );
+    assertOk(!!c3OldLink, "C-3: pra-syarat — baris warisan masih memegang link hidup");
+
+    const c3Before = mockOrderCount();
+    const c3Retry = await createOrder(P.c3LiveLink, c3Arm.idempotencyKey);
+    assertEq(c3Retry.status, 200, "C-3: replay kunci baris failed ber-link hidup ⇒ 200");
+    assertEq(mockOrderCount() - c3Before, 0, "C-3: NOL order kedua dicetak di Scalev");
+    assertEq(c3Retry.body?.replay, true, "C-3: ... jawabannya replay, bukan order baru");
+    assertEq(
+      c3Retry.body?.paymentUrl,
+      c3OldLink,
+      "C-3: ... link yang dikembalikan = link lama yang masih bisa dibayar"
+    );
+
+    // (7c) W4RX4 T3 follow-up C-4 (kartu t_bd4781a6): Scalev membalas 200 dengan
+    // `order_id` WHITESPACE. Jalur tulis TIDAK boleh menyimpan bentuk itu sebagai
+    // nomor order (jalur tulis DB menolaknya: `invalid_order`) — klaim memakai
+    // pengenal kanonik `id` supaya replay tetap memberi link yang SAMA.
+    setOrderMode("ws_order_id");
+    const c4Arm = await armCheckout({
+      base: APP_URL,
+      phone: P.wsOrderId,
+      cookie: waSessionCookie(P.wsOrderId),
+    });
+    const c4First = await createOrder(P.wsOrderId, c4Arm.idempotencyKey);
+    assertEq(c4First.status, 200, "C-4: checkout dengan order_id whitespace ⇒ 200");
+    const c4Stored = psqlSuper(
+      `select coalesce(order_id,'<null>') from checkout_claims where idempotency_key='${c4Arm.idempotencyKey}'`,
+      { csv: true }
+    );
+    assertOk(
+      c4Stored.trim() !== "",
+      "C-4: klaim TIDAK menyimpan order_id kosong/whitespace",
+      JSON.stringify(c4Stored)
+    );
+    assertEq(
+      c4Stored,
+      psqlSuper(
+        `select coalesce(scalev_order_uuid,'<null>') from checkout_claims where idempotency_key='${c4Arm.idempotencyKey}'`,
+        { csv: true }
+      ),
+      "C-4: nomor bisnis tak terpakai ⇒ klaim memakai pengenal kanonik `id`"
+    );
+    const c4Before = mockOrderCount();
+    const c4Retry = await createOrder(P.wsOrderId, c4Arm.idempotencyKey);
+    assertEq(c4Retry.body?.replay, true, "C-4: replay kunci ⇒ link yang sama, bukan order kedua");
+    assertEq(mockOrderCount() - c4Before, 0, "C-4: nol order kedua dicetak di Scalev");
+    setOrderMode("ok");
 
     // (8) F-W4-1c M-2: baris yang PUNYA canonical UUID tapi tanpa nomor bisnis
     // (order/link tidak lengkap) TIDAK dikembalikan dan TIDAK dicetak ulang —
