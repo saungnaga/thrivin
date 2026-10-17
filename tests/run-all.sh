@@ -56,6 +56,10 @@ node --experimental-strip-types "$HERE/test-cancel-ttl-units.mts"
 node --experimental-strip-types "$HERE/test-harness-isolation.mts"
 # A6: teks legal yang dipublikasikan harus tetap = teks yang disetujui owner.
 node --experimental-strip-types "$HERE/test-legal-draft-shape.mts"
+# Higiene klien HTTP harness: nol socket keep-alive dipakai ulang (flake
+# `UND_ERR_SOCKET other side closed` di suite e2e saat kotak berbeban). Kontrol
+# negatif ikut diuji di dalamnya: klien mentah HARUS gagal pada urutan yang sama.
+node --experimental-strip-types "$HERE/test-harness-keepalive.mts"
 
 echo
 echo "=============================================================="
