@@ -2,9 +2,11 @@ W4 F-W4-1c RONDE PATCH V-1..V-7 — cancel order Scalev saat TTL retire.
 Sumber: delta-review Sentinel t_9b3fc917 (review-fw41c-impl-2026-10-17.md, LULUS
 DENGAN CATATAN 0 veto) + arah operator Koron (kartu t_1d1cf77f).
 Tanggal: 2026-10-18. Repo: /home/ubuntu/workspaces/thrivin/batch-2026-10-15/w4-consent-gate
-Branch: feat/checkout-consent-gate-2026-10-15. HEAD pasca-patch: 3415294
-(kode: 2f35ebe sql · fc6a607 worker/gate · 9025b1e sapuan · cab74f6 test e2e+mutasi ·
-3415294 probe V-7; basis pra-patch untuk bukti negatif: a850dd0).
+Branch: feat/checkout-consent-gate-2026-10-15. Kode pasca-patch terakhir: 3415294
+(2f35ebe sql · fc6a607 worker/gate · 9025b1e sapuan · cab74f6 test e2e+mutasi ·
+3415294 probe V-7). Gate §1 dijalankan pada tree tersebut; satu-satunya delta
+sesudahnya = berkas docs/ ini (git diff --name-only 3415294..HEAD), jadi kode yang
+diuji identik dengan HEAD. Basis pra-patch untuk bukti negatif: a850dd0.
 Semua uji di harness LOKAL: Postgres lokal + PostgREST lokal + mock Scalev lokal.
 Nol apply ke Supabase/staging/produksi, nol data pelanggan, nol kredensial prod, nol
 Scalev nyata, nol push/merge. Klon privat untuk bukti negatif:
@@ -78,6 +80,11 @@ bash tests/run-all.sh -> log /home/ubuntu/w4v-evidence/runall-postfix2.log
   cancel TTL e2e             : 112 PASS, 0 FAIL   (sebelum ronde ini: 86)
   ALL SUITES PASSED (EXIT=0)
 npx tsc --noEmit -> exit 0.
+
+Diulang pada HEAD repo pasca-komit dokumen (evidence/runall-postfix3.log, atribusi
+lewat SHA bukan worktree kotor) -> angka IDENTIK: ALL SUITES PASSED (EXIT=0),
+cancel TTL units 27/0, probe V-7 5/0, harness isolation 14/0, SQL 155/0,
+consent e2e 166/0, cancel e2e 112/0; `npx tsc --noEmit` exit 0.
 
 ==============================================================================
 2. Bukti negatif di DB FRESH (higiene V-6)
