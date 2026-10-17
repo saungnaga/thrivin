@@ -908,11 +908,21 @@ BEGIN
   UPDATE checkout_claims
     SET cancel_attempts = cancel_attempts + 1,
         cancel_claimed_at = now(),
-        cancel_claimed_until = now() + INTERVAL '15 seconds',
+        -- V-3 (review-W4RX4): lease WAJIB >= jendela worker sendiri
+        -- (CANCEL_MAX_ATTEMPTS x CANCEL_TIMEOUT_MS + backoff + margin = ~16,3 s);
+        -- 15 s dulu lebih pendek dari attempt-nya sendiri ⇒ worker kedua bisa
+        -- melease baris yang sama saat attempt pertama masih jalan (id yang sama
+        -- dikirim 4x, dan cancel kedua bisa dijawab terminal 400/403/404 ⇒
+        -- nomor terkunci). 30 s = budget + margin. Dikunci assertion
+        -- `tests/test-cancel-ttl-e2e.mts` §10 (lease >= floor turunan konstanta TS).
+        cancel_claimed_until = now() + INTERVAL '30 seconds',
         updated_at = now()
     WHERE id = p_claim_id
       AND status = 'cancel_pending'
       AND paid_at IS NULL
+      -- V-4: jadwal retry (backoff) WAJIB dibaca, kalau tidak backoff hanya
+      -- dekorasi — baris langsung bisa dilease ulang tiap request checkout.
+      AND (cancel_next_retry_at IS NULL OR cancel_next_retry_at <= now())
       AND (cancel_claimed_until IS NULL OR cancel_claimed_until <= now())
     RETURNING id, scalev_order_uuid, order_id, cancel_attempts INTO v_row;
 
@@ -1007,6 +1017,73 @@ BEGIN
   RETURN json_build_object('status', 'recorded', 'claim_id', p_claim_id, 'state', v_state);
 END;
 $function$;
+
+-- ----------------------------------------------------------------------------
+-- 9d. V-1: penemu order terlantar (nominasi untuk sweep).
+-- ----------------------------------------------------------------------------
+-- Kenapa perlu: step 3b `claim_checkout_order` bersifat LAZY — ia hanya jalan
+-- kalau pelanggan itu checkout LAGI. Order yang ditinggalkan (pelanggan tidak
+-- kembali) tidak pernah masuk antrean cancel, jadi sapuan 30 menit hanya
+-- mengulang baris yang sudah diketahui — sementara link Scalev tetap bisa
+-- dibayar ~24 jam (fakta produk 17/10). RPC ini memberi sweep penemu barisnya.
+--
+-- Sama seperti 3b/3c: SQL hanya MEMINDAHKAN STATE (nol panggilan Scalev; tidak
+-- ada pg_net/http dari sini), semantiknya identik supaya tidak ada dua aturan:
+--   uuid ada   -> cancel_pending (worker/route yang HTTP cancel)
+--   uuid kosong -> cancel_failed 'missing_canonical_order_id' (antrean owner,
+--                  baris tetap MENAHAN nomor lewat penjaga per-nomor)
+-- `p_limit` yang dilewati tidak hilang: sapuan berikutnya mengambil sisanya
+-- (ORDER BY created_at ASC + LIMIT), jadi tidak ada baris yang keluar dari
+-- pandangan kecuali saat backlog memang sedang diproses.
+CREATE OR REPLACE FUNCTION nominate_stale_cancels(
+  p_tenant_id TEXT,
+  p_limit INTEGER DEFAULT 200,
+  p_unpaid_ttl_seconds INTEGER DEFAULT 3600
+) RETURNS JSON
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $function$
+DECLARE
+  v_pending INTEGER := 0;
+  v_missing INTEGER := 0;
+BEGIN
+  WITH stale AS (
+    SELECT id FROM checkout_claims
+     WHERE tenant_id = p_tenant_id
+       AND status = 'created'
+       AND paid_at IS NULL
+       AND created_at < now() - make_interval(secs => p_unpaid_ttl_seconds)
+     ORDER BY created_at ASC
+     LIMIT GREATEST(p_limit, 1)
+     FOR UPDATE SKIP LOCKED
+  ), moved AS (
+    UPDATE checkout_claims c
+       SET status = CASE WHEN COALESCE(c.scalev_order_uuid, '') <> ''
+                         THEN 'cancel_pending' ELSE 'cancel_failed' END,
+           cancel_next_retry_at = CASE WHEN COALESCE(c.scalev_order_uuid, '') <> ''
+                                       THEN now() ELSE c.cancel_next_retry_at END,
+           cancel_last_error = CASE WHEN COALESCE(c.scalev_order_uuid, '') <> ''
+                                    THEN NULL
+                                    ELSE COALESCE(c.cancel_last_error, 'missing_canonical_order_id') END,
+           updated_at = now()
+      FROM stale s
+     WHERE c.id = s.id
+     RETURNING c.status
+  )
+  SELECT count(*) FILTER (WHERE status = 'cancel_pending'),
+         count(*) FILTER (WHERE status = 'cancel_failed')
+    INTO v_pending, v_missing
+    FROM moved;
+
+  RETURN json_build_object(
+    'status', 'nominated',
+    'nominated', COALESCE(v_pending, 0),
+    'missing_id', COALESCE(v_missing, 0)
+  );
+END;
+$function$;
+
 
 -- ============================================================================
 -- 10. RPC baca: status consent efektif (dipakai gate/jalur baca Nina)
@@ -1178,6 +1255,7 @@ REVOKE ALL ON FUNCTION release_checkout_claim(UUID) FROM PUBLIC, anon, authentic
 REVOKE ALL ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION claim_checkout_cancel(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION nominate_stale_cancels(TEXT, INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION purge_expired_onboarding_progress(INTEGER) FROM PUBLIC, anon, authenticated;
 
@@ -1191,6 +1269,7 @@ GRANT EXECUTE ON FUNCTION release_checkout_claim(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION claim_checkout_cancel(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION nominate_stale_cancels(TEXT, INTEGER, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION consent_state_for_phone(TEXT, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION purge_expired_onboarding_progress(INTEGER) TO service_role;
 

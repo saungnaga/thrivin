@@ -12,6 +12,11 @@
 -- `staging/schema-consent.sql` (satu file memuat tabel + fungsi, jadi tidak ada
 -- dua salinan `claim_checkout_order` yang bisa menyimpang). Urutan apply:
 --
+--   ⚠️ Ronde patch V (2026-10-18) menambah fungsi BARU `nominate_stale_cancels`
+--   dan mengubah body `claim_checkout_cancel` (lease 15 s → 30 s + gerbang
+--   `cancel_next_retry_at`). Dua-duanya BODY, jadi file ini TIDAK cukup untuk DB
+--   yang sudah ada: WAJIB lanjut dengan `staging/schema-consent.sql` (idempoten).
+--
 --   produksi (schema-consent BELUM ada):
 --     1) staging/schema-consent.sql   (versi baru — sudah memuat semua di bawah)
 --     2) file ini                      (idempoten; delta-nya no-op di sana)
