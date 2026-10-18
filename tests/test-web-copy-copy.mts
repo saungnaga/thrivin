@@ -148,13 +148,30 @@ for (const key of ["home", "nina", "checkout"] as const) {
     );
   });
 }
+
+// GARANSI-1 is CLOSED (Koron, owner ACC 18/10 — card t_91b4f733): the canonical
+// refund window is "72 jam (3x24 jam) sejak pembayaran diterima", which is the
+// exact same window the approved draft called "3 hari pertama". So both literals
+// are accepted here. What stays pinned is the SUBSTANCE: a window from this set
+// AND the "100%" amount must both be present, so no page can silently drop the
+// window or weaken the amount. Do not add a third accepted form without the same
+// kind of decision.
+const GUARANTEE_TIMEFRAMES = ["3 hari pertama", "72 jam"] as const;
+
+function hasGuaranteeWindow(text: string): boolean {
+  return GUARANTEE_TIMEFRAMES.some((window) => text.includes(window));
+}
+
 check("A4: guarantee text matches the approved policy on /privacy", () => {
   const privacy = read("src/app/privacy/page.tsx");
-  assert.ok(privacy.includes("3 hari pertama"), "privacy policy timeframe changed?");
+  assert.ok(
+    hasGuaranteeWindow(privacy),
+    `privacy policy must state the approved window (${GUARANTEE_TIMEFRAMES.join(" | ")})`
+  );
   assert.ok(privacy.includes("100%"), "privacy policy refund amount changed?");
   const shared = read("src/lib/pricing-copy.ts");
   assert.ok(
-    shared.includes("3 hari pertama") && shared.includes("100%"),
+    hasGuaranteeWindow(shared) && shared.includes("100%"),
     "shared guarantee text must stay inside the approved policy"
   );
 });
