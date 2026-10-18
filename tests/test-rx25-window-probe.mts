@@ -336,6 +336,17 @@ async function main() {
     );
     process.exit(3);
   }
+  // B-7 (kartu t_a259d6c6): probe ini dipakai sebagai bukti negatif RX2-5 lewat
+  // `tests/harness/rx25-index-mutation.sh proof`. Dulu ia MELAPORKAN kebocoran
+  // tapi keluar 0, jadi pemanggil yang hanya memeriksa exit code melihat "hijau"
+  // di pohon pra-fix. Exit code sekarang = vonisnya sendiri: 1 kalau ada
+  // kebocoran pada putaran yang sah.
+  if (leaks > 0) {
+    console.log(
+      `GAGAL (exit 1): ${leaks} kebocoran pada ${validRounds} putaran sah — penjaga per-nomor TIDAK menahan.`
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
