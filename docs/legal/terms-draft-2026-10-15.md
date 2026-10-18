@@ -24,7 +24,7 @@ Tanda `«…»` = **placeholder**: ada keputusan kebijakan yang belum diambil. D
 - **A1** — Status persetujuan akan disimpan di `users.opt_in` / `users.opted_out` + tabel event append-only `consent_events`, dengan versi teks dan timestamp server. **Belum ada di skema mana pun** (S0 B-2). Selama belum dibangun, draft ini tidak boleh mengklaim "kami mencatat persetujuanmu".
 - **A2** — Aturan pengingat: hanya kirim 07.00–21.00 waktu lokal, jeda minimal 20 jam antar pengingat proaktif, tombol OPTOUT berhenti langsung, kata BERHENTI/STOP butuh konfirmasi `IYA`. Sumber: spec proaktif §A/§E/§H + tambahan owner §1. Engine-nya **belum dibangun** (N1/N2).
 - **A3** — Zona waktu: tidak ada kolom tz di `users`; draft memakai konstanta `Asia/Jakarta` (WIB) sebagai asumsi teruji.
-- **A4** — Bunyi garansi uang kembali mengikuti yang sudah ada di `/privacy` §3 (klaim ≤3 hari pertama, dana 100%). Draft tidak boleh lebih kuat dari itu.
+- **A4** — Bunyi garansi uang kembali mengikuti teks yang **sudah dipublikasikan** di `/privacy` §4 dan `/terms` §6: klaim dalam **72 jam (3×24 jam) sejak pembayaran diterima**, dana 100% tanpa potongan. Satuan kanonik = 72 jam (keputusan 2026-10-18, kartu `t_91b4f733`, mandat ACC owner 18/10); "3 hari pertama" di copy UI lama (`src/lib/pricing-copy.ts`) adalah jendela yang sama, bukan jendela berbeda. Draft tidak boleh lebih kuat dari itu.
 - **A5** — Kuota token per paket 100k/500k/2M. Perilaku saat kuota habis sebelum masa aktif berakhir **belum diputuskan**.
 - **A6** — Harga yang ditagih berasal dari katalog server (`PLAN_CATALOG`) + harga varian Scalev. Diketahui ada selisih `basePrice` vs `fallbackVariantPrice` pada quarter/half/year (`src/lib/plans.ts:51,61,71` vs `57,67,77`) — kalau lookup varian live gagal, angka tagihan bisa berbeda dari yang dibaca di checkout. Temuan W1 §6.1, belum diperbaiki.
 - **A7** — Kuota promo `TEMANBAIKHATI` = 100 dan `TEMANBARU` = 20% hanya ada di `promo-ws/staging/schema-promo-codes.sql` (belum di RC). Angka ini bukan sumber kebenaran untuk teks publik.
@@ -32,9 +32,9 @@ Tanda `«…»` = **placeholder**: ada keputusan kebijakan yang belum diambil. D
 - **A9** — Pengiriman pesan WhatsApp bisa lewat WhatsApp Business (Cloud API, Meta) atau jalur tidak resmi; kanal resmi **live tapi outbound diblokir Meta** (2026-10-14). Perilaku kanal = asumsi, bukan janji.
 - **A10** — Penanganan media (foto makanan, screenshot Strava) **tidak ada bukti kodenya di repo web ini**; penyimpanan/retensi media belum dapat diverifikasi dari sini.
 
-## Registry pertanyaan owner (BELUM dijawab)
+## Registry pertanyaan owner (yang sudah ditutup ditandai **DITUTUP**)
 
-- **GARANSI-1** — "3 hari pertama" = 3×24 jam sejak pembayaran diterima, atau 3 hari kalender (berakhir 23:59 WIB hari ketiga)?
+- **GARANSI-1** — **DITUTUP 2026-10-18** (kartu `t_91b4f733`, keputusan Koron atas mandat ACC owner 18/10): jendela garansi = **72 jam (3×24 jam) sejak pembayaran diterima**, bukan 3 hari kalender sampai 23:59 WIB. Teks publik di RC (`/privacy` §4, `/terms` §6) sudah berbunyi 72 jam; "3 hari pertama" di copy UI lama = jendela yang sama. Baris ini tetap terdaftar supaya id `GARANSI-1` tidak menggantung di pasal mana pun.
 - **GARANSI-2** — Kanal klaim: hanya CS WhatsApp `wa.me/6287788141388`, atau perlu kanal/form tambahan? Siapa pemroses dan dalam berapa hari dana kembali?
 - **GARANSI-3** — "100%" utuh, atau dipotong biaya gateway/admin? Kalau dipotong, copy "100%" di UI harus diubah.
 - **PROMO-1** — Wording publik `TEMANBAIKHATI` (Rp 10.000 paket 3 bulan, 1× per nomor, kuota 100) disetujui? Boleh tampil di halaman mana dan sampai kapan?
@@ -95,13 +95,13 @@ Tanda `«…»` = **placeholder**: ada keputusan kebijakan yang belum diambil. D
 
 **Provenance:** S=`src/app/companion/nina/onboarding/[step]/page.tsx:1590`, `src/app/api/scalev/create-order/route.ts:183-193`, `promo-ws/staging/schema-promo-codes.sql:50-119` · A=A6, A7 · O=PROMO-1
 
-### T6. Garansi uang kembali 3 hari
+### T6. Garansi uang kembali 72 jam (3×24 jam)
 
-> Dalam 3 hari pertama setelah pembelian, kamu berhak mengajukan klaim pengembalian dana 100% kalau
-> merasa pendampingan Nina belum cocok. Klaim diajukan lewat Customer Service WhatsApp
+> Dalam **72 jam (3×24 jam)** sejak pembayaran kami terima, kamu berhak mengajukan klaim pengembalian
+> dana 100% kalau merasa pendampingan Nina belum cocok. Klaim diajukan lewat Customer Service WhatsApp
 > `wa.me/6287788141388` («KANAL/SLA KLAIM», «POTONGAN»).
 
-**Provenance:** S=`src/app/privacy/page.tsx:78-85`, `w1 head 26029cc src/lib/pricing-copy.ts:102-104` · A=A4 · O=GARANSI-1, GARANSI-2, GARANSI-3
+**Provenance:** S=`src/app/privacy/page.tsx:124-130`, `src/app/terms/page.tsx:128-135`, `src/lib/pricing-copy.ts:102-104` · A=A4 · O=GARANSI-2, GARANSI-3
 
 ### T7. Kuota pemakaian paket
 
