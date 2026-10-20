@@ -120,7 +120,7 @@ node --experimental-strip-types "$HERE/test-promo-e2e.mts"
 
 echo
 echo "=============================================================="
-echo "8/12 end-to-end: WA-first identity (OTP mock) + status + kandidat promo"
+echo "8/12 end-to-end: WA-first TANPA OTP (lookup new/active/inactive + sesi checkout)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-wa-first-e2e.mts"
 
