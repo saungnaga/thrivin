@@ -108,6 +108,52 @@ function planKeyFromVariantPrice(price: number): PlanKey | null {
   return distinctVariants.size === 1 ? null : matches[0];
 }
 
+/**
+ * Kuotasi promo READ-ONLY untuk tombol "Terapkan" di checkout.
+ *
+ * Nol tulis DB, nol klaim kuota (redeem_promo dryRun), nol buat order, nol
+ * panggilan riwayat order per nomor. Karena itu aman dijawab TANPA identitas
+ * checkout (kunci idempotensi / sesi WA) — gate itu milik pembuatan order.
+ */
+async function quotePromo(
+  code: string | null,
+  phone: string,
+  planKey: PlanKey,
+  catalogPrice: number
+): Promise<{ valid: boolean; code: string | null; discount: number; finalPrice: number; error?: string }> {
+  if (!code) {
+    return {
+      valid: false,
+      code: null,
+      discount: 0,
+      finalPrice: catalogPrice,
+      error: "Format kode promo tidak valid.",
+    };
+  }
+  // Fail closed: toko promo mati ⇒ kode TIDAK dianggap valid (bukan "diam-diam
+  // harga penuh").
+  if (!isPromoStoreConfigured()) {
+    return {
+      valid: false,
+      code: null,
+      discount: 0,
+      finalPrice: catalogPrice,
+      error: "Kode promo sedang tidak bisa diverifikasi. Coba lagi sebentar lagi.",
+    };
+  }
+  const promo = await redeemPromo({ code, phone, planKey, revenue: catalogPrice, dryRun: true });
+  if (promo.status !== "ok") {
+    return {
+      valid: false,
+      code: promo.code || null,
+      discount: 0,
+      finalPrice: catalogPrice,
+      error: promo.message || "Kode promo tidak bisa dipakai.",
+    };
+  }
+  return { valid: true, code: promo.code, discount: promo.discount, finalPrice: promo.finalPrice };
+}
+
 export async function POST(req: Request) {
   // Klaim single-flight milik percobaan ini; dilepas kalau order eksternal gagal
   // (atau exception) supaya nomor tidak terkunci oleh percobaan yang mati.
@@ -164,6 +210,21 @@ export async function POST(req: Request) {
     }
     const plan = planId;
 
+    // ── Cek promo (READ-ONLY) ────────────────────────────────────────────────
+    // Cek promo tidak membuat order dan tidak butuh identitas: nol tulis DB, nol
+    // klaim kuota, nol sentuh sesi/klaim. Jadi dijawab SEBELUM gate kunci
+    // idempotensi + sesi WA di bawah — gate itu milik pembuatan order, bukan
+    // milik membaca harga. Tanpa ini tombol "Terapkan" mati total di layar
+    // checkout ("Kunci idempotensi checkout tidak ada/terlalu pendek.").
+    // Angka tetap dari server (promo_codes + harga katalog), bukan dari klien.
+    if (checkPromoOnly) {
+      const variant = await lookupVariant(storeId, apiKey, plan);
+      const planKey = planKeyFromVariantPrice(variant.price) ?? plan;
+      return NextResponse.json(
+        await quotePromo(normalizedPromo, cleanPhone, planKey, resolvePlanPrice(plan).price)
+      );
+    }
+
     // ── A2: pintu identitas. Nomor pelanggan WAJIB nomor sesi terverifikasi ──
     // Langkah 1: kunci idempotensi. Tanpa ini, klik dua kali / retry jaringan
     // bisa mencetak dua order di Scalev.
@@ -176,22 +237,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Langkah 2: sesi server (cookie HMAC hasil verifikasi OTP). Tidak ada state
-    // onboarding dari body yang dipercaya di bawah ini.
+    // Langkah 2: sesi server (cookie HMAC hasil LOOKUP nomor, bukan OTP). Cookie
+    // ini membuktikan nomor pernah dicek dari browser ini — BUKAN kepemilikan
+    // nomor (keputusan owner 20/10 menghapus OTP). Tidak ada state onboarding
+    // dari body yang dipercaya di bawah ini.
     const sessionPhone = await getWaSessionPhone();
     if (!sessionPhone) {
       return NextResponse.json(
         {
-          error: "Sesi tidak valid atau kedaluwarsa. Verifikasi nomor WhatsApp dulu.",
+          error: "Sesi tidak valid atau kedaluwarsa. Cek nomor WhatsApp dulu.",
           code: "SESSION_REQUIRED",
         },
         { status: 401 }
       );
     }
     if (cleanPhone !== sessionPhone) {
-      // Nomor di body bukan nomor sesi: request ini bukan milik pemilik sesi.
+      // Nomor di body bukan nomor sesi: request ini bukan milik sesi tersebut.
       return NextResponse.json(
-        { error: "Nomor tidak cocok dengan sesi terverifikasi.", code: "PHONE_SESSION_MISMATCH" },
+        { error: "Nomor tidak cocok dengan sesi.", code: "PHONE_SESSION_MISMATCH" },
         { status: 403 }
       );
     }
@@ -279,15 +342,6 @@ export async function POST(req: Request) {
       } catch (checkErr) {
         console.warn("Failed checking promo order history:", redactError(checkErr));
       }
-    }
-
-    if (checkPromoOnly) {
-      return NextResponse.json({
-        valid: true,
-        code: promo?.code ?? null,
-        discount: promo?.discount ?? 0,
-        finalPrice: promo?.finalPrice ?? catalogPrice,
-      });
     }
 
     // ── A2: GATE otoritatif sebelum efek samping eksternal ───────────────────

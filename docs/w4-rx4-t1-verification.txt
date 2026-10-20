@@ -271,9 +271,12 @@ Reproduksi sendiri sebelum fix (psql langsung ke DB harness, RPC apa adanya):
 
 Fix (staging/schema-consent.sql + salinan tests/harness/migrations/006-consent-gate.sql,
 disalin seed.sh): UPDATE langkah 2 dibungkus penangkap yang SAMA dengan langkah 7 —
-`BEGIN … EXCEPTION WHEN unique_violation THEN RETURN json_build_object('status','in_flight')`.
-Route sudah memetakan `in_flight` ⇒ 409 `ORDER_IN_FLIGHT` (route.ts:351, dikonfirmasi),
-jadi NOL perubahan `src/`, nol perubahan kontrak status sukses, nol perubahan index.
+`BEGIN … EXCEPTION WHEN unique_violation THEN RETURN json_build_object('status',
+blocked_live_status(p_tenant_id, p_phone))`. Isi blok bergerak setelah merge RC
+(F-W4-1c 3b10d29 + T3): dulu `'in_flight'` literal, kini `blocked_live_status(...)`
+— sama seperti langkah 7. Route sudah memetakan `in_flight` ⇒ 409 `ORDER_IN_FLIGHT`
+(route.ts:351, dikonfirmasi), jadi NOL perubahan `src/`, nol perubahan kontrak status
+sukses, nol perubahan index.
 
 Audit SEMUA penulis `checkout_claims` di file skema (`grep -n "SET status\|INSERT INTO
 checkout_claims"`), tiap penulis + alasan aman:
@@ -299,14 +302,28 @@ Panggilan replay dibungkus `claimSafe()` supaya pra-fix terbaca FAIL, bukan cras
 
 Bukti negatif (bergigi), satu perintah: `bash tests/harness/w4t1-regrant-mutation.sh`
 (keluaran /tmp/w4t1-regrant-{pre,post}-sql.log; EXIT=0 hanya kalau kedua arah terbukti)
-  (a) penjaga statis: jumlah blok `EXCEPTION WHEN unique_violation` di file skema
-      harus 2 pasca-fix (langkah 2 + 7), 1 setelah blok langkah 2 dilepas.
-  (b) pra-fix (mutasi satu hal: blok EXCEPTION langkah 2 dilepas, bukan revert commit)
-      ⇒ SQL gate consent/checkout 120 PASS, 1 FAIL, EXIT=1; FAIL-nya persis
+Mutasi ditambatkan pada STRUKTUR — blok `BEGIN … EXCEPTION WHEN unique_violation THEN
+… END;` yang membungkus `UPDATE … WHERE id = v_existing.id` — bukan pada teks isi blok
+maupun jumlah blok di berkas. Riwayat: versi pertama (literal `'in_flight'` + harapan
+"2 blok / 1 blok") jadi NO-OP SUNYI begitu F-W4-1c/T3 mengubah isi blok dan menambah
+blok ketiga (QC B-2, t_514b5cba: `AssertionError: bentuk ber-fix langkah 2 tidak
+ditemukan`, lalu "blok EXCEPTION sekarang: 3", skrip tanpa `set -e` lanjut ⇒ suite jalan
+di skema TAK termutasi ⇒ laporan palsu "pra-fix exit 0"). Sekarang setiap pra-syarat
+gagal ⇒ ABORT (exit != 0) dan suite TIDAK dianggap bukti.
+  (a) penjaga: anchor `WHERE id = v_existing.id` harus persis 1×, pembungkus
+      BEGIN/EXCEPTION/END harus lengkap; jumlah blok penangkap dipakai sebagai DELTA
+      (harus turun tepat 1), bukan angka mutlak yang bisa basi; mutasi harus benar-benar
+      mengubah berkas (`git diff --quiet`).
+  (b) pra-fix (mutasi satu hal: pembungkus langkah 2 dilepas, bukan revert commit)
+      ⇒ SQL gate consent/checkout 169 PASS, 1 FAIL, EXIT=1; FAIL-nya persis
       "F-2: replay K1 saat nomor punya order hidup ⇒ in_flight …, expected in_flight,
-      got ERR …" ⇒ asersi memang yang menangkap, bukan crash sampingan.
-  (c) pasca-fix (file dipulihkan via trap) ⇒ 121 PASS, 0 FAIL, EXIT=0; `git status`
-      file skema bersih dari mutasi.
+      got ERR …" ⇒ asersi memang yang menangkap, bukan crash sampingan; skrip menolak
+      merah karena alasan lain (wajib ada `FAIL F-2` di log).
+  (c) pasca-fix (berkas dipulihkan dari salinan awal via trap) ⇒ 170 PASS, 0 FAIL,
+      EXIT=0; sha256 skema == sha256 awal (byte-identik) + `git status` bersih.
+  (d) kontrol negatif: anchor digeser (`WHERE id = v_existing_ref`) ⇒ ABORT sebelum
+      suite dijalankan, `/tmp/w4t1-regrant-pre-sql.log` TIDAK dibuat.
+Angka PASS/FAIL di atas = RC f19f523 pada suite yang sama (bukan angka lama 120/121).
 
 Bukti positif sesudah fix:
   - SQL gate consent/checkout : 121 PASS, 0 FAIL, EXIT=0   (/tmp/f2-sql-fixed.log)

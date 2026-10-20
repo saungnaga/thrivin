@@ -194,6 +194,128 @@ check("sesi WA: secret lemah / kosong -> tidak ada sesi (gagal-tertutup)", () =>
   }
 });
 
+// ── WA-first TANPA OTP: pemetaan tiga status (kartu 2026-10-20) ─────────────
+const { buildWaLookupPayload, RENEWAL_PROMO_AFTER_MS } = await import("../src/lib/wa-status.ts");
+const { limitRequest } = await import("../src/lib/rate-limit.ts");
+
+const DAY = 24 * HOUR_MS;
+function iso(ms: number) {
+  return new Date(ms).toISOString();
+}
+
+check("lookup: 'none' -> {ok,status:'new'} persis (tanpa field lain)", () => {
+  const payload = buildWaLookupPayload({ state: "none", expiresAt: null, lastPlanKey: null }, NOW);
+  assert.deepEqual(payload, { ok: true, status: "new" });
+});
+
+check("lookup: aktif -> daysLeft dari expires_at, planName null (RPC tak punya nama)", () => {
+  const payload = buildWaLookupPayload(
+    { state: "active", expiresAt: iso(NOW + 21 * DAY), lastPlanKey: "month" },
+    NOW
+  );
+  assert.deepEqual(payload, { ok: true, status: "active", planName: null, daysLeft: 21 });
+  const half = buildWaLookupPayload(
+    { state: "active", expiresAt: iso(NOW + 12 * HOUR_MS), lastPlanKey: null },
+    NOW
+  );
+  assert.equal((half as { daysLeft: number }).daysLeft, 1, "sisa 12 jam tetap '1 hari'");
+});
+
+check("lookup: nonaktif 12 hari -> renewalPromo true, daysSinceExpiry 12", () => {
+  const payload = buildWaLookupPayload(
+    { state: "expired", expiresAt: iso(NOW - 12 * DAY), lastPlanKey: "quarter" },
+    NOW
+  );
+  assert.deepEqual(payload, {
+    ok: true,
+    status: "inactive",
+    daysSinceExpiry: 12,
+    renewalPromo: true,
+  });
+});
+
+check("lookup: renewalPromo HANYA saat > 7 hari (3 hari & tepat 7 hari = false)", () => {
+  const three = buildWaLookupPayload(
+    { state: "expired", expiresAt: iso(NOW - 3 * DAY), lastPlanKey: null },
+    NOW
+  );
+  assert.equal((three as { renewalPromo: boolean }).renewalPromo, false);
+  const exact7 = buildWaLookupPayload(
+    { state: "expired", expiresAt: iso(NOW - RENEWAL_PROMO_AFTER_MS), lastPlanKey: null },
+    NOW
+  );
+  assert.equal((exact7 as { renewalPromo: boolean }).renewalPromo, false, "tepat 7×24 jam = belum promo");
+  const over7 = buildWaLookupPayload(
+    { state: "expired", expiresAt: iso(NOW - RENEWAL_PROMO_AFTER_MS - 1), lastPlanKey: null },
+    NOW
+  );
+  assert.equal((over7 as { renewalPromo: boolean }).renewalPromo, true, "7×24 jam + 1 ms = promo");
+});
+
+check("lookup: expires_at tidak terbaca -> angka null, promo TIDAK ditawarkan (gagal-tertutup)", () => {
+  const active = buildWaLookupPayload({ state: "active", expiresAt: null, lastPlanKey: null }, NOW);
+  assert.deepEqual(active, { ok: true, status: "active", planName: null, daysLeft: null });
+  const expired = buildWaLookupPayload(
+    { state: "expired", expiresAt: "bukan-tanggal", lastPlanKey: null },
+    NOW
+  );
+  assert.deepEqual(expired, {
+    ok: true,
+    status: "inactive",
+    daysSinceExpiry: null,
+    renewalPromo: false,
+  });
+});
+
+check("lookup: payload TIDAK memuat nama/profil/subscription_id/token/nomor", () => {
+  const forbidden = [
+    "name",
+    "profile",
+    "subscription",
+    "subscription_id",
+    "token",
+    "token_limit",
+    "phone",
+    "maskedPhone",
+    "weight",
+    "height",
+    "age",
+  ];
+  const payloads = [
+    buildWaLookupPayload({ state: "none", expiresAt: null, lastPlanKey: null }, NOW),
+    buildWaLookupPayload({ state: "active", expiresAt: iso(NOW + DAY), lastPlanKey: "month" }, NOW),
+    buildWaLookupPayload({ state: "expired", expiresAt: iso(NOW - 9 * DAY), lastPlanKey: null }, NOW),
+  ];
+  for (const payload of payloads) {
+    const keys = Object.keys(payload);
+    for (const field of forbidden) {
+      assert.ok(!keys.includes(field), `field terlarang "${field}" ikut keluar`);
+    }
+  }
+});
+
+check("rate limit: 5 permintaan/nomor per menit, yang ke-6 ditolak", () => {
+  const makeReq = (ip: string) =>
+    new Request("http://127.0.0.1/api/wa/session/request", {
+      headers: { "x-forwarded-for": ip },
+    });
+  const opts = { ipLimit: 20, phoneLimit: 5, phone: "6281200009999", windowMs: 60_000 };
+  for (let i = 0; i < 5; i += 1) {
+    assert.equal(limitRequest(makeReq("10.5.5.5"), "wa-status-lookup-unit", opts).ok, true);
+  }
+  const denied = limitRequest(makeReq("10.5.5.5"), "wa-status-lookup-unit", opts);
+  assert.equal(denied.ok, false, "permintaan ke-6 untuk nomor sama harus ditolak");
+  assert.ok(denied.retryAfterSeconds > 0);
+  // Nomor lain dari IP yang sama masih boleh (bucket terpisah per nomor).
+  assert.equal(
+    limitRequest(makeReq("10.5.5.5"), "wa-status-lookup-unit", {
+      ...opts,
+      phone: "6281200009998",
+    }).ok,
+    true
+  );
+});
+
 let failed = 0;
 for (const [status, name] of results) {
   if (status === "FAIL") failed += 1;

@@ -66,6 +66,7 @@ import {
   promoAppliedNote,
   promoDiscountPill,
   savingsVsMonthlyPercent,
+  TEMANBARU_PROMO,
 } from "@/lib/pricing-copy";
 
 const TOTAL_STEPS = 9;
@@ -88,6 +89,16 @@ interface OnboardingData {
   promoCode: string;
   promoApplied: boolean;
 }
+
+/**
+ * Hasil lookup status nomor (`/api/wa/session/request`). Bentuknya SENGAJA
+ * minimal — tanpa OTP siapa pun bisa mengetik nomor orang lain, jadi server
+ * tidak pernah mengirim nama/profil/riwayat.
+ */
+type WaLookup =
+  | { status: "new" }
+  | { status: "active"; daysLeft: number | null }
+  | { status: "inactive"; daysSinceExpiry: number | null; renewalPromo: boolean };
 
 const DEFAULT_DATA: OnboardingData = {
   name: "",
@@ -120,6 +131,13 @@ export default function OnboardingStepPage({
   const [data, setData] = useState<OnboardingData>(DEFAULT_DATA);
   const [isLoaded, setIsLoaded] = useState(false);
   const [phoneError, setPhoneError] = useState("");
+  // WA-first TANPA OTP (keputusan owner 20/10): langkah 1 = cek status nomor.
+  // Lookup ini juga yang menerbitkan cookie sesi WA — autosave progress dan
+  // create-order bergantung padanya. Cookie membuktikan "nomor ini pernah
+  // dicari dari browser ini", BUKAN "nomor ini milik pengguna"
+  // (docs/wa-first-tanpa-otp-2026-10-20.md).
+  const [waLookup, setWaLookup] = useState<WaLookup | null>(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
@@ -417,6 +435,44 @@ export default function OnboardingStepPage({
     return "";
   };
 
+  // Langkah 1: cek status nomor ke server (TANPA OTP) + terbitkan cookie sesi.
+  // Server yang memutuskan status; klien tidak pernah menebak.
+  const handleWaLookup = async () => {
+    const err = validatePhone(data.whatsappNumber);
+    if (err) {
+      setPhoneError(err);
+      return;
+    }
+    setPhoneError("");
+    setIsLookingUp(true);
+    try {
+      const res = await fetch("/api/wa/session/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: data.whatsappNumber }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) {
+        setPhoneError(body?.error || "Status nomor tidak bisa dicek. Coba lagi.");
+        return;
+      }
+      if (body.status === "new") setWaLookup({ status: "new" });
+      else if (body.status === "active")
+        setWaLookup({ status: "active", daysLeft: body.daysLeft ?? null });
+      else if (body.status === "inactive")
+        setWaLookup({
+          status: "inactive",
+          daysSinceExpiry: body.daysSinceExpiry ?? null,
+          renewalPromo: body.renewalPromo === true,
+        });
+      else setPhoneError("Status nomor tidak dikenali. Coba lagi.");
+    } catch {
+      setPhoneError("Status nomor tidak bisa dicek. Coba lagi.");
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
   // Validasi kode promo ke server (dry run: tidak memakai kuota). Hanya kode
   // yang benar-benar valid yang dianggap "terpasang" — sisa kuota, kedaluwarsa,
   // dan status aktif semuanya ditegakkan server.
@@ -568,14 +624,121 @@ export default function OnboardingStepPage({
     }
   };
 
-  if (!isLoaded) return null;
+  // Form nomor WA tidak butuh localStorage, jadi dirender juga SEBELUM `isLoaded`
+  // — supaya HTML dari server sudah memuat input nomor (funnel + test urutan).
+  const renderPhoneStep = () => (
+          <form
+            className="space-y-6"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!isLookingUp) handleWaLookup();
+            }}
+          >
+            <div>
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent-dark block mb-1">
+                Langkah 1 · Cek Nomor
+              </span>
+              <h1 className="font-serif text-3xl sm:text-4xl font-bold text-brand-950">
+                Nomor WhatsApp Kamu
+              </h1>
+              <p className="text-xs sm:text-sm text-text-secondary mt-1">
+                Nomor ini menjadi ID utama akunmu dan jalur Nina menyapamu setiap hari.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-3">
+              <label
+                htmlFor="wa-phone"
+                className="text-xs font-bold text-brand-950 uppercase tracking-wider block"
+              >
+                Nomor WhatsApp Aktif
+              </label>
+
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center gap-1 text-sm font-bold text-brand-900 pr-2 border-r border-slate-200">
+                  <span>🇮🇩</span>
+                  <span>+62</span>
+                </div>
+                <input
+                  id="wa-phone"
+                  name="phone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  autoFocus
+                  required
+                  aria-describedby="wa-phone-hint"
+                  value={data.whatsappNumber}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    updateData({ whatsappNumber: val });
+                    setPhoneError(validatePhone(val));
+                  }}
+                  placeholder="812-3456-7890"
+                  className="w-full pl-20 pr-4 py-3.5 text-lg font-bold text-brand-950 border border-slate-200 rounded-xl focus:border-brand-900 outline-none"
+                />
+              </div>
+
+              {phoneError && (
+                <div className="text-rose-600 text-xs flex items-center gap-1 pt-1" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{phoneError}</span>
+                </div>
+              )}
+
+              <p id="wa-phone-hint" className="text-[11px] text-text-muted leading-relaxed">
+                Format nomor HP Indonesia (contoh: 0812xxxxxxxx atau 812xxxxxxxx). Nomor hanya
+                dipakai untuk mengecek status langganan.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-900">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Privasi terjaga. Nomor tidak akan dibagikan ke pihak ketiga.</span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLookingUp || !data.whatsappNumber.trim() || !!phoneError}
+              className="w-full mt-4 min-h-11 rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>{isLookingUp ? "Mengecek nomor…" : "Lanjut"}</span>
+              <ArrowRight className="w-4 h-4 text-accent" />
+            </button>
+          </form>
+  );
+
+  if (!isLoaded) {
+    return stepNum === 1 ? (
+      <main className="min-h-screen bg-surface font-sans text-brand-950 px-4 py-6">
+        <div className="mx-auto w-full max-w-md">{renderPhoneStep()}</div>
+      </main>
+    ) : null;
+  }
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">
       {/* ─── Top Step Header Bar ─── */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-surface-border h-14 flex items-center px-4 sm:px-6">
         <div className={`mx-auto w-full flex items-center gap-3 ${stepNum === 9 ? "max-w-3xl" : "max-w-md"}`}>
-          {stepNum === 1 ? (
+          {stepNum === 1 && waLookup === null ? (
+            <>
+              <button
+                onClick={() => router.push("/companion/nina")}
+                className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
+                aria-label="Kembali"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <div className="flex-1 bg-surface-border h-2 rounded-full overflow-hidden">
+                <div className="bg-brand-900 h-full w-1/12 rounded-full" />
+              </div>
+              <span className="text-[11px] font-bold text-text-muted font-mono shrink-0">
+                Langkah 1 · Cek Nomor
+              </span>
+            </>
+          ) : stepNum === 1 ? (
             <>
               <button
                 onClick={() => {
@@ -723,8 +886,72 @@ export default function OnboardingStepPage({
         stepNum === 9 ? "max-w-3xl" : "max-w-md"
       }`}>
         
-        {/* ─── STEP 1: 3 FEATURE SLIDES WITH AUTO-ALTERNATING WHATSAPP CHATS ─── */}
-        {stepNum === 1 && (
+        {/* ─── STEP 1a: CEK NOMOR WHATSAPP (WA-first, TANPA OTP) ─── */}
+
+        {/* ─── STEP 1a: CEK NOMOR WHATSAPP (WA-first, TANPA OTP) ─── */}
+        {stepNum === 1 && waLookup === null && renderPhoneStep()}
+
+        {/* ─── STEP 1b: NOMOR SUDAH ADA — LANGGANAN AKTIF / BERAKHIR ─── */}
+        {stepNum === 1 && waLookup !== null && waLookup.status !== "new" && (
+          <div className="space-y-4" aria-live="polite">
+            <div className="p-5 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-2">
+              {waLookup.status === "active" ? (
+                <>
+                  <h1 className="font-serif text-2xl font-bold text-brand-950">
+                    Langganan aktif
+                  </h1>
+                  <p className="text-xs sm:text-sm text-text-secondary">
+                    Sisa masa aktif:{" "}
+                    {waLookup.daysLeft === null ? "-" : `${waLookup.daysLeft} hari lagi`}.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="font-serif text-2xl font-bold text-brand-950">
+                    Langganan sudah berakhir
+                  </h1>
+                  <p className="text-xs sm:text-sm text-text-secondary">
+                    Berakhir{" "}
+                    {waLookup.daysSinceExpiry === null
+                      ? "-"
+                      : `${waLookup.daysSinceExpiry} hari lalu`}
+                    .
+                  </p>
+                  {waLookup.renewalPromo && (
+                    <div className="mt-2 rounded-2xl bg-brand-50 border border-brand-200 p-3">
+                      <p className="text-xs font-bold text-brand-950">
+                        Ada penawaran {TEMANBARU_PROMO.code}: diskon{" "}
+                        {TEMANBARU_PROMO.discountPercent}% untuk perpanjangan.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => goToStep(2)}
+              className="w-full min-h-11 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Perpanjang langganan</span>
+              <ArrowRight className="w-4 h-4 text-accent" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setWaLookup(null);
+                setPhoneError("");
+              }}
+              className="w-full min-h-11 text-xs font-bold text-text-secondary underline underline-offset-4 cursor-pointer"
+            >
+              Ganti nomor
+            </button>
+          </div>
+        )}
+
+        {/* ─── STEP 1c: 3 FEATURE SLIDES (setelah nomor dicek, nomor baru) ─── */}
+        {stepNum === 1 && waLookup?.status === "new" && (
           <div className="space-y-4">
             {/* ── SLIDE 0: NINA MENGINGAT SEMUA & REMINDER PROAKTIF ── */}
             {introSlide === 0 && (
@@ -1564,13 +1791,13 @@ export default function OnboardingStepPage({
               onClick={() => goToStep(8)}
               className="w-full mt-4 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Lanjut ke Kontak WhatsApp</span>
+              <span>Lanjut ke Konfirmasi Nomor</span>
               <ArrowRight className="w-4 h-4 text-accent" />
             </button>
           </div>
         )}
 
-        {/* ─── STEP 8: INPUT NOMOR WHATSAPP (Langkah 7/7, Primary ID) ─── */}
+        {/* ─── STEP 8: KONFIRMASI NOMOR (nomor sudah dicek di langkah 1) ─── */}
         {stepNum === 8 && (
           <div className="space-y-6">
             <div>
@@ -1586,43 +1813,26 @@ export default function OnboardingStepPage({
             </div>
 
             <div className="p-5 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-3">
-              <label className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
+              <span className="text-xs font-bold text-brand-950 uppercase tracking-wider block">
                 Nomor WhatsApp Aktif
-              </label>
+              </span>
 
-              <div className="relative flex items-center">
-                <div className="absolute left-3.5 flex items-center gap-1 text-sm font-bold text-brand-900 pr-2 border-r border-slate-200">
-                  <span>🇮🇩</span>
-                  <span>+62</span>
-                </div>
-                <input
-                  type="tel"
-                  autoFocus
-                  value={data.whatsappNumber}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    updateData({ whatsappNumber: val });
-                    setPhoneError(validatePhone(val));
-                  }}
-                  placeholder="812-3456-7890"
-                  className="w-full pl-20 pr-4 py-3.5 text-lg font-bold text-brand-950 border border-slate-200 rounded-xl focus:border-brand-900 outline-none"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && data.whatsappNumber.trim() && !phoneError) {
-                      handleProceedFromWhatsApp();
-                    }
-                  }}
-                />
+              <div className="flex items-center gap-2 p-3.5 rounded-xl bg-surface-muted border border-slate-200">
+                <Phone className="w-4 h-4 text-brand-900 shrink-0" />
+                <span className="text-lg font-bold text-brand-950 font-mono">
+                  {data.whatsappNumber || "-"}
+                </span>
               </div>
 
-              {phoneError && (
-                <div className="text-rose-600 text-xs flex items-center gap-1 pt-1">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{phoneError}</span>
-                </div>
-              )}
-
               <p className="text-[11px] text-text-muted leading-relaxed">
-                Format nomor HP Indonesia (contoh: 0812xxxxxxxx atau 812xxxxxxxx).
+                Nomor ini sudah dicek di langkah pertama. Mau ganti nomor?{" "}
+                <button
+                  type="button"
+                  onClick={() => goToStep(1)}
+                  className="font-bold text-accent-dark underline underline-offset-4 cursor-pointer"
+                >
+                  Cek nomor lain
+                </button>
               </p>
             </div>
 

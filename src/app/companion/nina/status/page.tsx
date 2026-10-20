@@ -1,40 +1,28 @@
 "use client";
 
 /**
- * /companion/nina/status — cek status langganan WA-first (kartu W3).
+ * /companion/nina/status — cek status langganan WA-first (TANPA OTP).
  *
- * Urutannya sengaja: nomor dulu, kode verifikasi kedua, baru data. Sebelum
- * kepemilikan nomor terbukti, layar ini TIDAK meminta dan TIDAK menampilkan
- * apa pun tentang langganan — dan jawaban langkah pertama selalu sama
- * ("kalau nomornya terdaftar…") supaya tidak jadi alat menebak nomor.
+ * Keputusan owner 20/10: nomor WhatsApp diketik → server cek database → satu
+ * dari tiga cabang. Tidak ada kode verifikasi, tidak ada hitung mundur, tidak
+ * ada "kode sudah dikirim".
+ *
+ *   new      → lanjut onboarding seperti biasa
+ *   active   → "langganan aktif, sisa N hari" + CTA perpanjang
+ *   inactive → "langganan berakhir N hari lalu" (+ penawaran TEMENANLAGI kalau
+ *              sudah lewat 7 hari)
  *
  * Aksesibilitas: setiap input punya <label> eksplisit, form dikirim dengan
  * Enter/`type="submit"`, error & status diumumkan lewat aria-live, tombol
  * minimal 44px, target sentuh penuh lebar di layar kecil.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { TEMANBARU_PROMO } from "@/lib/pricing-copy";
 
-type Step = "phone" | "code" | "status";
-
-interface RenewalPlan {
-  key: string;
-  name: string;
-  price: number;
-  durationDays: number;
-}
-interface StatusPayload {
-  state: "none" | "active" | "expired";
-  expiresAt: string | null;
-  remainingMs: number | null;
-  lastPlanKey: string | null;
-  maskedPhone: string;
-  renewal: {
-    eligible: boolean;
-    candidate: { code: string; discountType: string; amount: number; planKeys: string[] } | null;
-    plans: RenewalPlan[];
-  } | null;
-  renewalActivationEnabled: boolean;
-}
+type LookupResult =
+  | { ok: true; status: "new" }
+  | { ok: true; status: "active"; planName: string | null; daysLeft: number | null }
+  | { ok: true; status: "inactive"; daysSinceExpiry: number | null; renewalPromo: boolean };
 
 const cardClass =
   "w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6";
@@ -43,64 +31,23 @@ const inputClass =
 const buttonClass =
   "mt-4 w-full min-h-11 rounded-xl bg-neutral-900 px-4 py-2 text-base font-medium text-white disabled:opacity-50";
 
-function formatDuration(ms: number | null): string {
-  if (ms === null) return "-";
-  const days = Math.floor(ms / 86_400_000);
-  const hours = Math.floor((ms % 86_400_000) / 3_600_000);
-  if (days > 0) return `${days} hari ${hours} jam`;
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  return hours > 0 ? `${hours} jam ${minutes} menit` : `${minutes} menit`;
-}
+const ONBOARDING_URL = "/companion/nina/onboarding/1";
 
-function formatIdr(value: number): string {
-  return `Rp ${value.toLocaleString("id-ID")}`;
+function dayLabel(value: number | null, suffix: string): string {
+  return value === null ? "-" : `${value} hari ${suffix}`;
 }
 
 export default function WaStatusPage() {
-  const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [status, setStatus] = useState<StatusPayload | null>(null);
-  const codeRef = useRef<HTMLInputElement>(null);
+  const [result, setResult] = useState<LookupResult | null>(null);
 
-  const loadStatus = useCallback(async () => {
-    setPending(true);
-    setError("");
-    try {
-      const res = await fetch("/api/wa/subscription", { cache: "no-store" });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.ok) {
-        setError(body?.error || "Status tidak bisa dimuat. Coba lagi.");
-        setStatus(null);
-        return;
-      }
-      setStatus(body as StatusPayload);
-      setStep("status");
-    } catch {
-      setError("Status tidak bisa dimuat. Coba lagi.");
-      setStatus(null);
-    } finally {
-      setPending(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Sesi yang masih hidup langsung lanjut ke layar status.
-    void loadStatus();
-  }, [loadStatus]);
-
-  useEffect(() => {
-    if (step === "code") codeRef.current?.focus();
-  }, [step]);
-
-  async function requestCode(event: React.FormEvent) {
+  async function lookup(event: React.FormEvent) {
     event.preventDefault();
     setPending(true);
     setError("");
-    setNotice("");
+    setResult(null);
     try {
       const res = await fetch("/api/wa/session/request", {
         method: "POST",
@@ -109,51 +56,21 @@ export default function WaStatusPage() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) {
-        setError(body?.error || "Permintaan kode gagal. Coba lagi.");
+        setError(body?.error || "Status nomor tidak bisa dicek. Coba lagi.");
         return;
       }
-      setNotice(body.message || "Kode verifikasi sudah dikirim.");
-      setCode("");
-      setStep("code");
+      setResult(body as LookupResult);
     } catch {
-      setError("Permintaan kode gagal. Coba lagi.");
+      setError("Status nomor tidak bisa dicek. Coba lagi.");
     } finally {
       setPending(false);
     }
   }
 
-  async function submitCode(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    setError("");
-    try {
-      const res = await fetch("/api/wa/session/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.ok) {
-        setError(body?.error || "Kode verifikasi tidak valid atau sudah kedaluwarsa.");
-        return;
-      }
-      setNotice("");
-      await loadStatus();
-    } catch {
-      setError("Kode verifikasi tidak valid atau sudah kedaluwarsa.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function logout() {
-    await fetch("/api/wa/session", { method: "DELETE" }).catch(() => null);
-    setStatus(null);
+  function reset() {
+    setResult(null);
     setPhone("");
-    setCode("");
-    setNotice("");
     setError("");
-    setStep("phone");
   }
 
   return (
@@ -162,7 +79,6 @@ export default function WaStatusPage() {
 
       {/* Satu wilayah live untuk pengumuman status & error (dibaca screen reader). */}
       <div aria-live="polite" className="w-full max-w-md">
-        {notice ? <p className="text-sm text-neutral-700">{notice}</p> : null}
         {error ? (
           <p role="alert" className="text-sm font-medium text-red-700">
             {error}
@@ -170,10 +86,11 @@ export default function WaStatusPage() {
         ) : null}
       </div>
 
-      {step === "phone" ? (
-        <form className={cardClass} onSubmit={requestCode} noValidate>
+      {result === null ? (
+        <form className={cardClass} onSubmit={lookup} noValidate>
           <p className="text-sm text-neutral-600">
-            Masukkan nomor WhatsApp yang kamu pakai untuk Nina. Kami kirim kode verifikasi dulu.
+            Masukkan nomor WhatsApp yang kamu pakai untuk Nina. Kami cek statusnya dulu — tanpa
+            menunggu pesan apa pun.
           </p>
           <label className="mt-4 block text-sm font-medium text-neutral-900" htmlFor="wa-phone">
             Nomor WhatsApp
@@ -193,148 +110,75 @@ export default function WaStatusPage() {
             onChange={(e) => setPhone(e.target.value)}
           />
           <p id="wa-phone-hint" className="mt-1 text-xs text-neutral-500">
-            Nomor dipakai hanya untuk verifikasi kepemilikan.
+            Nomor hanya dipakai untuk mengecek status langganan.
           </p>
           <button className={buttonClass} type="submit" disabled={pending}>
-            {pending ? "Mengirim…" : "Kirim kode verifikasi"}
+            {pending ? "Mengecek…" : "Cek status"}
           </button>
         </form>
       ) : null}
 
-      {step === "code" ? (
-        <form className={cardClass} onSubmit={submitCode} noValidate>
-          <label className="block text-sm font-medium text-neutral-900" htmlFor="wa-code">
-            Kode verifikasi 6 digit
-          </label>
-          <input
-            id="wa-code"
-            ref={codeRef}
-            className={inputClass}
-            name="code"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            required
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          />
-          <button className={buttonClass} type="submit" disabled={pending || code.length !== 6}>
-            {pending ? "Memeriksa…" : "Verifikasi"}
-          </button>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <button className="min-h-11 underline underline-offset-4" type="submit" disabled={pending}>
-              Kirim ulang kode
-            </button>
-            <button
-              className="min-h-11 underline underline-offset-4"
-              type="button"
-              disabled={pending}
-              onClick={() => {
-                setStep("phone");
-                setCode("");
-              }}
-            >
-              Ganti nomor
-            </button>
-          </div>
-        </form>
-      ) : null}
-
-      {step === "status" && status ? (
+      {result?.status === "new" ? (
         <section className={cardClass} aria-label="Status langganan">
-          <p className="text-sm text-neutral-500">Nomor terverifikasi</p>
-          <p className="text-base font-medium text-neutral-900">{status.maskedPhone}</p>
-
-          {status.state === "active" ? (
-            <>
-              <p className="mt-4 text-lg font-semibold text-neutral-900">Langganan aktif</p>
-              <p className="text-sm text-neutral-700">
-                Sisa masa aktif: {formatDuration(status.remainingMs)}
-              </p>
-              {status.expiresAt ? (
-                <p className="text-xs text-neutral-500">
-                  Aktif sampai {new Date(status.expiresAt).toLocaleDateString("id-ID")}
-                </p>
-              ) : null}
-            </>
-          ) : null}
-
-          {status.state === "expired" ? (
-            <>
-              <p className="mt-4 text-lg font-semibold text-neutral-900">
-                Langganan sudah berakhir
-              </p>
-              <p className="text-sm text-neutral-700">
-                Pemakaian terakhir kamu tercatat.
-                {status.lastPlanKey ? ` Paket terakhir: ${status.lastPlanKey}.` : ""}
-              </p>
-              {status.renewal?.eligible ? (
-                <div className="mt-4 rounded-xl bg-neutral-50 p-3">
-                  <p className="text-sm font-medium text-neutral-900">
-                    Kamu bisa perpanjang sekarang.
-                  </p>
-                  {status.renewal.candidate ? (
-                    <p className="text-sm text-neutral-700">
-                      Kandidat promo {status.renewal.candidate.code} (
-                      {status.renewal.candidate.discountType === "percentage"
-                        ? `${status.renewal.candidate.amount}%`
-                        : formatIdr(status.renewal.candidate.amount)}
-                      ) — berlaku untuk paket{" "}
-                      {status.renewal.candidate.planKeys.join(", ") || "yang memenuhi syarat"}.
-                    </p>
-                  ) : (
-                    <p className="text-sm text-neutral-700">
-                      Ada program reaktivasi; detail kodenya menunggu keputusan owner.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </>
-          ) : null}
-
-          {status.state === "none" ? (
-            <>
-              <p className="mt-4 text-lg font-semibold text-neutral-900">Belum ada langganan</p>
-              <p className="text-sm text-neutral-700">
-                Nomor ini belum terhubung ke langganan Nina.
-              </p>
-            </>
-          ) : null}
-
-          {status.state !== "none" ? (
-            <ul className="mt-4 space-y-2" aria-label="Paket langganan">
-              {status.renewal?.plans.map((plan) => (
-                <li
-                  key={plan.key}
-                  className="flex items-center justify-between text-sm text-neutral-800"
-                >
-                  <span>{plan.name}</span>
-                  <span className="font-medium">{formatIdr(plan.price)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          <a
-            className={`${buttonClass} block text-center no-underline`}
-            href="/companion/nina/onboarding"
-          >
-            {status.state === "active" ? "Perpanjang langganan" : "Mulai langganan"}
+          <p className="text-lg font-semibold text-neutral-900">Nomor belum terdaftar</p>
+          <p className="mt-1 text-sm text-neutral-700">
+            Nomor ini belum punya langganan Nina. Lanjut isi data untuk mulai.
+          </p>
+          <a className={`${buttonClass} block text-center no-underline`} href={ONBOARDING_URL}>
+            Mulai langganan
           </a>
-          {status.state === "expired" && !status.renewalActivationEnabled ? (
-            <p className="mt-2 text-xs text-neutral-500">
-              Aktivasi promo reaktivasi belum diaktifkan sampai keputusan owner selesai.
-            </p>
-          ) : null}
-
           <button
             className="mt-3 min-h-11 w-full text-sm underline underline-offset-4"
             type="button"
-            onClick={logout}
+            onClick={reset}
           >
-            Keluar dari sesi ini
+            Ganti nomor
+          </button>
+        </section>
+      ) : null}
+
+      {result?.status === "active" ? (
+        <section className={cardClass} aria-label="Status langganan">
+          <p className="text-lg font-semibold text-neutral-900">Langganan aktif</p>
+          <p className="mt-1 text-sm text-neutral-700">
+            Sisa masa aktif: {dayLabel(result.daysLeft, "lagi")}.
+          </p>
+          <a className={`${buttonClass} block text-center no-underline`} href={ONBOARDING_URL}>
+            Perpanjang langganan
+          </a>
+          <button
+            className="mt-3 min-h-11 w-full text-sm underline underline-offset-4"
+            type="button"
+            onClick={reset}
+          >
+            Ganti nomor
+          </button>
+        </section>
+      ) : null}
+
+      {result?.status === "inactive" ? (
+        <section className={cardClass} aria-label="Status langganan">
+          <p className="text-lg font-semibold text-neutral-900">Langganan sudah berakhir</p>
+          <p className="mt-1 text-sm text-neutral-700">
+            Berakhir {dayLabel(result.daysSinceExpiry, "lalu")}.
+          </p>
+          {result.renewalPromo ? (
+            <div className="mt-3 rounded-xl bg-neutral-50 p-3">
+              <p className="text-sm font-medium text-neutral-900">
+                Ada penawaran {TEMANBARU_PROMO.code}: diskon{" "}
+                {TEMANBARU_PROMO.discountPercent}% untuk perpanjangan.
+              </p>
+            </div>
+          ) : null}
+          <a className={`${buttonClass} block text-center no-underline`} href={ONBOARDING_URL}>
+            Perpanjang langganan
+          </a>
+          <button
+            className="mt-3 min-h-11 w-full text-sm underline underline-offset-4"
+            type="button"
+            onClick={reset}
+          >
+            Ganti nomor
           </button>
         </section>
       ) : null}

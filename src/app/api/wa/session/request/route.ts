@@ -1,32 +1,39 @@
 /**
- * POST /api/wa/session/request — langkah pertama alur WA-first.
+ * POST /api/wa/session/request — langkah pertama alur WA-first: LOOKUP STATUS.
  *
- * Nomor dinormalisasi SERVER-side (E.164-ish `62…`); input tak valid → 400,
- * tidak pernah disubstitusi nomor default. Jawaban sesudah itu SELALU sama:
- * tidak membedakan nomor baru / aktif / nonaktif, tidak menyebut nama, histori,
- * tanggal, atau sisa masa aktif. Challenge diterbitkan untuk nomor apa pun
- * (juga yang tidak ada di `users`) — kalau tidak, selisih jawaban jadi alat
- * enumerasi nomor.
+ * Keputusan owner 20/10: TIDAK ada kode OTP. Nomor WhatsApp diketik, server
+ * cek database, lalu menjawab salah satu dari tiga status: `new` / `active` /
+ * `inactive`. Bentuk jawaban dijaga minimal (lihat `@/lib/wa-status`) — tanpa
+ * nama, profil, riwayat, `subscription_id`, atau nomor terformat.
  *
- * Gagal-tertutup: tanpa transport OTP yang diotorisasi pengiriman DITOLAK dengan
- * pesan generik, bukan 200 yang menjanjikan kode.
+ * ⚠️ Konsekuensi jujur dari menghapus OTP: cookie sesi yang diterbitkan di sini
+ * membuktikan "nomor ini pernah dicari dari browser ini", BUKAN "nomor ini
+ * milik pengguna". Gate `cleanPhone === sessionPhone` di create-order tetap
+ * berjalan, tapi ia hanya mengikat SATU request ke nomor yang baru diketik —
+ * bukan bukti kepemilikan. Risiko enumerasi nomor dicatat di
+ * docs/wa-first-tanpa-otp-2026-10-20.md.
+ *
+ * Nomor dinormalisasi SERVER-side; input tak valid → 400 (tidak pernah
+ * disubstitusi nomor default). Rate limit lebih ketat dari jalur OTP lama
+ * karena endpoint ini bisa dipakai menebak nomor: 20/IP dan 5/nomor per menit.
+ *
+ * Gagal-tertutup: lookup error atau sesi tak bisa diterbitkan → 503 generik
+ * TANPA field `status`, supaya kegagalan tidak pernah terbaca "nomor baru".
  */
 import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone";
-import { clientIp, limitRequest } from "@/lib/rate-limit";
-import { issueChallenge, isOtpConfigured, OTP_TTL_SECONDS } from "@/lib/otp";
-import { getOtpProvider } from "@/lib/otp-provider";
+import { limitRequest } from "@/lib/rate-limit";
+import { lookupSubscriptionStatus } from "@/lib/subscription-lookup";
+import { buildWaLookupPayload } from "@/lib/wa-status";
+import {
+  createWaSessionToken,
+  WA_SESSION_COOKIE,
+  waSessionCookieOptions,
+} from "@/lib/wa-session";
 
-/** Satu-satunya bentuk jawaban untuk jalur yang tidak gagal-tertutup. */
-const GENERIC_OK = {
-  ok: true,
-  message: "Kalau nomor itu terdaftar, kode verifikasi sudah dikirim ke WhatsApp-nya.",
-};
-
-/** Pesan gagal pun tidak boleh memberi tahu apakah nomornya ada. */
-const GENERIC_UNAVAILABLE = {
+const UNAVAILABLE = {
   ok: false,
-  error: "Layanan verifikasi sedang tidak bisa diakses. Coba lagi sebentar lagi.",
+  error: "Status nomor sedang tidak bisa dicek. Coba lagi sebentar lagi.",
 };
 
 function json(body: unknown, status = 200, headers?: Record<string, string>) {
@@ -46,9 +53,9 @@ export async function POST(req: Request) {
 
   const phone = normalizePhone((body as { phone?: unknown } | null)?.phone);
 
-  const limit = limitRequest(req, "wa-otp-request", {
-    ipLimit: 10,
-    phoneLimit: 3,
+  const limit = limitRequest(req, "wa-status-lookup", {
+    ipLimit: 20,
+    phoneLimit: 5,
     phone,
     windowMs: 60_000,
   });
@@ -60,22 +67,21 @@ export async function POST(req: Request) {
 
   if (!phone) return json({ ok: false, error: "Nomor WhatsApp tidak valid." }, 400);
 
-  const provider = getOtpProvider();
-  if (!provider || !isOtpConfigured()) return json(GENERIC_UNAVAILABLE, 503);
+  // Sesi hanya untuk nomor yang valid secara FORMAT. Tanpa secret yang layak
+  // sesi tidak bisa diterbitkan, jadi langkah checkout berikutnya mustahil —
+  // lebih jujur menolak sekarang daripada menjawab status lalu 401 di checkout.
+  const token = createWaSessionToken(phone);
+  if (!token) return json(UNAVAILABLE, 503);
 
-  const issue = await issueChallenge(phone, clientIp(req));
-
-  if (issue.status === "created") {
-    try {
-      await provider.send(phone, issue.code, OTP_TTL_SECONDS);
-    } catch {
-      // Kode tidak pernah sampai ke pemilik nomor -> jangan bilang "terkirim".
-      return json(GENERIC_UNAVAILABLE, 503);
-    }
-  } else if (issue.status === "unavailable") {
-    return json(GENERIC_UNAVAILABLE, 503);
+  let subscription: Awaited<ReturnType<typeof lookupSubscriptionStatus>>;
+  try {
+    subscription = await lookupSubscriptionStatus(phone);
+  } catch {
+    // Jangan pernah mengubah kegagalan upstream jadi "nomor baru".
+    return json(UNAVAILABLE, 503);
   }
-  // cooldown / resend_limit: diam-diam tidak mengirim ulang, jawaban tetap identik.
 
-  return json(GENERIC_OK);
+  const res = json(buildWaLookupPayload(subscription));
+  res.cookies.set(WA_SESSION_COOKIE, token, waSessionCookieOptions());
+  return res;
 }
