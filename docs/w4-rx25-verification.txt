@@ -330,9 +330,10 @@ Bukti (log: ~/rx25-fg-evidence/a-precond.log, ~/rx25-fg-evidence/b-head.log,
       (sebelumnya: exit 0 + "0 kebocoran dari 2 putaran").
   (b) 3 putaran, index HEAD → exit 0, putaran sah 3/3, 0 kebocoran,
       3× 409 ORDER_IN_FLIGHT, 0 order baru, klaim_hidup=1.
-  (c) 3 putaran, index di-narrow (rx25-index-mutation.sh narrow) → exit 0,
-      putaran sah 3/3, 3 kebocoran (200 + 1 order baru + klaim_hidup=2) —
-      jadi "0 kebocoran" tidak bisa lagi datang dari putaran tak sah.
+  (c) 3 putaran, index di-narrow (rx25-index-mutation.sh narrow) → putaran sah 3/3,
+      3 kebocoran (200 + 1 order baru + klaim_hidup=2) — jadi "0 kebocoran" tidak
+      bisa lagi datang dari putaran tak sah. (Exit-nya saat itu 0; sejak B-7
+      kebocoran pada putaran sah ⇒ exit 1 — lihat §11.)
   Regresi gate: `bash tests/run-all.sh` (DB/port/prefix unik) → ALL SUITES
   PASSED, exit 0, e2e gate consent/checkout 166 PASS/0 FAIL
   (~/rx25-fg-evidence/runall-fg.log).
@@ -349,3 +350,74 @@ beban sama): non-atomik → 434 `JSON.parse` gagal + 199.275 bacaan kosong;
 atomik → 0/0. Skrip: ~/rx25-fg-evidence/atomic-check.mjs + atomic-reader.mjs.
 Tidak dikerjakan (menunggu keputusan Atlas): probe jendela masuk run-all.sh,
 dan `rx25-index-mutation.sh narrow` masuk gate.
+
+==============================================================================
+11. Tindak lanjut B-7 (kartu t_a259d6c6) — mesin bukti negatifnya sendiri
+==============================================================================
+QC Atlas t_514b5cba membaca bukti negatif RX2-5 di RC f19f523 sebagai "tidak
+konklusif": penjaga nama DB skrip mutasi menolak slug worktree ini, dan "narrow
+saja tetap hijau". Dua sebab, dua-duanya menghasilkan hijau-palsu:
+
+(1) Penjaga nama DB memakai pola buta `*staging*`. Nama DB harness DITURUNKAN
+    dari nama direktori worktree (tests/harness/isolate.mts), jadi worktree
+    batch-2026-10-15/i1-staging-rc menghasilkan DB throwaway yang SAH
+    (thrivin_test_i1_staging_rc_86fb49) tapi ditolak ⇒ `narrow` keluar 2 ⇒ index
+    TIDAK pernah termutasi ⇒ probe hijau. Itu persis "narrow saja tetap hijau".
+    Sekarang: nama ber-`staging` diterima HANYA kalau berbentuk harness
+    (^thrivin_(test|promo)_<slug>_<6 hex>$); `prod`/`production` tetap ditolak
+    TANPA kecuali (walau kebetulan berbentuk harness); DB staging nyata
+    (`staging`, `thrivin_staging`, `supabase-staging`) tetap ditolak.
+
+(2) tests/test-rx25-window-probe.mts melaporkan kebocoran tapi keluar 0. Pemanggil
+    yang hanya memeriksa exit code melihat hijau di pohon pra-fix (lihat §10 FG-1
+    butir (c)). Sekarang: kebocoran pada putaran sah ⇒ exit 1 (exit 3 tetap untuk
+    putaran tidak sah).
+
+Ditambah mode `proof` di tests/harness/rx25-index-mutation.sh: satu perintah,
+satu vonis, dua arah ter-assert, dan GAGAL KERAS kalau mutasi tidak terpasang:
+  * index pra-fix benar-benar terpasang (predikat tanpa 'created');
+  * probe JENDELA wajib MERAH (exit 1) dan putaran sah penuh;
+  * probe wajib mengukur DB yang SAMA dengan yang dimutasi (dipin: HARNESS_PG_DB
+    dilewatkan ke probe; dicek ulang dari field `db` di window-pre.json);
+  * setelah TRUNCATE jejak kebocoran, index dipulihkan dari staging/ dan wajib
+    identik dengan sebelum mutasi;
+  * pohon wajib tak tersentuh (git status staging/ + tests/), dan probe yang sama
+    wajib HIJAU (exit 0).
+`proof` TIDAK dipasang di run-all.sh: mutasinya destruktif (DROP/CREATE index),
+tetap manual sampai ada persetujuan Atlas.
+
+Kombinasi mutasi yang wajib = INDEX SAJA. Pra-fix (7d8389d) hanya mengubah
+predikat index; langkah 6 (`SELECT ... status='created'`) sudah ada sebelumnya.
+Yang berubah adalah PROBE mana yang sah: probe frekuensi tetap 40/40 bersih,
+0 anomali dengan predikat pra-fix terpasang (probe-race-narrow.json), sedangkan
+probe jendela pada index yang sama bocor 3/3. ⇒ Bukti negatif RX2-5 hanya sah
+lewat probe jendela.
+
+Perintah reproduksi (menggantikan §7 butir 3 untuk bukti dua arah):
+
+  # klon sendiri, basis RC f19f523, node_modules symlink ke worktree bersama
+  bash tests/harness/seed.sh --fresh
+  npm run build                     # .next wajib ada sebelum `proof`
+  bash tests/harness/rx25-index-mutation.sh proof                      # DB turunan worktree ini
+  bash tests/harness/rx25-index-mutation.sh proof <db> <rounds>        # mis. 3
+
+Angka terukur (commit 7a5a40f, tree 211f4ad, klon
+/home/ubuntu/workspaces/thrivin/forge-t_a259d6c6, branch
+fix/rx25-b7-staging-guard-teeth — tidak dipush):
+  * leg A (DB thrivin_test_forge_t_a259d6c6_960ccd, 3 putaran): pra-fix 3/3 bocor
+    exit 1 → pasca pulih 0 kebocoran exit 0, index pulih identik.
+  * leg B (DB thrivin_test_i1_staging_rc_86fb49 — slug yang dulu ditolak,
+    2 putaran): 2/2 bocor exit 1 → 0 kebocoran exit 0.
+  * matriks penjaga: lolos = thrivin_test_i1_staging_rc_86fb49,
+    thrivin_test_forge_t_a259d6c6_960ccd; ditolak = staging, thrivin_staging,
+    supabase-staging, prod, thrivin_production, db_production,
+    thrivin_test_prod_86fb49, thrivin_promo_prod_abcdef, thrivin_staging_abcdef.
+  * suite: 22 langkah run-all dijalankan satu per satu (tanpa set -e) →
+    21 exit 0; satu merah pra-ada = test-web-copy-copy (B-1 / A4 /privacy,
+    t_91b4f733) — direproduksi sama persis di klon pristine f19f523.
+    run-all.sh apa adanya berhenti di langkah 2b karena B-1 itu (bukan efek B-7).
+  * nol perubahan src/** dan staging/**; nol apply/deploy; nol data pelanggan.
+
+Yang SENGAJA tidak dikerjakan: menaikkan bukti ini ke run-all.sh (butuh
+persetujuan), dan menambah suite baru khusus penjaga nama DB (bentuknya bisa
+menyusul kalau Atlas mau penjaga ini punya regresi permanen).
