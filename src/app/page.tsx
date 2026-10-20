@@ -22,8 +22,6 @@ import {
   REFUND_GUARANTEE_TEXT,
   REFUND_GUARANTEE_TITLE,
   TEMANBARU_PROMO,
-  entryPrice,
-  formatIdr,
 } from "@/lib/pricing-copy";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -646,15 +644,12 @@ export default function Home() {
             <h2 className="font-sans text-2xl sm:text-3xl lg:text-4xl font-bold leading-tight text-white tracking-tight">
               Investasi Terbaik untuk Konsistensi Hidupmu.
             </h2>
-            {/* Rule 2 & 4: Sub-headline / Deskripsi Pendukung Inter Regular + Harga Inter Bold.
-                Angka diambil dari PLAN_CATALOG (src/lib/plans.ts) lewat pricing-copy.ts —
-                jangan ketik ulang harga di JSX (kontrak S0 §11). */}
+            {/* Rule 2 & 4: Sub-headline / Deskripsi Pendukung Inter Regular.
+                Marketing TIDAK menampilkan nominal (keputusan owner 20/10/2026:
+                "gausah kasih harga"). Nominal hanya boleh muncul di langkah
+                checkout. Promo (kode + %) tetap tampil. */}
             <p className="text-xs sm:text-sm text-brand-200 leading-relaxed font-sans font-normal">
-              Paket mulai{" "}
-              <strong className="font-extrabold text-white font-sans">
-                Rp {formatIdr(entryPrice())}
-              </strong>{" "}
-              untuk 1 bulan, sekali bayar tanpa tagihan otomatis. Pakai kode promo{" "}
+              Sekali bayar untuk 1 bulan, tanpa tagihan otomatis. Pakai kode promo{" "}
               <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded font-sans font-bold">
                 {TEMANBARU_PROMO.code}
               </span>{" "}

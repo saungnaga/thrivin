@@ -39,7 +39,7 @@ function isCommentLine(line: string): boolean {
  *  Lists are lowercase and matched against the lowercased line (C-6.1): the
  *  original case-sensitive check let `Mulai dari Rp` / `Khusus Pengguna Baru`
  *  through, and Indonesian copy starts sentences with a capital. */
-const BANNED_PRICE = ["39.000", "39rb", "39000", "mulai dari rp"];
+const BANNED_PRICE = ["39.000", "39rb", "39000", "mulai dari rp", "paket mulai", "99.000"];
 
 /** B2: promo_gate claims the server does not enforce. `redeem_promo` checks
  *  is_active/expires_at/plan_keys + one redemption per phone number; there is no

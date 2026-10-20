@@ -59,14 +59,37 @@ for (const [key, text] of Object.entries(src)) {
   });
 }
 
-check("A1: homepage price comes from the catalog helper", () => {
-  assert.ok(src.home.includes("entryPrice()"), "homepage must derive the entry price");
-  assert.ok(src.home.includes("@/lib/pricing-copy"), "homepage must use pricing-copy");
+// Keputusan owner 20/10/2026 ("gausah kasih harga"): halaman marketing tidak
+// menampilkan nominal sama sekali. Batas tegas: marketing = tanpa harga,
+// checkout = dengan harga. Assertion ini dulu menuntut kebalikannya (harga
+// wajib tampil dari katalog), jadi dibalik — bukan dihapus — supaya kalau ada
+// yang memasang harga lagi di marketing, suite FAIL.
+for (const key of ["home", "nina"] as const) {
+  check(`A1: ${key} shows no price at all`, () => {
+    for (const bad of ["Paket mulai", "Rp ", "entryPrice(", "formatIdr("]) {
+      assert.ok(
+        !src[key].includes(bad),
+        `${UI_FILES[key]} still shows a price ("${bad}")`
+      );
+    }
+  });
+}
+
+check("A1: marketing still advertises the promo code + discount", () => {
+  for (const key of ["home", "nina"] as const) {
+    assert.ok(
+      src[key].includes("TEMANBARU_PROMO.code") &&
+        src[key].includes("TEMANBARU_PROMO.discountPercent"),
+      `${UI_FILES[key]} must keep the promo code and discount percentage`
+    );
+  }
 });
 
-check("A1: Nina page price comes from the catalog helper", () => {
-  assert.ok(src.nina.includes("entryPrice()"), "Nina page must derive the entry price");
-  assert.ok(src.nina.includes("@/lib/pricing-copy"), "Nina page must use pricing-copy");
+check("A1: checkout keeps the amount the customer is paying", () => {
+  assert.ok(
+    src.checkout.includes("Rp {formatIdr("),
+    "checkout must still render the nominal price"
+  );
 });
 
 check("A1: chat answer lists plans from the catalog", () => {
