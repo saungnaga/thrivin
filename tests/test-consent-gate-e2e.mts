@@ -968,7 +968,8 @@ async function main() {
     assertOk(/100% tanpa potongan/.test(termsHtml), "refund 100% tanpa potongan (keputusan no. 3)");
     assertOk(/Scalev/.test(termsHtml) && /Meta/.test(termsHtml), "pihak ketiga disebut (keputusan no. 11)");
     assertOk(/hukum Indonesia/.test(termsHtml), "yurisdiksi Indonesia (keputusan no. 19)");
-    assertOk(/usaha perorangan/.test(termsHtml), "entitas sesuai keputusan no. 17");
+    assertOk(/Penyedia layanan ini adalah/.test(termsHtml), "klausa penyedia layanan tampil (revisi owner 20/10)");
+    assertOk(!/Raihan|Al Jihad|usaha perorangan/.test(termsHtml), "nol nama orang / bentuk usaha perorangan di /terms");
     assertOk(/09\.00–21\.00 WIB/.test(termsHtml), "jam layanan CS (keputusan no. 18)");
     assertOk(/30 hari/.test(termsHtml) && /7 hari/.test(termsHtml), "retensi 30 hari + SLA data 7 hari (keputusan no. 6-7)");
     assertOk(/opsional/.test(termsHtml), "pengingat ditandai opsional");
@@ -976,7 +977,7 @@ async function main() {
     assertOk(!/100% aman/.test(termsHtml), "tidak ada klaim absolut '100% aman' di /terms");
     assertOk(!/UU PDP|GDPR|sesuai peraturan/.test(termsHtml), "tanpa klaim kepatuhan hukum");
     const placeholderCount = (termsHtml.match(/«/g) || []).length;
-    assertEq(placeholderCount, 1, "hanya placeholder alamat yang tersisa di /terms");
+    assertEq(placeholderCount, 0, "nol placeholder di /terms (alamat dihapus, revisi owner 20/10)");
 
     const privacyHtml = (await (await fetch(`${APP_URL}/privacy`)).text()).replace(/<!--.*?-->/g, "");
     assertOk(!/100% aman/.test(privacyHtml), "klaim absolut di /privacy sudah diganti");
@@ -987,9 +988,11 @@ async function main() {
     assertOk(/Scalev/.test(privacyHtml) && /Meta/.test(privacyHtml), "pihak ketiga disebut di /privacy");
     assertOk(/data sensitif/.test(privacyHtml), "media Strava disebut data sensitif (keputusan no. 8)");
     assertOk(/href="\/terms"/.test(privacyHtml), "/privacy menautkan /terms");
-    // F-S3: Buktikan placeholder di /privacy ter-render persis 1 (alamat)
+    // F-S3 (revisi 2026-10-20): alamat dihapus dari dokumen publik atas perintah
+    // pemilik, jadi /privacy tidak boleh memuat placeholder apa pun.
     const privacyPlaceholderCount = (privacyHtml.match(/«/g) || []).length;
-    assertEq(privacyPlaceholderCount, 1, "F-S3: hanya placeholder alamat yang tersisa di /privacy");
+    assertEq(privacyPlaceholderCount, 0, "F-S3: nol placeholder di /privacy (alamat dihapus 20/10)");
+    assertOk(!/Raihan|Al Jihad|usaha perorangan/.test(privacyHtml), "nol nama orang / bentuk usaha perorangan di /privacy");
 
     const footer = fs.readFileSync(path.join(REPO, "src/components/Footer.tsx"), "utf-8");
     assertOk(/href="\/terms"/.test(footer), "footer menautkan /terms");

@@ -8,7 +8,6 @@ import {
   CS_HOURS,
   CS_WA_LINK,
   JURISDICTION,
-  LEGAL_ADDRESS,
   LEGAL_ENTITY,
   LEGAL_LAST_UPDATED,
   PRIVACY_PATH,
@@ -69,7 +68,7 @@ export default function TermsPage() {
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">1. Penyedia Layanan dan Kontak</h2>
             <p>
-              Layanan Thrivin disediakan oleh <strong>{LEGAL_ENTITY}</strong>. Alamat: {LEGAL_ADDRESS}.
+              Penyedia layanan ini adalah <strong>{LEGAL_ENTITY}</strong>.
               Pertanyaan, klaim garansi, atau permintaan terkait data bisa disampaikan lewat Customer
               Service WhatsApp{" "}
               <a
@@ -270,7 +269,11 @@ export default function TermsPage() {
               >
                 wa.me/6287788141388
               </a>
-              . Kanal khusus kritik &amp; saran di situs sedang disiapkan.
+              . Kritik dan saran juga bisa dikirim lewat halaman{" "}
+              <Link href="/companion/nina/kritiksaran" className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
+                Kritik &amp; Saran
+              </Link>
+              .
             </p>
           </section>
 
