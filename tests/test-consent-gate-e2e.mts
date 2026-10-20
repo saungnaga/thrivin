@@ -994,6 +994,28 @@ async function main() {
     assertEq(privacyPlaceholderCount, 0, "F-S3: nol placeholder di /privacy (alamat dihapus 20/10)");
     assertOk(!/Raihan|Al Jihad|usaha perorangan/.test(privacyHtml), "nol nama orang / bentuk usaha perorangan di /privacy");
 
+    // Keputusan owner 20/10/2026: halaman marketing TIDAK menampilkan harga.
+    // Diperiksa dari HTML yang benar-benar dirender app (bukan sumber JSX),
+    // jadi helper/konstanta yang menyelipkan nominal tetap tertangkap.
+    for (const [label, pathname] of [
+      ["/", "/"],
+      ["/companion/nina", "/companion/nina"],
+    ] as const) {
+      const html = (await (await fetch(`${APP_URL}${pathname}`)).text()).replace(/<!--.*?-->/g, "");
+      assertOk(html.length > 1000, `${label} dirender`);
+      assertOk(!html.includes("99.000"), `${label} tidak memuat nominal 99.000`);
+      assertOk(!html.includes("Paket mulai"), `${label} tidak memuat frasa "Paket mulai"`);
+      assertOk(!/Rp\s*\d/.test(html), `${label} tidak memuat nominal ber-awalan Rp`);
+      assertOk(html.includes("TEMANBARU"), `${label} tetap menampilkan kode promo`);
+      assertOk(/diskon\s*\d+%/.test(html), `${label} tetap menampilkan besar diskon`);
+    }
+    // Batas tegas: langkah checkout TETAP menampilkan nominal (orang sedang bayar).
+    const checkoutSource = fs.readFileSync(
+      path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
+      "utf-8"
+    );
+    assertOk(/Rp \{formatIdr\(/.test(checkoutSource), "checkout tetap menampilkan nominal");
+
     const footer = fs.readFileSync(path.join(REPO, "src/components/Footer.tsx"), "utf-8");
     assertOk(/href="\/terms"/.test(footer), "footer menautkan /terms");
     const sitemap = fs.readFileSync(path.join(REPO, "src/app/sitemap.ts"), "utf-8");
