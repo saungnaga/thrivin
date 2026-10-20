@@ -16,10 +16,16 @@ export const TERMS_VERSION = "terms-2026-10-15-v1";
 export const REMINDER_OPTIN_VERSION = "reminder-optin-2026-10-15-v1";
 export const LEGAL_LAST_UPDATED = "16 Oktober 2026";
 
-/** Keputusan no. 17 — PT/CV belum ada, diformalkan menyusul. */
-export const LEGAL_ENTITY = "Thrivin — usaha perorangan, dijalankan oleh Raihan Andi Saungnaga";
-/** Alamat: satu-satunya placeholder yang tersisa, menunggu diisi pemilik. */
-export const LEGAL_ADDRESS = "«alamat lengkap menyusul dari pemilik»";
+/**
+ * Entitas penyedia layanan: cukup nama bisnis. Nama orang & alamat sengaja
+ * TIDAK ditampilkan di dokumen publik (keputusan pemilik 20/10/2026).
+ * ponytail: begitu bentuk badan hukum resmi (PT/CV) + alamat usaha keluar,
+ * tambahkan di sini — jangan mengarang.
+ */
+export const LEGAL_ENTITY = "Thrivin";
+/** Versi dokumen /privacy — TERPISAH dari versi /terms (dua dokumen, dua riwayat). */
+export const PRIVACY_VERSION = "privacy-2026-10-20-v1";
+export const PRIVACY_LAST_UPDATED = "20 Oktober 2026";
 /** Keputusan no. 18. */
 export const CS_WHATSAPP = "6287788141388";
 export const CS_HOURS = "09.00–21.00 WIB";

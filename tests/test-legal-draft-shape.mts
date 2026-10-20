@@ -57,13 +57,13 @@ check(
   !/«/.test(read(path.join("src", "app", "terms", "page.tsx"))) &&
     !/«/.test(read(path.join("src", "app", "privacy", "page.tsx")))
 );
-// F-S3: Uji eksplisit konstanta legal: satu-satunya placeholder yang tersisa
-// adalah LEGAL_ADDRESS (menunggu alamat riil dari owner), tidak ada placeholder lain.
+// F-S3 (revisi 2026-10-20): nol placeholder di konstanta legal. Alamat dihapus
+// dari dokumen atas perintah pemilik, jadi tidak ada lagi «…» yang menunggu diisi.
 const legalConsts = read(path.join("src", "lib", "legal.ts"));
 const placeholdersInLegal = legalConsts.match(/«[^»]+»/g) || [];
 check(
-  "legal constants have exactly one placeholder (address awaiting owner decision)",
-  placeholdersInLegal.length === 1 && placeholdersInLegal[0].includes("alamat"),
+  "legal constants have zero placeholders",
+  placeholdersInLegal.length === 0,
   `found placeholders: ${JSON.stringify(placeholdersInLegal)}`
 );
 

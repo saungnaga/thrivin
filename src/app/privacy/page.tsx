@@ -6,11 +6,10 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import {
   CS_HOURS,
-  LEGAL_ADDRESS,
   LEGAL_ENTITY,
-  LEGAL_LAST_UPDATED,
+  PRIVACY_LAST_UPDATED,
+  PRIVACY_VERSION,
   TERMS_PATH,
-  TERMS_VERSION,
 } from "@/lib/legal";
 
 export default function PrivacyPage() {
@@ -38,8 +37,8 @@ export default function PrivacyPage() {
             Kebijakan Privasi Thrivin
           </h1>
           <p className="text-xs sm:text-sm text-text-secondary">
-            Terakhir diperbarui: {LEGAL_LAST_UPDATED} (versi{" "}
-            <span className="font-mono">{TERMS_VERSION}</span>). Kami berkomitmen menjaga data pribadimu
+            Terakhir diperbarui: {PRIVACY_LAST_UPDATED} (versi{" "}
+            <span className="font-mono">{PRIVACY_VERSION}</span>). Kami berkomitmen menjaga data pribadimu
             tetap aman.
           </p>
         </div>
@@ -174,7 +173,7 @@ export default function PrivacyPage() {
               8. Hubungi Kami
             </h2>
             <p className="leading-relaxed">
-              Layanan ini disediakan oleh {LEGAL_ENTITY} ({LEGAL_ADDRESS}). Jika memiliki pertanyaan
+              Layanan ini disediakan oleh {LEGAL_ENTITY}. Jika memiliki pertanyaan
               mengenai kebijakan privasi, permohonan penghapusan data, atau membutuhkan bantuan akun,
               silakan{" "}
               <a
@@ -189,7 +188,7 @@ export default function PrivacyPage() {
               <Link href={TERMS_PATH} className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
                 halaman Syarat &amp; Ketentuan
               </Link>{" "}
-              (versi <span className="font-mono">{TERMS_VERSION}</span>).
+              (versi <span className="font-mono">{PRIVACY_VERSION}</span>).
             </p>
           </section>
         </div>
