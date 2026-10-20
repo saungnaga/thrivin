@@ -69,7 +69,8 @@ check(
 
 check(
   "privacy page has the new published sections",
-  ["1. Data Apa", "2. Bagaimana", "3. Pengingat WhatsApp", "4. Garansi", "5. Berapa Lama", "6. Pihak Ketiga", "7. Perubahan", "8. Hubungi"].every((s) =>
+  // Revisi owner 20/10: pasal "Pengingat WhatsApp" dihapus, penomoran 3..7 bergeser.
+  ["1. Data Apa", "2. Bagaimana", "3. Garansi", "4. Berapa Lama", "5. Pihak Ketiga", "6. Perubahan", "7. Hubungi"].every((s) =>
     read(path.join("src", "app", "privacy", "page.tsx")).includes(s)
   )
 );

@@ -52,7 +52,7 @@ export default function PrivacyPage() {
               Data nomor WhatsApp, foto makanan, riwayat olahraga, dan percakapan pribadimu dengan AI
               Companion dienkripsi saat dikirim, tidak pernah dijual, dan tidak disebarkan ke pengiklan
               pihak ketiga. Data hanya diteruskan ke pihak yang diperlukan untuk menjalankan layanan
-              (lihat pasal 6).
+              (lihat pasal 5).
             </div>
           </div>
 
@@ -71,13 +71,10 @@ export default function PrivacyPage() {
                 <strong>Preferensi Panggilan:</strong> nama panggilan yang kamu isi, dipakai Nina untuk menyapamu.
               </li>
               <li>
-                <strong>Status Persetujuan:</strong> catatan kapan dan dari mana kamu menyetujui Syarat &amp; Ketentuan serta pengingat WhatsApp, termasuk versi teks yang kamu lihat. Catatan ini bersifat <em>append-only</em>: kami menambah baris baru, tidak menimpa riwayat.
+                <strong>Status Persetujuan:</strong> catatan kapan dan dari mana kamu menyetujui Syarat &amp; Ketentuan, termasuk versi teks yang kamu lihat. Catatan ini bersifat <em>append-only</em>: kami menambah baris baru, tidak menimpa riwayat.
               </li>
               <li>
                 <strong>Kanal WhatsApp &amp; Catatan Kanal:</strong> jenis kanal yang kamu pakai (WhatsApp Business/Cloud API atau kanal WhatsApp lain), ID nomor pengirim untuk kanal Cloud, serta waktu pesan masuk terakhir. Data ini dipakai untuk menentukan apakah Nina boleh mengirim pesan bebas di luar template resmi.
-              </li>
-              <li>
-                <strong>Status Pengingat:</strong> ikut/tidak ikut pengingat proaktif — pilihan ini terpisah dari persetujuan transaksi.
               </li>
               <li>
                 <strong>Media yang Kamu Kirim:</strong> foto makanan untuk estimasi kalori dan tangkapan layar Strava/smartwatch untuk evaluasi olahraga harian. Tangkapan layar aktivitas diperlakukan sebagai <strong>data sensitif</strong>: tidak dipakai untuk melatih model dan dihapus bersama akunmu.
@@ -101,26 +98,7 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              3. Pengingat WhatsApp &amp; Cara Berhenti
-            </h2>
-            <p>
-              Pengingat proaktif dari Nina bersifat <strong>opsional</strong>: hanya dikirim kalau kamu
-              mengaktifkannya sendiri lewat kotak centang terpisah saat checkout, dan menolaknya tidak
-              menghalangi pembelian. Pengingat hanya dikirim antara <strong>07.00–21.00</strong> waktu
-              lokal, dengan jeda minimal 20 jam antar pengingat.
-            </p>
-            <p>
-              Kamu bisa berhenti kapan saja: tekan tombol berhenti pada pesan pengingat (berlaku
-              langsung), atau balas <span className="font-mono">BERHENTI</span>/
-              <span className="font-mono">STOP</span> — untuk kata kunci, kami minta konfirmasi singkat
-              dulu. Setelah berhenti, kamu tetap bisa memakai layanan, dan bisa mengaktifkan kembali
-              lewat Customer Service.
-            </p>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">
-              4. Garansi Uang Kembali 3 Hari
+              3. Garansi Uang Kembali 3 Hari
             </h2>
             <p>
               Kami mengutamakan kepuasan pengguna. Dalam <strong>72 jam</strong> sejak pembayaran kami
@@ -132,7 +110,7 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              5. Berapa Lama Kami Menyimpan Data
+              4. Berapa Lama Kami Menyimpan Data
             </h2>
             <p>
               Setelah langgananmu berakhir, data profil dan media disimpan paling lama{" "}
@@ -145,7 +123,7 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              6. Pihak Ketiga yang Kami Pakai
+              5. Pihak Ketiga yang Kami Pakai
             </h2>
             <p>
               Untuk memproses pembelian kami memakai penyedia pembayaran <strong>Scalev</strong>; untuk
@@ -159,7 +137,7 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              7. Perubahan Kebijakan &amp; Versi
+              6. Perubahan Kebijakan &amp; Versi
             </h2>
             <p>
               Kalau kebijakan ini berubah secara material, kami memberitahukan lewat WhatsApp dan halaman
@@ -170,7 +148,7 @@ export default function PrivacyPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              8. Hubungi Kami
+              7. Hubungi Kami
             </h2>
             <p className="leading-relaxed">
               Layanan ini disediakan oleh {LEGAL_ENTITY}. Jika memiliki pertanyaan

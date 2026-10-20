@@ -972,8 +972,9 @@ async function main() {
     assertOk(!/Raihan|Al Jihad|usaha perorangan/.test(termsHtml), "nol nama orang / bentuk usaha perorangan di /terms");
     assertOk(/09\.00–21\.00 WIB/.test(termsHtml), "jam layanan CS (keputusan no. 18)");
     assertOk(/30 hari/.test(termsHtml) && /7 hari/.test(termsHtml), "retensi 30 hari + SLA data 7 hari (keputusan no. 6-7)");
-    assertOk(/opsional/.test(termsHtml), "pengingat ditandai opsional");
-    assertOk(/BERHENTI/.test(termsHtml), "cara berhenti disebut");
+    // Revisi owner 20/10: seluruh klausul pengingat DIHAPUS dari dokumen legal.
+    assertOk(!/pengingat/i.test(termsHtml), "nol klausul pengingat di /terms (revisi owner 20/10)");
+    assertOk(!/BERHENTI|opsional/.test(termsHtml), "nol kata kunci berhenti/opsional di /terms");
     assertOk(!/100% aman/.test(termsHtml), "tidak ada klaim absolut '100% aman' di /terms");
     assertOk(!/UU PDP|GDPR|sesuai peraturan/.test(termsHtml), "tanpa klaim kepatuhan hukum");
     const placeholderCount = (termsHtml.match(/«/g) || []).length;
@@ -983,7 +984,8 @@ async function main() {
     assertOk(!/100% aman/.test(privacyHtml), "klaim absolut di /privacy sudah diganti");
     assertOk(/dienkripsi saat dikirim/.test(privacyHtml), "klaim enkripsi dibatasi (keputusan no. 10)");
     assertOk(/append-only/.test(privacyHtml), "status persetujuan disebut jujur sebagai append-only");
-    assertOk(/Pengingat WhatsApp/.test(privacyHtml), "pasal pengingat & cara berhenti ada");
+    assertOk(!/pengingat/i.test(privacyHtml), "nol klausul pengingat di /privacy (revisi owner 20/10)");
+    assertOk(/lihat pasal 5/.test(privacyHtml), "rujukan pihak ketiga menunjuk pasal 5 yang benar");
     assertOk(/30 hari/.test(privacyHtml), "retensi disebut di /privacy");
     assertOk(/Scalev/.test(privacyHtml) && /Meta/.test(privacyHtml), "pihak ketiga disebut di /privacy");
     assertOk(/data sensitif/.test(privacyHtml), "media Strava disebut data sensitif (keputusan no. 8)");

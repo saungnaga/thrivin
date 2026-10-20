@@ -11,7 +11,6 @@ import {
   LEGAL_ENTITY,
   LEGAL_LAST_UPDATED,
   PRIVACY_PATH,
-  STOP_KEYWORDS,
   TERMS_VERSION,
 } from "@/lib/legal";
 
@@ -60,8 +59,8 @@ export default function TermsPage() {
             <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
             <div>
               Ringkas: bayar sekali (tanpa perpanjangan otomatis), estimasi Nina adalah perkiraan dan
-              bukan nasihat medis, pengingat WhatsApp bersifat opsional, dan data pribadimu ditangani
-              sesuai <Link href={PRIVACY_PATH} className="font-semibold underline underline-offset-2">Kebijakan Privasi</Link>.
+              bukan nasihat medis, dan data pribadimu ditangani sesuai{" "}
+              <Link href={PRIVACY_PATH} className="font-semibold underline underline-offset-2">Kebijakan Privasi</Link>.
             </div>
           </div>
 
@@ -153,26 +152,7 @@ export default function TermsPage() {
 
           <section className="space-y-3">
             <h2 className="font-serif text-xl font-bold text-brand-950">
-              8. Pengingat Nina (Opsional) dan Cara Berhenti
-            </h2>
-            <p>
-              Pengingat proaktif dari Nina bersifat <strong>opsional</strong>. Kamu memilihnya sendiri
-              lewat kotak centang terpisah saat checkout; menolak pengingat <strong>tidak menghalangi</strong>{" "}
-              pembelianmu, dan pilihanmu tetap kami simpan. Pengingat hanya dikirim antara{" "}
-              <strong>07.00–21.00</strong> waktu lokal dengan jeda minimal 20 jam antar pengingat.
-            </p>
-            <p>
-              Berhenti kapan saja: tekan tombol <strong>berhenti</strong> pada pesan pengingat (berlaku
-              langsung), atau balas <span className="font-mono">{STOP_KEYWORDS}</span>/
-              <span className="font-mono">STOP</span> — untuk kata kunci, kami minta konfirmasi singkat
-              dulu. Setelah berhenti, kamu tetap bisa memakai layanan dan chat Nina kapan saja, dan bisa
-              mengaktifkan kembali pengingat lewat Customer Service.
-            </p>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">
-              9. Penerimaan Syarat dan Versi Dokumen
+              8. Penerimaan Syarat dan Versi Dokumen
             </h2>
             <p>
               Dengan mencentang kotak persetujuan sebelum pembayaran, kamu menyatakan sudah membaca dan
@@ -181,13 +161,12 @@ export default function TermsPage() {
               waktu (timestamp server), versi teks yang kamu lihat, nilai persetujuan, dan sumbernya.
             </p>
             <p>
-              Persetujuan Syarat &amp; Ketentuan <strong>bukan</strong> izin pemasaran dan{" "}
-              <strong>tidak</strong> mengaktifkan pengingat — itu pilihan terpisah.
+              Persetujuan Syarat &amp; Ketentuan <strong>bukan</strong> izin pemasaran.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">10. Perubahan Syarat</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">9. Perubahan Syarat</h2>
             <p>
               Perubahan material pada syarat ini kami beritahukan lewat WhatsApp dan halaman ini sebelum
               berlaku, dengan nomor versi baru. Versi yang berlaku saat kamu menyetujui tetap tersimpan
@@ -196,11 +175,11 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">11. Data dan Privasi</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">10. Data dan Privasi</h2>
             <p>
               Data yang kami proses: nomor WhatsApp, profil yang kamu isi saat onboarding (termasuk nama
-              panggilan), media yang kamu kirim ke Nina, status persetujuan beserta versi teksnya, catatan
-              kanal WhatsApp yang kami pakai, dan status pengingat. Rincian ada di{" "}
+              panggilan), media yang kamu kirim ke Nina, status persetujuan beserta versi teksnya, dan kanal
+              WhatsApp yang kami pakai. Rincian ada di{" "}
               <Link href={PRIVACY_PATH} className="font-semibold text-emerald-700 underline underline-offset-2">
                 Kebijakan Privasi
               </Link>.
@@ -213,7 +192,7 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">12. Layanan Pihak Ketiga</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">11. Layanan Pihak Ketiga</h2>
             <p>
               Pembelian diproses lewat penyedia pembayaran <strong>Scalev</strong>, dan pengiriman pesan
               WhatsApp memakai kanal <strong>Meta</strong> (WhatsApp Business). Data minimum yang
@@ -223,7 +202,7 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">13. Penggunaan yang Dilarang</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">12. Penggunaan yang Dilarang</h2>
             <p>
               Dilarang menyalahgunakan layanan: mengirim spam, mencoba mengakses data pengguna lain, atau
               memakai layanan untuk hal yang melanggar hukum.
@@ -231,16 +210,16 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">14. Pembatalan dan Penghentian</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">13. Pembatalan dan Penghentian</h2>
             <p>
-              Langganan <strong>tidak diperpanjang otomatis</strong>. Kamu bisa berhenti menerima
-              pengingat kapan saja (pasal 8). Kalau mau berhenti total dari layanan atau menghapus akun,
+              Langganan <strong>tidak diperpanjang otomatis</strong>. Kalau mau berhenti total dari
+              layanan atau menghapus akun,
               hubungi Customer Service WhatsApp.
             </p>
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">15. Batas Tanggung Jawab</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">14. Batas Tanggung Jawab</h2>
             <p>
               Layanan diberikan apa adanya untuk pendampingan kebiasaan. Thrivin tidak menjanjikan hasil
               kesehatan tertentu dan tidak bertanggung jawab atas keputusan medis yang kamu ambil.
@@ -250,7 +229,7 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">16. Hukum yang Berlaku</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">15. Hukum yang Berlaku</h2>
             <p>
               Syarat ini tunduk pada hukum {JURISDICTION}. Sengketa diupayakan diselesaikan lebih dulu
               lewat musyawarah dengan Customer Service.
@@ -258,7 +237,7 @@ export default function TermsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="font-serif text-xl font-bold text-brand-950">17. Kritik dan Saran</h2>
+            <h2 className="font-serif text-xl font-bold text-brand-950">16. Kritik dan Saran</h2>
             <p>
               Masukan bisa dikirim lewat Customer Service WhatsApp{" "}
               <a
