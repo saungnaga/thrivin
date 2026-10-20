@@ -176,22 +176,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Langkah 2: sesi server (cookie HMAC hasil verifikasi OTP). Tidak ada state
-    // onboarding dari body yang dipercaya di bawah ini.
+    // Langkah 2: sesi server (cookie HMAC hasil LOOKUP nomor, bukan OTP). Cookie
+    // ini membuktikan nomor pernah dicek dari browser ini — BUKAN kepemilikan
+    // nomor (keputusan owner 20/10 menghapus OTP). Tidak ada state onboarding
+    // dari body yang dipercaya di bawah ini.
     const sessionPhone = await getWaSessionPhone();
     if (!sessionPhone) {
       return NextResponse.json(
         {
-          error: "Sesi tidak valid atau kedaluwarsa. Verifikasi nomor WhatsApp dulu.",
+          error: "Sesi tidak valid atau kedaluwarsa. Cek nomor WhatsApp dulu.",
           code: "SESSION_REQUIRED",
         },
         { status: 401 }
       );
     }
     if (cleanPhone !== sessionPhone) {
-      // Nomor di body bukan nomor sesi: request ini bukan milik pemilik sesi.
+      // Nomor di body bukan nomor sesi: request ini bukan milik sesi tersebut.
       return NextResponse.json(
-        { error: "Nomor tidak cocok dengan sesi terverifikasi.", code: "PHONE_SESSION_MISMATCH" },
+        { error: "Nomor tidak cocok dengan sesi.", code: "PHONE_SESSION_MISMATCH" },
         { status: 403 }
       );
     }
