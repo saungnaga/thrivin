@@ -16,7 +16,7 @@ destruktif).
 ## Alur baru
 
 ```
-[UI /companion/nina/status]
+[UI: /companion/nina/onboarding/1  (langkah 1 funnel) — dan /companion/nina/status]
    nomor WhatsApp
         │  POST /api/wa/session/request { phone }
         ▼
@@ -37,15 +37,39 @@ destruktif).
         └─ + cookie `thrivin_wa_session` (HMAC, httpOnly, 60 menit)
 ```
 
-`renewalPromo` = `now - expires_at > 7×24 jam` (tepat 7×24 jam = **belum** promo → TEMENANLAGI
-diskon 20% baru muncul setelahnya).
+`renewalPromo` = `now - expires_at > 7×24 jam` (tepat 7×24 jam = **belum** promo; penawaran
+perpanjangan baru muncul setelahnya).
 
 UI: tiga cabang — baru → onboarding; aktif → "sisa N hari" + CTA perpanjang; non-aktif →
-"berakhir N hari lalu" (+ penawaran TEMENANLAGI kalau `renewalPromo`). Input kode OTP, hitung
+"berakhir N hari lalu" (+ penawaran perpanjangan kalau `renewalPromo`). Input kode OTP, hitung
 mundur, dan "kode sudah dikirim" dihapus.
+
+**Kode promo yang ditampilkan = `TEMANBARU` (20%, sudah ada baris `promo_codes`), bukan
+`TEMENANLAGI`.** `TEMENANLAGI` masih kandidat tanpa baris promo (kartu `t_7bcb4487` belum
+selesai) — menampilkannya berarti menjanjikan kode yang akan ditolak checkout. Angka & kode
+diambil dari konstanta `TEMANBARU_PROMO` (`src/lib/pricing-copy.ts`), bukan diketik di JSX
+(guard `tests/test-web-copy-copy.mts` A3). Ganti satu konstanta itu kalau owner mengaktifkan
+TEMENANLAGI.
 
 Gate checkout **tidak berubah**: `POST /api/scalev/create-order` tetap butuh cookie sesi
 (`SESSION_REQUIRED` 401) dan `cleanPhone === sessionPhone` (`PHONE_SESSION_MISMATCH` 403).
+
+## Urutan funnel (revisi 20/10, setelah review Sentinel)
+
+Nomor WhatsApp pindah ke **langkah 1** `/companion/nina/onboarding/[step]`:
+
+1. Langkah 1 → form nomor + tombol **Lanjut** → `POST /api/wa/session/request`.
+   Lookup inilah satu-satunya sumber cookie sesi, jadi autosave
+   `/api/onboarding/progress` dan `create-order` tidak lagi 401.
+2. Status `new` → slide intro fitur (materi marketing, tidak dihapus) → langkah 2–7 survei.
+3. Status `active` / `inactive` → kartu status di tempat yang sama (sisa N hari / berakhir N
+   hari lalu + penawaran perpanjangan kalau `renewalPromo`) + CTA perpanjang, lalu lanjut ke survei.
+4. Langkah 8 sekarang **konfirmasi** nomor (read-only + tautan "Cek nomor lain"), bukan input
+   kedua. Field `whatsappNumber` tetap dikirim di langkah 8 supaya validasi server
+   (`STEP_FIELDS`) tidak berubah.
+
+Konsekuensi: langkah 1 tidak lagi bisa dilewati ("Lewati →" disembunyikan sebelum nomor dicek),
+karena tanpa lookup tidak ada cookie sesi.
 
 ## Yang berubah (file)
 
@@ -55,10 +79,11 @@ Gate checkout **tidak berubah**: `POST /api/scalev/create-order` tetap butuh coo
 | `src/lib/wa-status.ts` | **baru** — pemetaan RPC → payload publik (murni, unit-tested) |
 | `src/app/api/wa/session/verify/route.ts` | **dihapus** (route + alurnya) |
 | `src/app/companion/nina/status/page.tsx` | UI tiga cabang, tanpa input kode |
+| `src/app/companion/nina/onboarding/[step]/page.tsx` | langkah 1 = cek nomor (lookup + 3 cabang), slide intro sesudahnya; langkah 8 = konfirmasi read-only |
 | `src/app/api/scalev/create-order/route.ts` | komentar + pesan sesi: lookup, bukan OTP |
 | `.env.example` | `WA_OTP_*` ditandai DEPRECATED |
 | `tests/test-wa-first-units.mts` | + pemetaan tiga status, batas 7 hari, rate limit |
-| `tests/test-wa-first-e2e.mts` | ditulis ulang: lookup, privasi, sesi, fail-closed |
+| `tests/test-wa-first-e2e.mts` | lookup, privasi, sesi, fail-closed, urutan funnel, jalur penuh lookup→autosave→create-order |
 
 `planName` selalu `null`: RPC hanya mengembalikan `last_plan_key` (month/quarter/half/year),
 bukan nama tampilan. Jangan diisi tebakan — tunggu katalog resmi.
