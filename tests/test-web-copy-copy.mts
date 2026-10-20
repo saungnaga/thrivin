@@ -96,10 +96,11 @@ check("A1: chat answer lists plans from the catalog", () => {
   assert.ok(src.chat.includes("planPriceLine()"), "chat must build its price line from the catalog");
 });
 
-check("A1: JSON-LD offer range comes from the catalog", () => {
-  assert.ok(src.jsonLd.includes("offerRange()"), "JSON-LD must use the catalog range");
-  assert.ok(!/"lowPrice":\s*"/.test(src.jsonLd), "no hardcoded lowPrice literal");
-  assert.ok(!/"highPrice":\s*"/.test(src.jsonLd), "no hardcoded highPrice literal");
+check("A1: JSON-LD tidak lagi memuat harga (keputusan owner 20/10)", () => {
+  // Owner: "gausah kasih harga". `offers` dihapus total supaya Google tidak
+  // menampilkan nominal di cuplikan pencarian, bukan cuma disembunyikan di UI.
+  assert.ok(!/lowPrice|highPrice|priceCurrency/.test(src.jsonLd), "JSON-LD must not carry any price field");
+  assert.ok(!src.jsonLd.includes("offerRange()"), "JSON-LD must not compute an offer range anymore");
 });
 
 // ── A1b: 1-month option visible, still last, and reachable ───────────────────

@@ -1,6 +1,5 @@
 import React from "react";
 import { siteConfig } from "@/lib/site";
-import { offerRange } from "@/lib/pricing-copy";
 
 export function OrganizationJsonLd() {
   const schema = {
@@ -54,9 +53,9 @@ export function WebSiteJsonLd() {
 }
 
 export function NinaCompanionJsonLd() {
-  // Harga wajib sama dengan katalog server (PLAN_CATALOG). Angka lama di rilis
-  // sebelumnya (low & high hardcoded) tidak pernah ada di katalog mana pun.
-  const { low, high, count } = offerRange();
+  // Keputusan owner 20/10/2026: harga TIDAK ditampilkan di materi marketing.
+  // `offers` sengaja dihapus (bukan cuma disembunyikan di UI) supaya Google tidak
+  // menampilkan "Rp 99.000" di cuplikan hasil pencarian. Harga tetap ada di checkout.
   const schema = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -65,13 +64,6 @@ export function NinaCompanionJsonLd() {
     operatingSystem: "WhatsApp",
     description:
       "AI Companion personal di WhatsApp untuk wellness dan fitness: analisis foto nutrisi makanan, integrasi aktivitas Strava, pengingat kebiasaan harian, dan akuntabilitas 24/7.",
-    offers: {
-      "@type": "AggregateOffer",
-      priceCurrency: "IDR",
-      lowPrice: String(low),
-      highPrice: String(high),
-      offerCount: String(count),
-    },
     publisher: {
       "@type": "Organization",
       name: siteConfig.name,
