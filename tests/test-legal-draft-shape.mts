@@ -79,6 +79,31 @@ check(
   !/100% aman/.test(read(path.join("src", "app", "privacy", "page.tsx")))
 );
 
+// Revisi owner 20/10 ("poin soal reminder apus aja"): kata pengingat/reminder
+// tidak boleh muncul lagi di dua halaman legal. Cek di sumber supaya mutasi
+// balik ketahuan tanpa perlu build + HTTP.
+for (const page of ["terms", "privacy"]) {
+  const src = read(path.join("src", "app", page, "page.tsx"));
+  check(`${page}: nol klausul pengingat/reminder`, !/pengingat|reminder/i.test(src));
+}
+
+// Revisi owner 20/10: pasal pengingat dihapus dari dua halaman. Uji bergigi:
+// penomoran harus 1..N tanpa bolong, dan setiap rujukan "(pasal N)" harus
+// menunjuk pasal yang benar-benar ada — jangan sampai nomor lama menggantung.
+for (const page of ["terms", "privacy"]) {
+  const src = read(path.join("src", "app", page, "page.tsx"));
+  const numbers = [...src.matchAll(/<h2[^>]*>\s*(\d+)\./g)].map((m) => Number(m[1]));
+  check(
+    `${page}: pasal bernomor 1..${numbers.length} tanpa bolong`,
+    numbers.length > 0 && numbers.every((n, i) => n === i + 1),
+    `found ${JSON.stringify(numbers)}`
+  );
+  for (const ref of src.matchAll(/pasal (\d+)/g)) {
+    const n = Number(ref[1]);
+    check(`${page}: rujukan pasal ${n} menunjuk pasal yang ada`, numbers.includes(n));
+  }
+}
+
 // ── 2. draft files + registries ──────────────────────────────────────────────
 for (const doc of DOCS) check(`draft exists: docs/legal/${doc}`, fs.existsSync(path.join(LEGAL_DIR, doc)));
 
