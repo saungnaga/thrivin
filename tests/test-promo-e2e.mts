@@ -26,6 +26,8 @@
  *   C-3            -> token dari ADMIN_SESSION_EPOCH lain ditolak
  *   RACE           -> kuota=1, dua checkout paralel => tepat satu lolos
  *   dry-run        -> tombol "Terapkan" tidak menggerus kuota
+ *   cek promo      -> TANPA kunci idempotensi + TANPA sesi: 200 valid:true;
+ *                     kode ngawur -> 200 valid:false; gate order tetap 400/401
  *   order gagal    -> reservasi dilepas, kuota tidak bocor
  *   webhook        -> pembayaran meng-consume reservasi + mengunci 1x per nomor
  *   auth dashboard -> tanpa sesi 401; password salah 401; sesi valid OK
@@ -234,6 +236,23 @@ async function checkout(body: Record<string, unknown>) {
       ...(cookie ? { cookie } : {}),
     },
     body: JSON.stringify({ ...body, ...(idempotencyKey ? { idempotencyKey } : {}) }),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+/**
+ * `create-order` mentah: TANPA cookie sesi dan TANPA kunci idempotensi.
+ * Dipakai untuk membuktikan cek promo (read-only) tidak butuh identitas — dan
+ * sekaligus bahwa gate pembuatan order tetap menolak.
+ */
+async function rawCreateOrder(body: Record<string, unknown>) {
+  const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": `10.31.${phoneCounter % 200}.${(Date.now() % 250) + 1}`,
+    },
+    body: JSON.stringify(body),
   });
   return { status: res.status, body: await res.json() };
 }
@@ -703,6 +722,63 @@ async function main() {
       "1",
       "dry-run: kuota TIDAK berkurang"
     );
+
+    // ══ Dry run TANPA identitas checkout (kartu t_3d07c225) ════════════════
+    // Bug produksi 20/10: tombol "Terapkan" di HP owner dijawab 400
+    // IDEMPOTENCY_KEY_REQUIRED karena cabang checkPromoOnly duduk SESUDAH gate
+    // kunci idempotensi + sesi WA. Cek promo tidak membuat order ⇒ tidak butuh
+    // identitas. Di bawah ini SENGAJA tanpa cookie sesi dan tanpa kunci.
+    console.log("\n── Promo: cek promo tanpa identitas checkout ──");
+    // `truncateAll()` di atas mengosongkan promo_codes, jadi TEMANBARU (kode yang
+    // owner pakai di produksi) di-seed ulang dengan bentuk yang sama: 20% off.
+    await seedPromo({ code: "TEMANBARU", type: "percentage", amount: 20, quota: 20, plans: ["quarter"] });
+    const bare = await rawCreateOrder({
+      checkPromoOnly: true,
+      planId: "quarter",
+      customerPhone: nextPhone(),
+      promoCode: "TEMANBARU",
+    });
+    assertEq(bare.status, 200, "cek promo tanpa kunci+sesi -> 200 (bukan 400)");
+    assertEq(bare.body?.valid, true, "cek promo tanpa kunci+sesi -> valid:true");
+    assertEq(bare.body?.code, "TEMANBARU", "cek promo mengembalikan kode promo");
+    assertEq(bare.body?.discount, 46200, "cek promo: potongan dari server (20% dari 231000)");
+    assertEq(bare.body?.finalPrice, 184800, "cek promo: harga akhir dari server");
+    assertEq(
+      psqlSuper("SELECT used_count FROM v_promo_codes WHERE code='TEMANBARU';", { csv: true }),
+      "0",
+      "cek promo tanpa identitas: kuota TIDAK terpakai"
+    );
+
+    const bogus = await rawCreateOrder({
+      checkPromoOnly: true,
+      planId: "quarter",
+      customerPhone: nextPhone(),
+      promoCode: "NGAWUR999",
+    });
+    assertEq(bogus.status, 200, "cek promo kode ngawur -> 200 (bukan 400/500)");
+    assertEq(bogus.body?.valid, false, "cek promo kode ngawur -> valid:false");
+    assertOk(
+      typeof bogus.body?.error === "string" && bogus.body.error.length > 0,
+      "cek promo kode ngawur -> pesan error untuk UI",
+      JSON.stringify(bogus.body)
+    );
+
+    // Kontrol: gate pembuatan order TIDAK ikut dilonggarkan.
+    const orderNoKey = await rawCreateOrder({
+      planId: "quarter",
+      customerPhone: nextPhone(),
+      promoCode: "TEMANBARU",
+    });
+    assertEq(orderNoKey.status, 400, "order sungguhan tanpa kunci -> tetap 400");
+    assertEq(orderNoKey.body?.code, "IDEMPOTENCY_KEY_REQUIRED", "kode IDEMPOTENCY_KEY_REQUIRED tetap");
+    const orderNoSession = await rawCreateOrder({
+      planId: "quarter",
+      customerPhone: nextPhone(),
+      promoCode: "TEMANBARU",
+      idempotencyKey: "co-promo-check-control-key",
+    });
+    assertEq(orderNoSession.status, 401, "order sungguhan tanpa sesi -> tetap 401");
+    assertEq(orderNoSession.body?.code, "SESSION_REQUIRED", "kode SESSION_REQUIRED tetap");
 
     // ══ Kuota habis ════════════════════════════════════════════════════════
     console.log("\n── Promo: kuota habis ──");
