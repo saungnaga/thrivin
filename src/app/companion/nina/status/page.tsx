@@ -17,6 +17,7 @@
  * minimal 44px, target sentuh penuh lebar di layar kecil.
  */
 import { useState } from "react";
+import { TEMANBARU_PROMO } from "@/lib/pricing-copy";
 
 type LookupResult =
   | { ok: true; status: "new" }
@@ -164,7 +165,8 @@ export default function WaStatusPage() {
           {result.renewalPromo ? (
             <div className="mt-3 rounded-xl bg-neutral-50 p-3">
               <p className="text-sm font-medium text-neutral-900">
-                Ada penawaran TEMENANLAGI: diskon 20% untuk perpanjangan.
+                Ada penawaran {TEMANBARU_PROMO.code}: diskon{" "}
+                {TEMANBARU_PROMO.discountPercent}% untuk perpanjangan.
               </p>
             </div>
           ) : null}
