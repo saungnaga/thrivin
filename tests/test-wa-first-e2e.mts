@@ -20,6 +20,9 @@
  *   gagal-tertutup-> DB mati -> 503 TANPA field status (bukan "nomor baru")
  *   RPC sempit    -> anon/authenticated DITOLAK; service_role 3 field
  *   UI            -> tanpa input kode/hitung mundur, label + keyboard mobile
+ *   urutan funnel -> nomor WA di langkah 1 (bukan langkah 8), tidak dobel
+ *   jalur penuh   -> lookup (cookie) -> autosave 2..8 -> create-order: bukan
+ *                    SESSION_REQUIRED, berhenti di gate consent
  *   log           -> tidak ada nomor mentah di log server
  */
 import fs from "fs";
@@ -422,6 +425,109 @@ async function main() {
     assertOk(
       html.includes("Cek status"),
       "ui: tombol utama 'Cek status' (bukan 'Kirim kode')"
+    );
+
+    // ══ 8b. Urutan funnel: nomor WA di langkah 1, bukan di langkah akhir ═══
+    section("Funnel: nomor WA di langkah 1, hilang dari langkah akhir");
+    const step1 = await fetch(`${BASE_URL}/companion/nina/onboarding/1`);
+    const step1Html = await step1.text();
+    assertEq(step1.status, 200, "funnel: /onboarding/1 -> 200");
+    assertOk(
+      step1Html.includes('id="wa-phone"') && step1Html.includes('for="wa-phone"'),
+      "funnel: langkah 1 MEMUAT input nomor (label + id)"
+    );
+    assertOk(step1Html.includes('type="tel"'), "funnel: langkah 1 input type=tel");
+    assertOk(step1Html.includes("Lanjut"), "funnel: langkah 1 punya tombol 'Lanjut'");
+    assertOk(
+      !step1Html.includes("Nina Mengingat Segalanya"),
+      "funnel: slide intro TIDAK tampil sebelum nomor dicek (nomor benar-benar di depan)"
+    );
+
+    // Langkah 8 & 9 dirender kosong di HTML server (menunggu localStorage), jadi
+    // pemeriksaan "tidak ada input nomor lagi" dilakukan di SUMBER komponen —
+    // kalau tidak, HTML kosong akan selalu lolos dan test-nya tidak bergigi.
+    const pageSrc = fs.readFileSync(
+      path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
+      "utf-8"
+    );
+    const step8Block = pageSrc.split("{stepNum === 8 && (")[1]?.split("{stepNum === 9 && (")[0] ?? "";
+    assertOk(step8Block.length > 0, "funnel: blok langkah 8 ditemukan di sumber");
+    assertOk(!/<input/i.test(step8Block), "funnel: blok langkah 8 TIDAK punya <input>");
+    assertOk(
+      !/type="tel"/i.test(step8Block),
+      "funnel: blok langkah 8 TIDAK punya input tel (nomor tidak dobel)"
+    );
+    assertOk(
+      /whatsappNumber/.test(step8Block),
+      "funnel: langkah 8 tetap memakai nomor tersimpan (field STEP_FIELDS utuh)"
+    );
+    assertOk(
+      /fetch\("\/api\/wa\/session\/request"/.test(pageSrc),
+      "funnel: komponen benar-benar memanggil endpoint lookup (bukan cuma UI)"
+    );
+    const step9Html = await (await fetch(`${BASE_URL}/companion/nina/onboarding/9`)).text();
+    assertOk(
+      !step9Html.includes('id="wa-phone"') && !/type="tel"/i.test(step9Html),
+      "funnel: langkah 9 (checkout) TIDAK memuat input nomor"
+    );
+
+    // ══ 8c. Jalur penuh: lookup -> autosave -> create-order ════════════════
+    // Cookie TIDAK dipalsukan: satu-satunya sumbernya lookup nomor di langkah 1.
+    section("Funnel penuh: nomor baru -> progress -> create-order");
+    const funnel = makeClient(BASE_URL, "10.99.0.8");
+    const funnelLookup = await lookup(funnel, P.new);
+    assertEq(funnelLookup.body?.status, "new", "funnel: nomor baru -> status new");
+    assertOk(
+      funnel.cookie().includes("thrivin_wa_session="),
+      "funnel: lookup langkah 1 menerbitkan cookie sesi"
+    );
+
+    const noSessionProgress = makeClient(BASE_URL, "10.99.0.9").call("/api/onboarding/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step: 2, data: { name: "Tanpa Sesi" } }),
+    });
+    assertEq((await noSessionProgress).status, 401, "funnel: autosave TANPA cookie -> 401 (cookie dari lookup, bukan otomatis)");
+
+    const stepPayloads: Array<[number, Record<string, unknown>]> = [
+      [2, { name: "Funnel Test" }],
+      [3, { gender: "Laki-laki", age: 28 }],
+      [4, { height: 170, weight: 70 }],
+      [5, { activityLevel: "Moderat", workoutLocation: "Di Rumah" }],
+      [6, { programFocus: ["Workout & Strength"] }],
+      [7, { biggestChallenge: "Gampang Mager & Hilang Niat" }],
+      [8, { communicationStyle: "Santai & Akrab", whatsappNumber: P.new }],
+    ];
+    for (const [step, payload] of stepPayloads) {
+      const saved = await funnel.call("/api/onboarding/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step, data: payload }),
+      });
+      assertEq(saved.status, 200, `funnel: autosave langkah ${step} -> 200 (pakai cookie dari lookup)`);
+    }
+
+    const progressNow = await funnel.call("/api/onboarding/progress");
+    assertEq(progressNow.body?.complete, true, "funnel: server melihat profil lengkap");
+
+    const funnelOrder = await funnel.call("/api/scalev/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        planId: "month",
+        customerPhone: P.new,
+        idempotencyKey: "idem-funnel-0001",
+      }),
+    });
+    assertOk(
+      funnelOrder.status !== 401 && funnelOrder.body?.code !== "SESSION_REQUIRED",
+      "funnel: create-order TIDAK kena SESSION_REQUIRED lewat jalur funnel",
+      `status=${funnelOrder.status} code=${funnelOrder.body?.code}`
+    );
+    assertEq(
+      funnelOrder.body?.code,
+      "CONSENT_REQUIRED",
+      "funnel: sesi + profil lolos, berhenti di gate consent (bukan gate sesi)"
     );
 
     // ══ 9. Log & redaksi ═══════════════════════════════════════════════════
