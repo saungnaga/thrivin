@@ -15,6 +15,40 @@ import { execFileSync } from "child_process";
 import { PORTS, PG_DB, RUN_ID, tmpPath } from "./isolate.mts";
 import { writePrivateFile } from "./private-fs.mjs";
 
+/**
+ * Harness HTTP client must never reuse a pooled keep-alive socket
+ * (flake `UND_ERR_SOCKET "other side closed"` in the e2e suites, ported from the
+ * F-5 investigation — canonical harness is w4/RX2).
+ *
+ * The suites call `psqlSuper()` (`execFileSync` → `sudo -u postgres psql`) in
+ * chains, which blocks THIS process's event loop. An idle socket in undici's
+ * pool then cannot be closed client-side (own keep-alive timeout ≈3 s) and the
+ * server's FIN cannot be processed (node default `keepAliveTimeout` 5000 ms;
+ * `next start` only overrides it from KEEP_ALIVE_TIMEOUT, which the harness
+ * never sets). The next request lands on a socket the server is closing; on a
+ * loaded box the server handles its due keep-alive timer before the arrived
+ * request and the suite dies mid-run with
+ *
+ *     TypeError: fetch failed / SocketError: UND_ERR_SOCKET "other side closed"
+ *
+ * The app does NOT crash (clean log, process alive) ⇒ the suite goes green/red
+ * for the wrong reason. `Connection: close` destroys the socket when the
+ * response completes — no timer involved — so a blocked event loop cannot
+ * re-open the window. No retry logic: one place, both e2e suites.
+ *
+ * `unwrappedFetch` is exported so the guard (tests/test-harness-keepalive.mts)
+ * can prove the race still exists on this box with the raw client.
+ */
+const unwrappedFetch = globalThis.fetch;
+// ponytail: only string/URL inputs get the header — every call site in tests/ uses
+// those. A Request input would keep pooling; the guard fails loudly on reuse.
+globalThis.fetch = ((input: RequestInfo | URL, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set("connection", "close");
+  return unwrappedFetch(input, { ...init, headers });
+}) as typeof fetch;
+export { unwrappedFetch };
+
 export {
   PG_DB,
   PORTS,
