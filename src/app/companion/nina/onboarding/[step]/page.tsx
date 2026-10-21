@@ -138,6 +138,11 @@ export default function OnboardingStepPage({
   // dicari dari browser ini", BUKAN "nomor ini milik pengguna"
   // (docs/wa-first-tanpa-otp-2026-10-20.md).
   const [waLookup, setWaLookup] = useState<WaLookup | null>(null);
+  // Status langganan nomor terdaftar, dipakai blok status di langkah 9.
+  const [accountStatus, setAccountStatus] = useState<WaLookup | null>(null);
+  // Nomor terdaftar tapi TIDAK punya snapshot program ⇒ alur isi data dipakai
+  // lagi, dengan alasan yang ditampilkan (bukan halaman pilih paket kosong).
+  const [snapshotMissing, setSnapshotMissing] = useState(false);
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
@@ -236,6 +241,83 @@ export default function OnboardingStepPage({
     });
   };
 
+  // ── Pelanggan lama: profil & status dari SERVER, bukan dari nomor di body ──
+  // Satu panggilan, nomor SESI (cookie hasil lookup). `profile === null` berarti
+  // belum ada snapshot program ⇒ alur isi data tetap dipakai.
+  type ServerOnboarding = {
+    profile: Record<string, unknown> | null;
+    subscription: WaLookup | null;
+  };
+  const loadServerOnboarding = async (): Promise<ServerOnboarding | null> => {
+    try {
+      const res = await fetch("/api/onboarding/progress", { cache: "no-store" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) return null;
+      const sub = body.subscription;
+      const subscription: WaLookup | null =
+        sub?.status === "active"
+          ? {
+              status: "active",
+              daysLeft: typeof sub.daysLeft === "number" ? sub.daysLeft : null,
+            }
+          : sub?.status === "inactive"
+            ? {
+                status: "inactive",
+                daysSinceExpiry:
+                  typeof sub.daysSinceExpiry === "number" ? sub.daysSinceExpiry : null,
+                renewalPromo: sub.renewalPromo === true,
+              }
+            : null;
+      return {
+        profile:
+          body.profile && typeof body.profile === "object"
+            ? (body.profile as Record<string, unknown>)
+            : null,
+        subscription,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  // Isi wizard dari profil tersimpan. Merge ke state TERBARU (bukan snapshot
+  // render) supaya ketikan yang sedang berjalan tidak tertimpa, dan tulis ke
+  // localStorage lewat jalur yang sama dengan `updateData`.
+  const applySavedProfile = (profile: Record<string, unknown>) => {
+    const focusRaw = profile.programFocus;
+    const focus = (Array.isArray(focusRaw) ? focusRaw.map(String) : String(focusRaw ?? "").split(","))
+      .map((v) => v.trim())
+      .filter(Boolean);
+    const num = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const fields: Partial<OnboardingData> = {
+      name: String(profile.name ?? "").trim() || "Kawan Thrivin",
+      gender: profile.gender as OnboardingData["gender"],
+      age: num(profile.age),
+      weight: num(profile.weight),
+      height: num(profile.height),
+      activityLevel: profile.activityLevel as OnboardingData["activityLevel"],
+      workoutLocation: profile.workoutLocation as OnboardingData["workoutLocation"],
+      programFocus: focus.length ? focus : undefined,
+      biggestChallenge: String(profile.biggestChallenge ?? "").trim() || undefined,
+      communicationStyle: profile.communicationStyle as OnboardingData["communicationStyle"],
+    };
+    for (const key of Object.keys(fields) as Array<keyof OnboardingData>) {
+      if (fields[key] === undefined) delete fields[key];
+    }
+    setData((prev) => {
+      const next = { ...prev, ...fields };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch (e) {
+        console.error("Failed to save onboarding data", e);
+      }
+      return next;
+    });
+  };
+
   // ── A2: kirim langkah ke server (state onboarding punya rumah server-side) ──
   // Server yang memutuskan "lengkap atau belum"; kartu ini hanya UX tambahan.
   // Kalau simpan gagal, peringatan muncul dan gate `create-order` tetap menolak.
@@ -270,6 +352,23 @@ export default function OnboardingStepPage({
 
     return () => clearTimeout(timer);
   }, [isLoaded, stepNum, data]);
+
+  // ── Langkah 9: isi ringkasan dari profil tersimpan + status langganan ──────
+  // Sekali per muat halaman. Server yang menjawab (nomor SESI); kalau tidak ada
+  // snapshot, tidak ada yang diisi — alur nomor baru tidak tersentuh.
+  useEffect(() => {
+    if (!isLoaded) return;
+    let cancelled = false;
+    (async () => {
+      const server = await loadServerOnboarding();
+      if (cancelled || !server) return;
+      if (server.subscription) setAccountStatus(server.subscription);
+      if (server.profile) applySavedProfile(server.profile);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded]);
 
   // 1-Hour Countdown Timer for Applied Promo (runs on Step 9, auto-resets if previous session expired)
   useEffect(() => {
@@ -308,6 +407,15 @@ export default function OnboardingStepPage({
     }
     if (targetStep > TOTAL_STEPS) return;
     router.push(`/companion/nina/onboarding/${targetStep}`);
+  };
+
+  // CTA "Perpanjang sekarang" menggulir ke daftar paket di halaman yang sama
+  // (bukan navigasi ke halaman lain) lalu memindahkan fokus ke sana.
+  const scrollToPlans = () => {
+    const el = document.getElementById("pilih-paket");
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.focus({ preventScroll: true });
   };
 
   // Height & Weight sensible bounds validation (doesn't block typing)
@@ -503,7 +611,27 @@ export default function OnboardingStepPage({
           daysSinceExpiry: body.daysSinceExpiry ?? null,
           renewalPromo: body.renewalPromo === true,
         });
-      else setPhoneError("Status nomor tidak dikenali. Coba lagi.");
+      else {
+        setPhoneError("Status nomor tidak dikenali. Coba lagi.");
+        return;
+      }
+
+      // Nomor BARU: slide intro lalu isi data — alur lama, tidak diubah.
+      if (body.status === "new") return;
+
+      // Nomor TERDAFTAR: jangan suruh mengisi ulang. Profil program & status
+      // datang dari server lewat nomor SESI (cookie dari lookup ini), lalu
+      // langsung ke halaman pilih paket (langkah 9).
+      const server = await loadServerOnboarding();
+      if (server?.subscription) setAccountStatus(server.subscription);
+      if (server?.profile) {
+        applySavedProfile(server.profile);
+        goToStep(9);
+        return;
+      }
+      // Terdaftar tapi belum punya snapshot program: alur isi data tetap jalan,
+      // dan alasannya ditampilkan (jangan halaman pilih paket kosong).
+      setSnapshotMissing(true);
     } catch {
       setPhoneError("Status nomor tidak bisa dicek. Coba lagi.");
     } finally {
@@ -823,7 +951,7 @@ export default function OnboardingStepPage({
           ) : stepNum === 9 ? (
             <>
               <button
-                onClick={() => goToStep(8)}
+                onClick={() => goToStep(accountStatus ? 1 : 8)}
                 className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
                 aria-label="Kembali"
               >
@@ -971,19 +1099,35 @@ export default function OnboardingStepPage({
               )}
             </div>
 
-            <button
-              onClick={() => goToStep(2)}
-              className="w-full min-h-11 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span>Perpanjang langganan</span>
-              <ArrowRight className="w-4 h-4 text-accent" />
-            </button>
+            {/* Nomor terdaftar & punya snapshot ⇒ halaman ini langsung pindah ke
+                langkah 9 (lihat handleWaLookup). Yang tersisa di sini hanya dua
+                kasus: sedang memuat, atau snapshot program belum ada. */}
+            {snapshotMissing ? (
+              <>
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
+                  Data programmu belum tersimpan lengkap di server, jadi kita isi ulang
+                  sebentar ya — datanya tetap dipakai Nina setelah pembayaran.
+                </div>
+                <button
+                  onClick={() => goToStep(2)}
+                  className="w-full min-h-11 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold py-4 text-sm transition-all shadow-glow flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Isi data dari awal</span>
+                  <ArrowRight className="w-4 h-4 text-accent" />
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-text-secondary text-center py-2" aria-live="polite">
+                Memuat data programmu…
+              </p>
+            )}
 
             <button
               type="button"
               onClick={() => {
                 setWaLookup(null);
                 setPhoneError("");
+                setSnapshotMissing(false);
               }}
               className="w-full min-h-11 text-xs font-bold text-text-secondary underline underline-offset-4 cursor-pointer"
             >
@@ -1905,7 +2049,7 @@ export default function OnboardingStepPage({
                   <span>Blueprint Personal Selesai Disusun</span>
                 </span>
                 <h1 className="font-serif text-2xl sm:text-4xl font-bold text-brand-950">
-                  Rencana & Strategi Pendampingan {data.name}
+                  Rencana & Strategi Pendampingan {data.name.trim() || "Kamu"}
                 </h1>
                 <p className="text-xs sm:text-sm text-text-secondary mt-1.5 leading-relaxed">
                   Kamu sudah tahu apa yang ingin dicapai. Yang hilang selama ini bukan niat atau pengetahuanmu, melainkan sistem akuntabilitas harian yang konsisten hadir tanpa membuatmu lelah. Dengan blueprint ini dan Nina yang mendampingimu setiap hari di WhatsApp, progresmu terukur, terarah, dan kamu tidak lagi berjuang sendirian.
@@ -1967,8 +2111,62 @@ export default function OnboardingStepPage({
               </div>
             </div>
 
+            {/* ── 1b. STATUS LANGGANAN — di ATAS daftar paket ── */}
+            {accountStatus && accountStatus.status !== "new" && (
+              <div
+                className="p-5 sm:p-6 rounded-3xl bg-white border border-brand-200 shadow-xs space-y-3"
+                aria-live="polite"
+              >
+                {accountStatus.status === "active" ? (
+                  <>
+                    <h2 className="font-serif text-xl sm:text-2xl font-bold text-brand-950 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      Langganan aktif
+                    </h2>
+                    <p className="text-xs sm:text-sm text-text-secondary">
+                      Sisa masa aktif:{" "}
+                      {accountStatus.daysLeft === null
+                        ? "sedang diproses"
+                        : `${accountStatus.daysLeft} hari lagi`}
+                      . Perpanjang sekarang supaya pendampingan Nina tidak terputus.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="font-serif text-xl sm:text-2xl font-bold text-brand-950 flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                      Langganan sudah berakhir
+                    </h2>
+                    <p className="text-xs sm:text-sm text-text-secondary">
+                      Berakhir{" "}
+                      {accountStatus.daysSinceExpiry === null
+                        ? "sebelumnya"
+                        : `${accountStatus.daysSinceExpiry} hari lalu`}
+                      . Aktifkan lagi untuk melanjutkan pendampingan Nina.
+                    </p>
+                    {accountStatus.renewalPromo && (
+                      <div className="rounded-2xl bg-brand-50 border border-brand-200 p-3">
+                        <p className="text-xs font-bold text-brand-950">
+                          Ada penawaran {TEMANBARU_PROMO.code}: diskon{" "}
+                          {TEMANBARU_PROMO.discountPercent}% untuk perpanjangan.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={scrollToPlans}
+                  className="w-full sm:w-auto min-h-11 rounded-full bg-brand-900 hover:bg-brand-800 text-white font-bold px-6 py-3 text-sm transition-all shadow-glow inline-flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Perpanjang sekarang</span>
+                  <ArrowRight className="w-4 h-4 text-accent" />
+                </button>
+              </div>
+            )}
+
             {/* ── 2. CARD PILIHAN PAKET (Bukan Form Radio, Simple & Bersih) ── */}
-            <div className="space-y-4 pt-2">
+            <div id="pilih-paket" tabIndex={-1} className="space-y-4 pt-2 outline-none">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h2 className="font-serif text-2xl sm:text-3xl font-bold text-brand-950">
