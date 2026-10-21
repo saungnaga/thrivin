@@ -13,7 +13,7 @@ import {
   validateStepInput,
 } from "../src/lib/onboarding-steps.ts";
 import { authoritativeProfile } from "../src/lib/checkout-gate.ts";
-import { isKnownReminderVersion, isKnownTermsVersion } from "../src/lib/consent.ts";
+import { isKnownReminderVersion, isKnownTermsVersion, KNOWN_TERMS_VERSIONS } from "../src/lib/consent.ts";
 import { verifyWaSessionToken, createWaSessionToken, WA_SESSION_COOKIE } from "../src/lib/wa-session.ts";
 import { fullStepPayloads, craftWaSessionToken, DEFAULT_WA_SESSION_SECRET } from "./helpers/checkout-arm.mts";
 
@@ -87,7 +87,7 @@ const noConsentProfile = authoritativeProfile({ ...full, 3: { gender: "Laki-laki
 check(noConsentProfile.ok === true, "usia dibulatkan wajar (25.6 → 26)");
 
 // ── 5. Versi teks: yang tak dikenal ditolak ─────────────────────────────────
-check(isKnownTermsVersion("terms-2026-10-15-v1") === true, "versi T&C yang berlaku dikenal");
+check(isKnownTermsVersion(KNOWN_TERMS_VERSIONS[0]) === true, "versi T&C yang berlaku dikenal");
 check(isKnownTermsVersion("terms-9999-v9") === false, "versi T&C asing ditolak");
 check(isKnownTermsVersion("") === false, "versi kosong ditolak");
 check(isKnownTermsVersion(undefined) === false, "versi undefined ditolak");

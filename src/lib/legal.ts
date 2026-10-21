@@ -11,10 +11,10 @@
  */
 
 /** Versi dokumen `/terms` yang ditampilkan & dicatat (keputusan no. 14). */
-export const TERMS_VERSION = "terms-2026-10-15-v1";
+export const TERMS_VERSION = "terms-2026-10-21-v2";
 /** Versi teks opt-in pengingat (CONSENT-2). */
 export const REMINDER_OPTIN_VERSION = "reminder-optin-2026-10-15-v1";
-export const LEGAL_LAST_UPDATED = "16 Oktober 2026";
+export const LEGAL_LAST_UPDATED = "21 Oktober 2026";
 
 /**
  * Entitas penyedia layanan: cukup nama bisnis. Nama orang & alamat sengaja
@@ -24,8 +24,8 @@ export const LEGAL_LAST_UPDATED = "16 Oktober 2026";
  */
 export const LEGAL_ENTITY = "Thrivin";
 /** Versi dokumen /privacy — TERPISAH dari versi /terms (dua dokumen, dua riwayat). */
-export const PRIVACY_VERSION = "privacy-2026-10-20-v1";
-export const PRIVACY_LAST_UPDATED = "20 Oktober 2026";
+export const PRIVACY_VERSION = "privacy-2026-10-21-v2";
+export const PRIVACY_LAST_UPDATED = "21 Oktober 2026";
 /** Keputusan no. 18. */
 export const CS_WHATSAPP = "6287788141388";
 export const CS_HOURS = "09.00–21.00 WIB";

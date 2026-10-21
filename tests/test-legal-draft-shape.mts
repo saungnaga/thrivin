@@ -49,8 +49,8 @@ check(
   /TERMS_PATH/.test(read(path.join("src", "app", "companion", "nina", "onboarding", "[step]", "page.tsx")))
 );
 check(
-  "published version constant is terms-2026-10-15-v1",
-  /TERMS_VERSION = "terms-2026-10-15-v1"/.test(read(path.join("src", "lib", "legal.ts")))
+  "published version constant is terms-2026-10-21-v2",
+  /TERMS_VERSION = "terms-2026-10-21-v2"/.test(read(path.join("src", "lib", "legal.ts")))
 );
 check(
   "no raw placeholder literal in page.tsx templates",
@@ -69,7 +69,8 @@ check(
 
 check(
   "privacy page has the new published sections",
-  ["1. Data Apa", "2. Bagaimana", "3. Pengingat WhatsApp", "4. Garansi", "5. Berapa Lama", "6. Pihak Ketiga", "7. Perubahan", "8. Hubungi"].every((s) =>
+  // Revisi owner 20/10: pasal "Pengingat WhatsApp" dihapus, penomoran 3..7 bergeser.
+  ["1. Data Apa", "2. Bagaimana", "3. Garansi", "4. Berapa Lama", "5. Pihak Ketiga", "6. Perubahan", "7. Hubungi"].every((s) =>
     read(path.join("src", "app", "privacy", "page.tsx")).includes(s)
   )
 );
@@ -77,6 +78,31 @@ check(
   "absolute claim replaced",
   !/100% aman/.test(read(path.join("src", "app", "privacy", "page.tsx")))
 );
+
+// Revisi owner 20/10 ("poin soal reminder apus aja"): kata pengingat/reminder
+// tidak boleh muncul lagi di dua halaman legal. Cek di sumber supaya mutasi
+// balik ketahuan tanpa perlu build + HTTP.
+for (const page of ["terms", "privacy"]) {
+  const src = read(path.join("src", "app", page, "page.tsx"));
+  check(`${page}: nol klausul pengingat/reminder`, !/pengingat|reminder/i.test(src));
+}
+
+// Revisi owner 20/10: pasal pengingat dihapus dari dua halaman. Uji bergigi:
+// penomoran harus 1..N tanpa bolong, dan setiap rujukan "(pasal N)" harus
+// menunjuk pasal yang benar-benar ada — jangan sampai nomor lama menggantung.
+for (const page of ["terms", "privacy"]) {
+  const src = read(path.join("src", "app", page, "page.tsx"));
+  const numbers = [...src.matchAll(/<h2[^>]*>\s*(\d+)\./g)].map((m) => Number(m[1]));
+  check(
+    `${page}: pasal bernomor 1..${numbers.length} tanpa bolong`,
+    numbers.length > 0 && numbers.every((n, i) => n === i + 1),
+    `found ${JSON.stringify(numbers)}`
+  );
+  for (const ref of src.matchAll(/pasal (\d+)/g)) {
+    const n = Number(ref[1]);
+    check(`${page}: rujukan pasal ${n} menunjuk pasal yang ada`, numbers.includes(n));
+  }
+}
 
 // ── 2. draft files + registries ──────────────────────────────────────────────
 for (const doc of DOCS) check(`draft exists: docs/legal/${doc}`, fs.existsSync(path.join(LEGAL_DIR, doc)));
