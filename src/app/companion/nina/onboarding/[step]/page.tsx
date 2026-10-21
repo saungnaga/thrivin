@@ -41,7 +41,6 @@ import {
   AlertCircle,
   Tag,
   CreditCard,
-  Clock,
   Percent,
   Lock,
   Heart,
@@ -57,8 +56,9 @@ import {
   MessageCircle,
   Smartphone
 } from "lucide-react";
-import { PLAN_CATALOG } from "@/lib/plans";
+import { PLAN_CATALOG, type PlanKey } from "@/lib/plans";
 import {
+  PLAN_ORDER,
   REFUND_GUARANTEE_TEXT,
   REFUND_GUARANTEE_TITLE,
   formatIdr,
@@ -68,11 +68,16 @@ import {
   savingsVsMonthlyPercent,
   TEMANBARU_PROMO,
 } from "@/lib/pricing-copy";
-import { planPricing, quoteForPlan, type PromoQuote } from "@/lib/promo-quote";
+import { planPricing, quoteFromMap, quoteKey, type PromoQuote } from "@/lib/promo-quote";
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
-const COUNTDOWN_STORAGE_KEY = "thrivin_promo_1h_countdown";
+/**
+ * Kode promo yang terpasang SENDIRI saat halaman harga dibuka. Kuota, masa
+ * berlaku, dan kecocokan paket tetap diputuskan server (`checkPromoOnly`); klien
+ * hanya mengisi kolomnya supaya pembeli tidak perlu mengetik/menekan apa pun.
+ */
+const AUTO_PROMO_CODE = TEMANBARU_PROMO.code;
 
 interface OnboardingData {
   name: string;
@@ -88,7 +93,6 @@ interface OnboardingData {
   whatsappNumber: string;
   selectedPlan: "month" | "quarter" | "half" | "year";
   promoCode: string;
-  promoApplied: boolean;
 }
 
 /**
@@ -114,10 +118,9 @@ const DEFAULT_DATA: OnboardingData = {
   communicationStyle: "Santai & Akrab",
   whatsappNumber: "",
   selectedPlan: "quarter",
-  // Promo datang dari server (tabel promo_codes), bukan konstanta di klien.
-  // Kosong = tidak ada promo otomatis; kode aktif hanya setelah divalidasi server.
+  // Diisi otomatis dengan AUTO_PROMO_CODE saat langkah 9 dibuka; harga tetap dari
+  // kutipan server (tabel promo_codes), bukan hitungan klien.
   promoCode: "",
-  promoApplied: false,
 };
 
 export default function OnboardingStepPage({
@@ -159,23 +162,18 @@ export default function OnboardingStepPage({
         : `co-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  // 1-Hour Countdown Timer State for Applied Promo
-  const [countdownSeconds, setCountdownSeconds] = useState(3600);
-
-  // Kutipan promo dari SERVER: discount + harga akhir + PAKET yang dikutip.
-  // Klien tidak pernah menghitung diskon sendiri — kalau kosong, harga katalog
-  // yang dipakai. Kutipan hanya sah untuk paketnya sendiri (`quoteForPlan`).
-  const [promoCheck, setPromoCheck] = useState<PromoQuote | null>(null);
-  // Kunci "kode|paket" yang sudah ditanyakan ke server, supaya ganti paket
-  // memicu tepat satu validasi ulang (bukan loop render).
-  const quoteRequestRef = useRef<string>("");
-
-  const formatCountdown = (totalSec: number) => {
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
+  // Kutipan promo dari SERVER, satu per (kode, paket) — supaya SEMUA kartu bisa
+  // menampilkan harga coret sejak halaman dibuka, dan tiap kartu hanya memakai
+  // kutipan paketnya sendiri (`quoteFromMap`). Klien tidak pernah menghitung
+  // diskon sendiri; kutipan kosong ⇒ harga katalog.
+  const [promoQuotes, setPromoQuotes] = useState<Record<string, PromoQuote>>({});
+  // Kode yang benar-benar SEDANG terpasang — beda dengan isi kolom input, karena
+  // pembeli boleh mengetik kode lain tanpa mencabut diskon yang sudah sah.
+  const [committedCode, setCommittedCode] = useState("");
+  // "kode|paket" yang sudah ditanyakan ke server: dedupe, bukan loop render.
+  const quoteRequestedRef = useRef<Set<string>>(new Set());
+  // Auto-pasang cukup sekali per kunjungan halaman.
+  const autoPromoDoneRef = useRef(false);
 
   // Syncing & calculation animation state (after WhatsApp input in Step 8)
   const [isSyncing, setIsSyncing] = useState(false);
@@ -213,7 +211,6 @@ export default function OnboardingStepPage({
         setData({
           ...DEFAULT_DATA,
           ...parsed,
-          promoApplied: false,
         });
       }
     } catch (e) {
@@ -271,35 +268,20 @@ export default function OnboardingStepPage({
     return () => clearTimeout(timer);
   }, [isLoaded, stepNum, data]);
 
-  // 1-Hour Countdown Timer for Applied Promo (runs on Step 9, auto-resets if previous session expired)
+  // Kode promo dipasang SENDIRI saat langkah 9 dibuka (permintaan owner 21/10:
+  // "kode kupon temanbaru harusnya otomatis terpasang"). Nol klik: kolomnya
+  // langsung terisi dan kutipan server yang menentukan harganya. Kalau kode ini
+  // tidak berlaku untuk paket tertentu, server menolak kutipan itu dan paketnya
+  // tampil harga normal — tanpa error merah.
   useEffect(() => {
-    if (!isLoaded) return;
-    if (!data.promoApplied) return;
-
-    let expiry = Number(localStorage.getItem(COUNTDOWN_STORAGE_KEY));
-    const now = Date.now();
-    if (!expiry || expiry <= now) {
-      expiry = now + 3600 * 1000;
-      try {
-        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(expiry));
-      } catch (e) {}
+    if (!isLoaded || stepNum !== 9) return;
+    if (autoPromoDoneRef.current) return;
+    autoPromoDoneRef.current = true;
+    if (data.promoCode.trim().toUpperCase() !== AUTO_PROMO_CODE) {
+      updateData({ promoCode: AUTO_PROMO_CODE });
     }
-
-    const updateTimer = () => {
-      const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
-      setCountdownSeconds(remaining);
-      if (remaining === 0) {
-        updateData({ promoApplied: false, promoCode: "" });
-        try {
-          localStorage.removeItem(COUNTDOWN_STORAGE_KEY);
-        } catch (e) {}
-      }
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [isLoaded, data.promoApplied]);
+    setCommittedCode(AUTO_PROMO_CODE);
+  }, [isLoaded, stepNum, data.promoCode]);
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {
@@ -396,74 +378,96 @@ export default function OnboardingStepPage({
   };
 
   const currentPlan = PLANS[data.selectedPlan] || PLANS.quarter;
-  const activePromoCode = data.promoCode.trim().toUpperCase();
   // Angka diskon TIDAK dihitung di klien: server (promo_codes + RPC atomik) yang
-  // memutuskan kuota/kedaluwarsa/non-aktif, dan hanya angka server yang ditampilkan.
-  // Kutipan hanya dipakai untuk PAKET yang dikutip server — kalau paketnya beda,
-  // harga katalog yang tampil, bukan sisa diskon paket lama.
-  const promoQuote = data.promoApplied
-    ? quoteForPlan(promoCheck, activePromoCode, data.selectedPlan)
-    : null;
+  // memutuskan kuota/kedaluwarsa/non-aktif, dan hanya angka server yang tampil.
+  // Tiap paket memakai kutipannya SENDIRI (`quoteFromMap`), jadi satu kartu tidak
+  // pernah meminjam angka kartu lain — dan tidak perlu dipilih dulu.
+  const promoQuote = quoteFromMap(promoQuotes, committedCode, data.selectedPlan);
   const discountAmount = promoQuote ? promoQuote.discount : 0;
   const finalPrice = promoQuote ? promoQuote.finalPrice : currentPlan.totalPrice;
 
-  // Struck-through helper for each card
-  const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") =>
-    planPricing(planKey, planKey === data.selectedPlan ? promoQuote : null);
+  // Struck-through helper for each card: SEMUA paket, sejak halaman dibuka.
+  const getPlanPricing = (planKey: PlanKey) =>
+    planPricing(planKey, quoteFromMap(promoQuotes, committedCode, planKey));
 
-  // Ganti paket dengan kode promo terpasang ⇒ kutipan paket lama dibuang (lihat
-  // `promoQuote` di atas) dan server ditanya ulang untuk paket baru. Tanpa ini
-  // pembeli melihat Rp 184.800 di kartu paket 1 tahun padahal yang ditagih
-  // Rp 372.000. Server tetap satu-satunya yang menentukan angka diskon.
-  useEffect(() => {
-    if (!isLoaded || !data.promoApplied || !activePromoCode) return;
-    const planId = data.selectedPlan;
-    if (promoCheck?.planId === planId && promoCheck.code === activePromoCode) return;
-    const key = `${activePromoCode}|${planId}`;
-    if (quoteRequestRef.current === key) return;
-    quoteRequestRef.current = key;
-    let cancelled = false;
-    (async () => {
+  /**
+   * Tanya server satu kutipan promo (READ-ONLY). 429/putus koneksi diulang SEKALI
+   * dengan jeda pendek: jalur otomatis tidak boleh memunculkan banner merah
+   * karena halaman memang memuat beberapa kutipan sendiri. `error` hanya dipakai
+   * aksi eksplisit (menekan "Terapkan").
+   */
+  const requestPromoQuote = async (
+    code: string,
+    planId: PlanKey,
+    phone: string
+  ): Promise<{ quote: PromoQuote | null; error?: string }> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch("/api/scalev/create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             checkPromoOnly: true,
-            promoCode: activePromoCode,
+            promoCode: code,
             planId,
-            customerPhone: data.whatsappNumber,
+            customerPhone: phone,
           }),
         });
-        const check = await res.json();
-        if (cancelled) return;
-        if (!res.ok || !check?.valid) {
-          // Server menolak untuk paket ini (mis. paket 1 bulan, minMonths 3):
-          // kutipan dibuang dan pesan server ditampilkan apa adanya.
-          updateData({ promoApplied: false });
-          setPromoCheck(null);
-          setCheckoutError(check?.error || "Kode promo tidak bisa dipakai.");
-          return;
+        if (res.status === 429) {
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
         }
-        setPromoCheck({
-          code: String(check.code || activePromoCode),
-          planId,
-          discount: Number(check.discount || 0),
-          finalPrice: Number(check.finalPrice ?? 0),
-        });
-        setCheckoutError("");
+        const check = await res.json().catch(() => null);
+        if (!res.ok || !check?.valid) {
+          return { quote: null, error: check?.error || "Kode promo tidak bisa dipakai." };
+        }
+        return {
+          quote: {
+            code: String(check.code || code),
+            planId,
+            discount: Number(check.discount || 0),
+            finalPrice: Number(check.finalPrice ?? 0),
+          },
+        };
       } catch {
-        if (cancelled) return;
-        // Gagal tanya server ⇒ jangan tampilkan diskon yang tidak terverifikasi.
-        updateData({ promoApplied: false });
-        setPromoCheck(null);
-        setCheckoutError("Gagal memeriksa kode promo. Coba lagi.");
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
       }
+    }
+    return { quote: null, error: "Gagal memeriksa kode promo. Coba lagi." };
+  };
+
+  // Satu permintaan per (kode, paket) saat halaman harga dibuka, didedupe lewat
+  // `quoteRequestedRef` supaya render ulang tidak membanjiri server. Kutipan yang
+  // ditolak server (mis. paket 1 bulan, minMonths 3) cukup dibuang: paket itu
+  // tampil harga normal tanpa coretan, TANPA error merah.
+  useEffect(() => {
+    if (!isLoaded || stepNum !== 9 || !committedCode) return;
+    const missing = PLAN_ORDER.filter(
+      (planId) => !quoteRequestedRef.current.has(quoteKey(committedCode, planId))
+    );
+    if (missing.length === 0) return;
+    for (const planId of missing) quoteRequestedRef.current.add(quoteKey(committedCode, planId));
+    let cancelled = false;
+    (async () => {
+      const fetched = await Promise.all(
+        missing.map(async (planId) => {
+          const { quote } = await requestPromoQuote(committedCode, planId, data.whatsappNumber);
+          return [planId, quote] as const;
+        })
+      );
+      if (cancelled) return;
+      setPromoQuotes((prev) => {
+        const next = { ...prev };
+        for (const [planId, quote] of fetched) {
+          if (quote) next[quoteKey(committedCode, planId)] = quote;
+        }
+        return next;
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, data.promoApplied, data.selectedPlan, data.whatsappNumber, activePromoCode, promoCheck]);
+  }, [isLoaded, stepNum, committedCode, data.whatsappNumber]);
 
   // Phone validation
   const validatePhone = (phone: string) => {
@@ -513,54 +517,31 @@ export default function OnboardingStepPage({
 
   // Validasi kode promo ke server (dry run: tidak memakai kuota). Hanya kode
   // yang benar-benar valid yang dianggap "terpasang" — sisa kuota, kedaluwarsa,
-  // dan status aktif semuanya ditegakkan server.
+  // dan status aktif semuanya ditegakkan server. Ini satu-satunya jalur yang
+  // boleh menampilkan error merah: pembeli menekan "Terapkan" secara eksplisit.
   const applyPromo = async () => {
     const typedCode = data.promoCode.trim().toUpperCase();
     setCheckoutError("");
     if (!typedCode) {
-      updateData({ promoApplied: false, promoCode: "" });
-      setPromoCheck(null);
+      setCommittedCode("");
       return;
     }
-    try {
-      const res = await fetch("/api/scalev/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          checkPromoOnly: true,
-          promoCode: typedCode,
-          planId: data.selectedPlan,
-          customerPhone: data.whatsappNumber,
-        }),
-      });
-      const check = await res.json();
-      if (!res.ok || !check?.valid) {
-        updateData({ promoApplied: false });
-        setPromoCheck(null);
-        setCheckoutError(check?.error || "Kode promo tidak bisa dipakai.");
-        return;
-      }
-      const code = String(check.code || typedCode);
-      setPromoCheck({
-        code,
-        planId: data.selectedPlan,
-        discount: Number(check.discount || 0),
-        finalPrice: Number(check.finalPrice ?? 0),
-      });
-      // Kutipan ini sudah untuk paket yang sedang dipilih — jangan divalidasi
-      // ulang oleh effect ganti-paket.
-      quoteRequestRef.current = `${code}|${data.selectedPlan}`;
-      updateData({ promoApplied: true, promoCode: code });
-      const newExpiry = Date.now() + 3600 * 1000;
-      try {
-        localStorage.setItem(COUNTDOWN_STORAGE_KEY, String(newExpiry));
-      } catch (e) {}
-      setCountdownSeconds(3600);
-    } catch (e) {
-      updateData({ promoApplied: false });
-      setPromoCheck(null);
-      setCheckoutError("Gagal memeriksa kode promo. Coba lagi.");
+    const { quote, error } = await requestPromoQuote(
+      typedCode,
+      data.selectedPlan,
+      data.whatsappNumber
+    );
+    if (!quote) {
+      // Diskon yang sudah sah tidak dicabut karena salah ketik; kolomnya
+      // dikembalikan ke kode yang benar-benar terpasang supaya layar tidak bohong.
+      updateData({ promoCode: committedCode });
+      setCheckoutError(error || "Kode promo tidak bisa dipakai.");
+      return;
     }
+    quoteRequestedRef.current.add(quoteKey(quote.code, quote.planId));
+    setPromoQuotes((prev) => ({ ...prev, [quoteKey(quote.code, quote.planId)]: quote }));
+    setCommittedCode(quote.code);
+    updateData({ promoCode: quote.code });
   };
 
   // Handle WhatsApp submission with calculation/syncing animation
@@ -629,14 +610,17 @@ export default function OnboardingStepPage({
         return;
       }
 
-      // 2) Order. Harga, paket, dan kelengkapan profil ditentukan server.
+      // 2) Order. Harga, paket, dan kelengkapan profil ditentukan server. Kode
+      // promo hanya dikirim kalau server memang mengutipnya untuk paket ini —
+      // kode yang tidak berlaku (mis. TEMANBARU di paket 1 bulan) tidak boleh
+      // ikut, karena server akan menolak ordernya.
       const response = await fetch("/api/scalev/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId: data.selectedPlan,
           customerPhone: data.whatsappNumber,
-          promoCode: data.promoApplied ? activePromoCode : "",
+          promoCode: promoQuote ? promoQuote.code : "",
           idempotencyKey: checkoutKeyRef.current,
         }),
       });
@@ -644,11 +628,17 @@ export default function OnboardingStepPage({
       const resData = await response.json();
 
       if (!response.ok || !resData.paymentUrl) {
-        // Promo ditolak server (habis / kedaluwarsa / sudah pernah dipakai):
-        // kutipannya dibuang, jangan tampilkan diskon yang tidak berlaku.
-        if (resData.code) {
-          updateData({ promoApplied: false, promoCode: "" });
-          setPromoCheck(null);
+        // Order ditolak server (promo habis/kedaluwarsa/sudah dipakai, atau gate
+        // identitas). Kutipan yang sedang dipegang dicabut: diskon yang tidak akan
+        // didapat tidak boleh tetap tampil di layar.
+        if (resData.code && committedCode) {
+          setPromoQuotes((prev) => {
+            const next = { ...prev };
+            for (const planId of PLAN_ORDER) delete next[quoteKey(committedCode, planId)];
+            return next;
+          });
+          setCommittedCode("");
+          updateData({ promoCode: "" });
         }
         throw new Error(
           resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
@@ -1984,37 +1974,6 @@ export default function OnboardingStepPage({
                 </div>
               </div>
 
-              {/* Promo applied banner + countdown */}
-              {data.promoApplied && Boolean(data.promoCode) && (
-                <div className="p-3.5 sm:p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-300 shadow-xs flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                    </div>
-                    <span className="text-xs sm:text-sm font-bold text-emerald-950">
-                      Kode promo terpasang:
-                    </span>
-                    <div className="inline-flex items-center gap-1.5 bg-emerald-800 text-white px-2.5 py-1 rounded-lg font-mono text-xs font-black tracking-wider shadow-2xs">
-                      <span>{data.promoCode}</span>
-                    </div>
-
-                    {/* Countdown 1 jam untuk promo yang sedang terpasang */}
-                    <div className="inline-flex items-center gap-1.5 bg-white/95 border border-emerald-300 px-2.5 py-1 rounded-lg text-emerald-900 shadow-2xs">
-                      <Clock className="w-3.5 h-3.5 text-emerald-700 animate-pulse shrink-0" />
-                      <span className="font-mono font-bold text-xs">
-                        {formatCountdown(countdownSeconds)}
-                      </span>
-                    </div>
-
-                    {promoQuote && promoQuote.discount > 0 && (
-                      <span className="text-[10px] font-bold text-rose-700 bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-md">
-                        HEMAT Rp {promoQuote.discount.toLocaleString("id-ID")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
               {/* 3 Simple Cards Grid — badge & harga dari PLANS (turunan PLAN_CATALOG).
                   Kartu = <button> supaya bisa dijangkau keyboard & punya nama aksesibel. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -2042,9 +2001,13 @@ export default function OnboardingStepPage({
                   },
                 ].map(({ id, name, badge, badgeColor, pricing }) => {
                   const isSelected = data.selectedPlan === id;
-                  // Pill diskon dari kutipan SERVER, bukan persentase hardcoded.
+                  // Pill diskon dari kutipan SERVER paket INI (bukan angka paket
+                  // terpilih, bukan persentase hardcoded).
                   const promoPill = pricing.hasDiscount
-                    ? promoDiscountPill(discountAmount, pricing.originalTotal)
+                    ? promoDiscountPill(
+                        pricing.originalTotal - pricing.discountedTotal,
+                        pricing.originalTotal
+                      )
                     : null;
                   return (
                     <button
@@ -2222,9 +2185,9 @@ export default function OnboardingStepPage({
                   <span>Subtotal ({currentPlan.name})</span>
                   <span className="font-mono">Rp {currentPlan.totalPrice.toLocaleString("id-ID")}</span>
                 </div>
-                {discountAmount > 0 && (
+                {promoQuote && (
                   <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>{`Potongan Kode Promo (${activePromoCode})`}</span>
+                    <span>{`Potongan Kode Promo (${promoQuote.code})`}</span>
                     <span className="font-mono">-Rp {discountAmount.toLocaleString("id-ID")}</span>
                   </div>
                 )}

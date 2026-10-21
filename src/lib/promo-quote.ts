@@ -52,7 +52,9 @@ export function quoteForPlan(
   return quote;
 }
 
-/** Card/summary numbers for one plan. Promo figures come only from a bound quote. */
+/**
+ * Card/summary numbers for one plan. Promo figures come only from a bound quote.
+ */
 export function planPricing(planId: PlanKey, quote: PromoQuote | null): PlanPricing {
   const base = PLAN_CATALOG[planId].basePrice;
   const perMonth = monthlyPrice(planId);
@@ -72,4 +74,26 @@ export function planPricing(planId: PlanKey, quote: PromoQuote | null): PlanPric
     discountedMonthly: Math.max(0, Math.round(quote.finalPrice / planMonths(planId))),
     hasDiscount: quote.discount > 0,
   };
+}
+
+/**
+ * Key for the checkout's map of held quotes: exactly one quote per
+ * (code, plan) pair, so a quote can never be looked up for another plan.
+ */
+export function quoteKey(code: string, planId: PlanKey): string {
+  return `${code.trim().toUpperCase()}|${planId}`;
+}
+
+/**
+ * Quote for this code+plan out of the map the checkout holds (it asks the server
+ * once per plan so EVERY card can show its struck-through price). Missing entry,
+ * other plan, or other code ⇒ null, i.e. the catalog price — never a stale quote.
+ */
+export function quoteFromMap(
+  quotes: Readonly<Record<string, PromoQuote>>,
+  code: string,
+  planId: PlanKey
+): PromoQuote | null {
+  const normalized = code.trim().toUpperCase();
+  return quoteForPlan(quotes[quoteKey(normalized, planId)] ?? null, normalized, planId);
 }
