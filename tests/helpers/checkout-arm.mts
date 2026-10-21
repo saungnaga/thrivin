@@ -12,7 +12,7 @@ import crypto from "crypto";
 
 export const DEFAULT_WA_SESSION_SECRET = "w4-consent-gate-session-secret-0123456789-abc";
 
-export const TERMS_VERSION = "terms-2026-10-15-v1";
+export const TERMS_VERSION = "terms-2026-10-21-v2";
 export const REMINDER_VERSION = "reminder-optin-2026-10-15-v1";
 
 export interface StepPayloads {

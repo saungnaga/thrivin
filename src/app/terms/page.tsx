@@ -15,7 +15,7 @@ import {
 } from "@/lib/legal";
 
 /**
- * /terms — Syarat & Ketentuan Thrivin (versi terms-2026-10-15-v1).
+ * /terms — Syarat & Ketentuan Thrivin (versi terms-2026-10-21-v2).
  *
  * Isi dokumen ini = teks yang disetujui owner 16/10 (19 keputusan, kartu W2
  * t_e8d57ab3). Yang BELUM diputuskan sengaja tidak ditulis sebagai janji:

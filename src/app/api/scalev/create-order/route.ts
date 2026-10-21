@@ -346,7 +346,7 @@ export async function POST(req: Request) {
 
     // ── A2: GATE otoritatif sebelum efek samping eksternal ───────────────────
     // Satu panggilan RPC atomik memutuskan: langkah wajib lengkap (dari baris
-    // `onboarding_progress`, bukan dari body), T&C versi `terms-2026-10-15-v1`
+    // `onboarding_progress`, bukan dari body), T&C versi `terms-2026-10-21-v2`
     // sudah tersimpan, dan klaim single-flight per idempotency key didapat.
     // Urutan ini SENGAJA sebelum Scalev: gate gagal = tidak ada order, tidak ada
     // kursi promo yang diklaim, tidak ada sukses palsu.

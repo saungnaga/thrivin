@@ -10,6 +10,7 @@ import {
   PRIVACY_LAST_UPDATED,
   PRIVACY_VERSION,
   TERMS_PATH,
+  TERMS_VERSION,
 } from "@/lib/legal";
 
 export default function PrivacyPage() {
@@ -166,7 +167,7 @@ export default function PrivacyPage() {
               <Link href={TERMS_PATH} className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
                 halaman Syarat &amp; Ketentuan
               </Link>{" "}
-              (versi <span className="font-mono">{PRIVACY_VERSION}</span>).
+              (versi <span className="font-mono">{TERMS_VERSION}</span>).
             </p>
           </section>
         </div>

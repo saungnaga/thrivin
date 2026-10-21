@@ -49,8 +49,8 @@ check(
   /TERMS_PATH/.test(read(path.join("src", "app", "companion", "nina", "onboarding", "[step]", "page.tsx")))
 );
 check(
-  "published version constant is terms-2026-10-15-v1",
-  /TERMS_VERSION = "terms-2026-10-15-v1"/.test(read(path.join("src", "lib", "legal.ts")))
+  "published version constant is terms-2026-10-21-v2",
+  /TERMS_VERSION = "terms-2026-10-21-v2"/.test(read(path.join("src", "lib", "legal.ts")))
 );
 check(
   "no raw placeholder literal in page.tsx templates",
