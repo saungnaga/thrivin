@@ -28,6 +28,8 @@
  *   dry-run        -> tombol "Terapkan" tidak menggerus kuota
  *   cek promo      -> TANPA kunci idempotensi + TANPA sesi: 200 valid:true;
  *                     kode ngawur -> 200 valid:false; gate order tetap 400/401
+ *   cek promo 429  -> 12 klik "Terapkan" beruntun + 3 kutipan paralel: nol 429;
+ *                     100 kode acak dari satu nomor tetap ditolak (limiter ada)
  *   order gagal    -> reservasi dilepas, kuota tidak bocor
  *   webhook        -> pembayaran meng-consume reservasi + mengunci 1x per nomor
  *   auth dashboard -> tanpa sesi 401; password salah 401; sesi valid OK
@@ -820,6 +822,83 @@ async function main() {
     });
     assertEq(orderNoSession.status, 401, "order sungguhan tanpa sesi -> tetap 401");
     assertEq(orderNoSession.body?.code, "SESSION_REQUIRED", "kode SESSION_REQUIRED tetap");
+
+    // ══ Cek promo: klik manual tidak boleh kena 429 (kartu t_f1361892) ══════
+    // Bug produksi 21/10: owner memasang TEMANBARU beberapa kali di HP dan dapat
+    // banner merah "Terlalu banyak permintaan" (429). Limiter cek promo sekarang
+    // punya bucket SENDIRI yang jauh lebih longgar; batas jalur order TIDAK
+    // dilonggarkan (diuji tepat di atas).
+    console.log("\n── Promo: cek promo tahan klik berulang (tanpa 429) ──");
+    const CLICK_PHONE = "6281200010101";
+    const BRUTE_PHONE = "6281200010102";
+    async function clickQuote(
+      code: string,
+      planId: string,
+      phone: string = CLICK_PHONE,
+      ip: string = "10.44.1.1"
+    ) {
+      const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+        body: JSON.stringify({
+          checkPromoOnly: true,
+          promoCode: code,
+          planId,
+          customerPhone: phone,
+        }),
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    }
+
+    const clickStatuses: number[] = [];
+    const clickPrices: unknown[] = [];
+    for (let i = 0; i < 12; i++) {
+      const r = await clickQuote("TEMANBARU", "quarter");
+      clickStatuses.push(r.status);
+      clickPrices.push(r.body?.finalPrice);
+    }
+    assertEq(
+      clickStatuses.filter((s) => s === 429).length,
+      0,
+      "12 klik 'Terapkan' beruntun -> nol 429"
+    );
+    assertEq(new Set(clickPrices).size, 1, "12 klik beruntun -> harga tetap konsisten");
+    assertEq(clickPrices[0], 184800, "harga tiap klik tetap kutipan server (184.800)");
+
+    // Tiga kutipan sekaligus saat halaman harga dibuka (satu per paket).
+    const burst = await Promise.all(
+      ["quarter", "half", "year"].map((planId) => clickQuote("PLANBOUND", planId))
+    );
+    assertEq(
+      burst.map((r) => r.status),
+      [200, 200, 200],
+      "3 kutipan paralel saat halaman dibuka -> semua 200"
+    );
+    assertEq(
+      burst.map((r) => r.body?.finalPrice),
+      [184800, 285600, 372000],
+      "3 kutipan paralel -> tiap paket dapat angkanya sendiri"
+    );
+
+    // Kontrol negatif: brute-force kode TETAP tertahan. IP dibuat berbeda tiap
+    // request supaya yang menahan adalah bucket NOMOR (60/menit), bukan IP.
+    const bruteStatuses: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      const r = await clickQuote(`NGAWUR${i}`, "quarter", BRUTE_PHONE, `10.45.${i}.1`);
+      bruteStatuses.push(r.status);
+    }
+    const firstReject = bruteStatuses.findIndex((s) => s === 429);
+    assertOk(
+      firstReject > 0 && firstReject < 100,
+      "brute-force 100 kode dari satu nomor -> mulai ditolak 429 (limiter promo masih ada)",
+      `firstReject=${firstReject}`
+    );
+    assertOk(
+      bruteStatuses.slice(Math.max(firstReject, 0)).every((s) => s === 429),
+      "setelah ditolak, sisa brute-force tetap 429 (bukan lolos lagi)",
+      `statuses=${bruteStatuses.join(",")}`
+    );
+
 
     // ══ Kuota habis ════════════════════════════════════════════════════════
     console.log("\n── Promo: kuota habis ──");
