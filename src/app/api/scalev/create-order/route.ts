@@ -25,6 +25,7 @@ import {
   completeCheckoutClaim,
   getOnboardingProgress,
   releaseCheckoutClaim,
+  seedProgressFromSnapshot,
   type ClaimOutcome,
 } from "@/lib/checkout-gate";
 import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
@@ -367,6 +368,14 @@ export async function POST(req: Request) {
     let cancelRun: CancelRunResult | null = null;
     try {
       claim = await claimOnce();
+      // Pelanggan lama: profilnya tersimpan sebagai snapshot order sebelumnya,
+      // bukan sebagai baris `onboarding_progress`. Isi langkah 2–8 dari snapshot
+      // itu (server-side, nomor sesi) lalu ulangi klaim — gate tetap yang
+      // memutuskan, jadi tidak ada aturan yang dilonggarkan.
+      if (claim.status === "incomplete_onboarding") {
+        const seeded = await seedProgressFromSnapshot(sessionPhone);
+        if (seeded) claim = await claimOnce();
+      }
       if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
         const run = await cancelStaleOrders({ phone: sessionPhone });
         cancelRun = run;
@@ -703,7 +712,9 @@ export async function POST(req: Request) {
         phone: cleanPhone,
         orderId: String(createdOrderId),
         planKey,
-        snapshot: onboardingProfile,
+        // `name` ikut disimpan supaya pembelian berikutnya bisa menampilkan
+        // ringkasan program tanpa menanyakan ulang nama panggilan.
+        snapshot: { ...onboardingProfile, name: authoritative.name },
       });
     }
 

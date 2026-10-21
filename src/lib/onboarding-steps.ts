@@ -142,6 +142,46 @@ export function validateStepInput(step: number, input: unknown): StepValidation 
   return { ok: errors.length === 0, errors, data };
 }
 
+/**
+ * Profil tersimpan (snapshot order sebelumnya) -> payload langkah 2–8.
+ *
+ * Dipakai jalur "pelanggan lama": datanya sudah ada di server, jadi langkah isi
+ * data tidak perlu diulang. Setiap langkah divalidasi dengan validator yang SAMA
+ * dengan jalur UI; satu field tidak valid ⇒ `ok: false` supaya pemanggil jatuh
+ * ke alur isi data, bukan menulis langkah setengah jadi.
+ */
+export function stepPayloadsFromProfile(
+  profile: OnboardingProfile | null | undefined,
+  sessionPhone: string
+): { ok: boolean; payloads: Record<number, Record<string, unknown>>; errors: string[] } {
+  const payloads: Record<number, Record<string, unknown>> = {};
+  const errors: string[] = [];
+  if (!profile || typeof profile !== "object") {
+    return { ok: false, payloads, errors: ["snapshot profil tidak ada"] };
+  }
+
+  // `name` tidak ada di snapshot lama; fallback-nya sama dengan
+  // `authoritativeProfile()` supaya gate profil tidak menolak pelanggan lama.
+  const source: Record<string, unknown> = {
+    ...(profile as Record<string, unknown>),
+    name: str(profile.name) || "Kawan Thrivin",
+    whatsappNumber: sessionPhone,
+  };
+
+  for (const step of REQUIRED_STEPS) {
+    const input: Record<string, unknown> = {};
+    for (const field of STEP_FIELDS[step]) input[field] = source[field];
+    const validation = validateStepInput(step, input);
+    if (!validation.ok) {
+      errors.push(`step ${step}: ${validation.errors.join("; ")}`);
+      continue;
+    }
+    payloads[step] = validation.data;
+  }
+
+  return { ok: errors.length === 0, payloads, errors };
+}
+
 export interface ProgressSteps {
   [step: string]: Record<string, unknown> | undefined;
 }
