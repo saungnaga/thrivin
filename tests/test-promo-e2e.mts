@@ -763,6 +763,47 @@ async function main() {
       JSON.stringify(bogus.body)
     );
 
+    // ══ Kutipan promo TERIKAT paket (bug uang: total salah setelah ganti paket) ══
+    // Server harus menjawab angka paket yang DITANYA, bukan paket sebelumnya —
+    // klien memakai kutipan ini apa adanya, jadi ia tidak boleh pernah menjadi
+    // satu-satunya sumber angka untuk paket lain.
+    console.log("\n── Promo: kutipan per paket (quarter/half/year, month ditolak) ──");
+    await seedPromo({
+      code: "PLANBOUND",
+      type: "percentage",
+      amount: 20,
+      quota: 20,
+      plans: ["quarter", "half", "year"],
+    });
+    const perPlan = [
+      { planId: "quarter", discount: 46200, finalPrice: 184800 },
+      { planId: "half", discount: 71400, finalPrice: 285600 },
+      { planId: "year", discount: 93000, finalPrice: 372000 },
+    ] as const;
+    for (const p of perPlan) {
+      const q = await rawCreateOrder({
+        checkPromoOnly: true,
+        planId: p.planId,
+        customerPhone: nextPhone(),
+        promoCode: "PLANBOUND",
+      });
+      assertEq(q.body?.valid, true, `kutipan ${p.planId}: valid`);
+      assertEq(q.body?.discount, p.discount, `kutipan ${p.planId}: potongan 20% harga katalog ${p.planId}`);
+      assertEq(q.body?.finalPrice, p.finalPrice, `kutipan ${p.planId}: harga akhir paket ${p.planId}`);
+    }
+    const monthQuote = await rawCreateOrder({
+      checkPromoOnly: true,
+      planId: "month",
+      customerPhone: nextPhone(),
+      promoCode: "PLANBOUND",
+    });
+    assertEq(monthQuote.body?.valid, false, "kutipan month: ditolak (minMonths 3)");
+    assertOk(
+      /tidak berlaku untuk paket ini/.test(String(monthQuote.body?.error)),
+      "kutipan month: pesan server apa adanya (dipakai UI saat ganti ke 1 bulan)",
+      JSON.stringify(monthQuote.body)
+    );
+
     // Kontrol: gate pembuatan order TIDAK ikut dilonggarkan.
     const orderNoKey = await rawCreateOrder({
       planId: "quarter",

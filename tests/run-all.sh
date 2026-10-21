@@ -73,6 +73,9 @@ echo "2b/12 copy checks (W1: pricing claims, promo label, guarantee)"
 echo "     source-level: COPY_ROOT=<tree> reruns against another revision"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-web-copy-units.mts"
+# BUG UANG: kutipan promo terikat paket — ganti paket tidak boleh menampilkan
+# angka paket lama (quarter Rp 184.800 nyangkut ke paket 1 tahun).
+node --experimental-strip-types "$HERE/test-promo-quote-plan-binding.mts"
 node --experimental-strip-types "$HERE/test-web-copy-copy.mts"
 
 echo
