@@ -49,6 +49,17 @@ const PAID_ORDER_STATUSES = new Set([
 const IP_LIMIT = 10;
 const PHONE_LIMIT = 5;
 
+/**
+ * Batas khusus cek promo (`checkPromoOnly`). Cek promo itu READ-ONLY dan klien
+ * memanggilnya beberapa kali sekaligus saat halaman harga dibuka (satu per
+ * paket), jadi batas 5/nomor milik jalur order membuat tombol "Terapkan" mentok
+ * 429 pada klik manual beberapa kali (komplain owner 21/10). Bucket terpisah,
+ * jauh lebih longgar: manusia tidak mungkin kena, brute-force kode tetap
+ * tertahan (60 kode/nomor/menit, 120/IP/menit).
+ */
+const PROMO_CHECK_IP_LIMIT = 120;
+const PROMO_CHECK_PHONE_LIMIT = 60;
+
 function tooMany(limited: { retryAfterSeconds: number }) {
   return NextResponse.json(
     { error: "Terlalu banyak permintaan. Coba lagi sebentar lagi.", code: "RATE_LIMITED" },
@@ -193,11 +204,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const limited = limitRequest(req, "scalev-create-order", {
-      ipLimit: IP_LIMIT,
-      phoneLimit: PHONE_LIMIT,
-      phone: cleanPhone,
-    });
+    const limited = checkPromoOnly
+      ? limitRequest(req, "scalev-check-promo", {
+          ipLimit: PROMO_CHECK_IP_LIMIT,
+          phoneLimit: PROMO_CHECK_PHONE_LIMIT,
+          phone: cleanPhone,
+        })
+      : limitRequest(req, "scalev-create-order", {
+          ipLimit: IP_LIMIT,
+          phoneLimit: PHONE_LIMIT,
+          phone: cleanPhone,
+        });
     if (!limited.ok) return tooMany(limited);
 
     // Satu normaliser, dipakai bareng oleh dashboard + checkout (lib/promo.ts).

@@ -162,22 +162,26 @@ check("no combination shows a total below catalog − max discount", () => {
 });
 
 // ── E: the page cannot go back to an unbound quote ─────────────────────────
-check("onboarding page binds the quote to data.selectedPlan", () => {
+check("onboarding page keeps ONE quote per (code, plan)", () => {
   const src = fs.readFileSync(
     path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
     "utf8"
   );
   assert.ok(
-    src.includes("quoteForPlan(promoCheck, activePromoCode, data.selectedPlan)"),
-    "page must resolve the quote through quoteForPlan(promoCheck, code, selectedPlan)"
+    src.includes("quoteFromMap(promoQuotes, committedCode, planKey)"),
+    "every card must resolve its OWN plan's quote (all cards discounted)"
   );
   assert.ok(
-    /planId: data\.selectedPlan,\s*\n\s*discount:/.test(src),
-    "setPromoCheck must record the plan the server quoted"
+    src.includes("quoteFromMap(promoQuotes, committedCode, data.selectedPlan)"),
+    "the summary must resolve the selected plan's quote"
   );
   assert.ok(
-    /if \(!res\.ok \|\| !check\?\.valid\)[\s\S]{0,400}setPromoCheck\(null\)/.test(src),
-    "a rejected revalidation must drop the quote"
+    !/planKey === data\.selectedPlan \? promoQuote : null/.test(src),
+    "the old selected-plan-only lookup must not come back (other cards lose their discount)"
+  );
+  assert.ok(
+    /quoteKey\(committedCode, planId\)/.test(src),
+    "quotes must be stored under their own (code, plan) key"
   );
 });
 
