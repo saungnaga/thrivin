@@ -9,8 +9,13 @@
  * ponytail: satu tabel klaim + unique index parsial; kalau nanti butuh antrean
  * panjang, tambah kolom percobaan/backoff — bukan state machine baru.
  */
-import { getSupabaseConfig, redactError } from "./onboarding-store.ts";
-import { REQUIRED_STEPS, checkRequiredSteps, mergedProfileFromSteps } from "./onboarding-steps.ts";
+import { getSupabaseConfig, getOnboardingSnapshot, redactError } from "./onboarding-store.ts";
+import {
+  REQUIRED_STEPS,
+  checkRequiredSteps,
+  mergedProfileFromSteps,
+  stepPayloadsFromProfile,
+} from "./onboarding-steps.ts";
 import { TERMS_VERSION } from "./consent.ts";
 
 export class CheckoutGateError extends Error {
@@ -63,6 +68,25 @@ export async function saveOnboardingStep(
     throw new CheckoutGateError(`[CheckoutGate] save_onboarding_step: ${JSON.stringify(row)}`);
   }
   return { ok: true, status: String(row.status) };
+}
+
+/**
+ * Pelanggan lama tanpa baris `onboarding_progress`: isi langkah 2–8 dari
+ * snapshot order sebelumnya.
+ *
+ * Nomornya nomor SESI (bukan nomor dari body), isinya snapshot yang tersimpan di
+ * server, dan tiap langkah tetap divalidasi validator yang sama. Gate TIDAK
+ * dilonggarkan: sesudah ini pemanggil mengulang klaim dan aturan yang sama
+ * berlaku. `false` = tidak ada snapshot yang lengkap ⇒ alur isi data.
+ */
+export async function seedProgressFromSnapshot(phone: string): Promise<boolean> {
+  const snapshot = await getOnboardingSnapshot(phone);
+  const seeded = stepPayloadsFromProfile(snapshot, phone);
+  if (!seeded.ok) return false;
+  for (const step of REQUIRED_STEPS) {
+    await saveOnboardingStep(phone, step, seeded.payloads[step]);
+  }
+  return true;
 }
 
 export interface OnboardingProgress {
