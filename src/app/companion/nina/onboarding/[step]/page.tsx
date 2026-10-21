@@ -68,6 +68,7 @@ import {
   savingsVsMonthlyPercent,
   TEMANBARU_PROMO,
 } from "@/lib/pricing-copy";
+import { planPricing, quoteForPlan, type PromoQuote } from "@/lib/promo-quote";
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
@@ -161,13 +162,13 @@ export default function OnboardingStepPage({
   // 1-Hour Countdown Timer State for Applied Promo
   const [countdownSeconds, setCountdownSeconds] = useState(3600);
 
-  // Kutipan promo dari SERVER: discount + harga akhir. Klien tidak pernah
-  // menghitung diskon sendiri — kalau kosong, harga katalog yang dipakai.
-  const [promoCheck, setPromoCheck] = useState<{
-    code: string;
-    discount: number;
-    finalPrice: number;
-  } | null>(null);
+  // Kutipan promo dari SERVER: discount + harga akhir + PAKET yang dikutip.
+  // Klien tidak pernah menghitung diskon sendiri — kalau kosong, harga katalog
+  // yang dipakai. Kutipan hanya sah untuk paketnya sendiri (`quoteForPlan`).
+  const [promoCheck, setPromoCheck] = useState<PromoQuote | null>(null);
+  // Kunci "kode|paket" yang sudah ditanyakan ke server, supaya ganti paket
+  // memicu tepat satu validasi ulang (bukan loop render).
+  const quoteRequestRef = useRef<string>("");
 
   const formatCountdown = (totalSec: number) => {
     const h = Math.floor(totalSec / 3600);
@@ -398,34 +399,71 @@ export default function OnboardingStepPage({
   const activePromoCode = data.promoCode.trim().toUpperCase();
   // Angka diskon TIDAK dihitung di klien: server (promo_codes + RPC atomik) yang
   // memutuskan kuota/kedaluwarsa/non-aktif, dan hanya angka server yang ditampilkan.
-  const promoQuote =
-    data.promoApplied && promoCheck?.code === activePromoCode ? promoCheck : null;
+  // Kutipan hanya dipakai untuk PAKET yang dikutip server — kalau paketnya beda,
+  // harga katalog yang tampil, bukan sisa diskon paket lama.
+  const promoQuote = data.promoApplied
+    ? quoteForPlan(promoCheck, activePromoCode, data.selectedPlan)
+    : null;
   const discountAmount = promoQuote ? promoQuote.discount : 0;
   const finalPrice = promoQuote ? promoQuote.finalPrice : currentPlan.totalPrice;
 
   // Struck-through helper for each card
-  const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") => {
-    const plan = PLANS[planKey];
-    // Kutipan promo hanya berlaku untuk paket yang divalidasi server. Paket lain
-    // tampil harga katalog, tanpa angka diskon karangan di klien.
-    if (promoQuote && planKey === data.selectedPlan) {
-      const months = plan.monthlyPrice > 0 ? plan.totalPrice / plan.monthlyPrice : 1;
-      return {
-        originalTotal: plan.totalPrice,
-        discountedTotal: promoQuote.finalPrice,
-        originalMonthly: plan.monthlyPrice,
-        discountedMonthly: Math.max(0, Math.round(promoQuote.finalPrice / months)),
-        hasDiscount: promoQuote.discount > 0,
-      };
-    }
-    return {
-      originalTotal: plan.totalPrice,
-      discountedTotal: plan.totalPrice,
-      originalMonthly: plan.monthlyPrice,
-      discountedMonthly: plan.monthlyPrice,
-      hasDiscount: false,
+  const getPlanPricing = (planKey: "month" | "quarter" | "half" | "year") =>
+    planPricing(planKey, planKey === data.selectedPlan ? promoQuote : null);
+
+  // Ganti paket dengan kode promo terpasang ⇒ kutipan paket lama dibuang (lihat
+  // `promoQuote` di atas) dan server ditanya ulang untuk paket baru. Tanpa ini
+  // pembeli melihat Rp 184.800 di kartu paket 1 tahun padahal yang ditagih
+  // Rp 372.000. Server tetap satu-satunya yang menentukan angka diskon.
+  useEffect(() => {
+    if (!isLoaded || !data.promoApplied || !activePromoCode) return;
+    const planId = data.selectedPlan;
+    if (promoCheck?.planId === planId && promoCheck.code === activePromoCode) return;
+    const key = `${activePromoCode}|${planId}`;
+    if (quoteRequestRef.current === key) return;
+    quoteRequestRef.current = key;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/scalev/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            checkPromoOnly: true,
+            promoCode: activePromoCode,
+            planId,
+            customerPhone: data.whatsappNumber,
+          }),
+        });
+        const check = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !check?.valid) {
+          // Server menolak untuk paket ini (mis. paket 1 bulan, minMonths 3):
+          // kutipan dibuang dan pesan server ditampilkan apa adanya.
+          updateData({ promoApplied: false });
+          setPromoCheck(null);
+          setCheckoutError(check?.error || "Kode promo tidak bisa dipakai.");
+          return;
+        }
+        setPromoCheck({
+          code: String(check.code || activePromoCode),
+          planId,
+          discount: Number(check.discount || 0),
+          finalPrice: Number(check.finalPrice ?? 0),
+        });
+        setCheckoutError("");
+      } catch {
+        if (cancelled) return;
+        // Gagal tanya server ⇒ jangan tampilkan diskon yang tidak terverifikasi.
+        updateData({ promoApplied: false });
+        setPromoCheck(null);
+        setCheckoutError("Gagal memeriksa kode promo. Coba lagi.");
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-  };
+  }, [isLoaded, data.promoApplied, data.selectedPlan, data.whatsappNumber, activePromoCode, promoCheck]);
 
   // Phone validation
   const validatePhone = (phone: string) => {
@@ -505,9 +543,13 @@ export default function OnboardingStepPage({
       const code = String(check.code || typedCode);
       setPromoCheck({
         code,
+        planId: data.selectedPlan,
         discount: Number(check.discount || 0),
         finalPrice: Number(check.finalPrice ?? 0),
       });
+      // Kutipan ini sudah untuk paket yang sedang dipilih — jangan divalidasi
+      // ulang oleh effect ganti-paket.
+      quoteRequestRef.current = `${code}|${data.selectedPlan}`;
       updateData({ promoApplied: true, promoCode: code });
       const newExpiry = Date.now() + 3600 * 1000;
       try {
