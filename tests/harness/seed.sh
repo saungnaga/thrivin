@@ -61,6 +61,7 @@ cp "$REPO/staging/schema-consent.sql" "$HERE/migrations/006-consent-gate.sql"
 # file 006 sudah memuat state/kolom/index baru; file 007 tetap ikut dijalankan
 # supaya jalur apply-untuk-DB-lama (007 lalu 006) ikut diuji oleh harness.
 cp "$REPO/staging/migration-fw41c-cancel.sql" "$HERE/migrations/007-fw41c-cancel.sql"
+cp "$REPO/staging/migration-memory-bridge.sql" "$HERE/migrations/010-memory-bridge.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"

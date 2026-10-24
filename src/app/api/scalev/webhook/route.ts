@@ -19,6 +19,7 @@ import {
   sendWelcomeMessage,
 } from "@/lib/welcome-message";
 import { consumePromoForOrder } from "@/lib/promo";
+import { seedNinaMemory } from "@/lib/memory-bridge";
 import { markCheckoutClaimPaid } from "@/lib/checkout-gate";
 
 /**
@@ -227,6 +228,13 @@ export async function POST(req: Request) {
           status: activation.success ? "completed" : "failed",
         });
 
+        // Onboarding -> tabel memori Nina. Best-effort setelah aktivasi sukses:
+        // kegagalan memori tidak pernah membatalkan langganan yang sudah lunas.
+        let memorySeeded: number | undefined;
+        if (activation.success) {
+          memorySeeded = (await seedNinaMemory(cleanPhone)).seeded;
+        }
+
         // First-touch greeting: only after a successful activation, and only the
         // delivery that wins the atomic marker. Cloud-only (see lib/wa-cloud.ts):
         // a dead binding never rolls back the subscription (never throws).
@@ -247,7 +255,7 @@ export async function POST(req: Request) {
 
         // M-4: event/order ids only — no phone number, no customer name.
         console.log(
-          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success} welcomeSent=${welcomeSent}`
+          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success} memorySeeded=${memorySeeded ?? "-"} welcomeSent=${welcomeSent}`
         );
 
         // M-3: no PII echoed back to the caller or any intermediary log.

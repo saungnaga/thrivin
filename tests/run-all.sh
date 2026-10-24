@@ -178,5 +178,11 @@ echo "=============================================================="
 node --experimental-strip-types "$HERE/test-postpay-e2e.mts"
 
 echo
+echo "=============================================================="
+echo "15/15 onboarding -> memori Nina (tenant isolation + hash + RPC)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-memory-bridge.mts"
+
+echo
 echo "ALL SUITES PASSED"
 echo "=============================================================="
