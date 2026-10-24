@@ -2482,6 +2482,13 @@ export default function OnboardingStepPage({
                 </p>
               </div>
 
+              <p className="text-xs leading-relaxed text-text-muted">
+                Pembayaran diproses melalui <strong>Scalev</strong>, penyedia pembayaran pihak ketiga
+                untuk Thrivin. Pada aplikasi bank/e-wallet, nama penerima dapat tampil sebagai
+                <strong> SCALEV PLATFORM</strong>, bukan Thrivin. Pastikan nominal dan tujuan
+                pembayaranmu sudah benar sebelum melanjutkan.
+              </p>
+
               {/* Checkout Error Notice */}
               {checkoutError && (
                 <div
