@@ -121,6 +121,39 @@ function planKeyFromVariantPrice(price: number): PlanKey | null {
 }
 
 /**
+ * Scalev contract (docs/creating-orders §5): `POST /v3/orders` has NO redirect
+ * field. The canonical checkout destination is `redirect_url` on the PUBLIC
+ * order read, which needs the storefront key. We surface that field verbatim —
+ * never reconstructed, never copied from the deprecated `payment_url`.
+ * Best effort: without the key (or on any error) the client keeps using
+ * `paymentUrl`.
+ */
+async function lookupCheckoutRedirect(
+  storeId: string,
+  secretSlug: string
+): Promise<string | null> {
+  const storefrontKey = (process.env.SCALEV_STOREFRONT_API_KEY || "").trim();
+  if (!storefrontKey || !secretSlug) return null;
+  try {
+    const res = await fetch(
+      `${SCALEV_API_BASE}/v3/stores/${storeId}/public/orders/${encodeURIComponent(secretSlug)}`,
+      {
+        headers: { "X-Scalev-Storefront-Api-Key": storefrontKey },
+        cache: "no-store",
+      } as RequestInit
+    );
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const raw = json?.data?.redirect_url ?? json?.redirect_url;
+    const value = typeof raw === "string" ? raw.trim() : "";
+    return value || null;
+  } catch (err) {
+    console.warn("[create-order] public order lookup failed:", redactError(err));
+    return null;
+  }
+}
+
+/**
  * Kuotasi promo READ-ONLY untuk tombol "Terapkan" di checkout.
  *
  * Nol tulis DB, nol klaim kuota (redeem_promo dryRun), nol buat order, nol
@@ -771,11 +804,19 @@ export async function POST(req: Request) {
       activeClaimId = null;
     }
 
+    // Canonical checkout destination per Scalev docs (public order read).
+    // Informational for the client: the order itself already exists.
+    const redirectUrl = await lookupCheckoutRedirect(
+      storeId,
+      String(orderData.secret_slug ?? "").trim()
+    );
+
     return NextResponse.json({
       orderId: orderData.order_id,
       uuid: orderData.id,
       paymentUrl,
       publicOrderUrl: orderData.public_order_url,
+      redirectUrl,
       amount: orderData.gross_revenue,
     });
   } catch (error: any) {

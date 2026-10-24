@@ -228,14 +228,15 @@ export async function POST(req: Request) {
         });
 
         // First-touch greeting: only after a successful activation, and only the
-        // delivery that wins the atomic marker. A dead bridge never rolls back
-        // the subscription (sendWelcomeMessage never throws).
+        // delivery that wins the atomic marker. Cloud-only (see lib/wa-cloud.ts):
+        // a dead binding never rolls back the subscription (never throws).
         let welcomeSent = false;
         let welcomeMessageId: string | undefined;
         if (activation.success && claimWelcomeSend(fulfillmentKey)) {
           const result = await sendWelcomeMessage(
             cleanPhone,
-            buildWelcomeMessage(customerName, snapshot)
+            buildWelcomeMessage(customerName, snapshot),
+            customerName
           );
           welcomeSent = result.sent;
           welcomeMessageId = result.messageId;

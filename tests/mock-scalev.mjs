@@ -153,6 +153,16 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { pid: process.pid, port: PORT, ordersFile: ORDERS_FILE, cancelFile: CANCEL_FILE });
   }
 
+  // Scalev contract (docs/creating-orders §5): the canonical checkout
+  // destination comes from the PUBLIC order read, not from POST /v3/orders.
+  // MOCK_SCALEV_REDIRECT_URL unset ⇒ the endpoint answers without redirect_url,
+  // which is the "older/unexpected response" shape the route must survive.
+  if (req.method === "GET" && url.pathname.includes("/public/orders/")) {
+    const slug = url.pathname.split("/").pop();
+    const body = { data: { secret_slug: slug, redirect_url: process.env.MOCK_SCALEV_REDIRECT_URL || null } };
+    return send(res, 200, body);
+  }
+
   if (req.method === "GET" && url.pathname.endsWith("/products")) {
     return send(res, 200, { data: PRODUCTS });
   }
@@ -187,6 +197,7 @@ const server = http.createServer(async (req, res) => {
         // C-4: mode whitespace — nomor bisnis tidak bisa dipakai join/track,
         // pengenal kanonik `id` tetap ada (bentuk yang ditemui Sentinel ATK-3).
         order_id: orderMode() === "ws_order_id" ? "   " : orderId,
+        secret_slug: `slug_${orderId}`,
         public_order_url: `https://thrivin.myscalev.com/orders/${orderId}`,
         pg_payment_info: { payment_url: `https://thrivin.myscalev.com/pay/${orderId}` },
         gross_revenue: gross,

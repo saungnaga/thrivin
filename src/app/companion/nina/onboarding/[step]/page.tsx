@@ -755,7 +755,12 @@ export default function OnboardingStepPage({
 
       const resData = await response.json();
 
-      if (!response.ok || !resData.paymentUrl) {
+      // Scalev contract: `redirectUrl` (public order read) is the canonical
+      // checkout destination. `paymentUrl` stays as the fallback for older
+      // responses / when the storefront key is not configured.
+      const checkoutUrl = resData.redirectUrl || resData.paymentUrl;
+
+      if (!response.ok || !checkoutUrl) {
         // Order ditolak server (promo habis/kedaluwarsa/sudah dipakai, atau gate
         // identitas). Kutipan yang sedang dipegang dicabut: diskon yang tidak akan
         // didapat tidak boleh tetap tampil di layar.
@@ -774,7 +779,7 @@ export default function OnboardingStepPage({
       }
 
       setCheckoutComplete(true);
-      window.location.href = resData.paymentUrl;
+      window.location.href = checkoutUrl;
     } catch (err: any) {
       setIsCheckingOut(false);
       console.error("Scalev checkout error:", err);
