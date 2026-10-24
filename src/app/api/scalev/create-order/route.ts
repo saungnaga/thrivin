@@ -356,10 +356,23 @@ export async function POST(req: Request) {
       }
     }
 
-    // Backstop legacy: sebelum tabel promo ada, promo "harga jadi <= Rp 10.000"
-    // juga dijual lewat Scalev, jadi riwayat order per nomor tetap dicek. Ini
-    // TIDAK menggantikan ledger promo — dua-duanya harus lolos.
-    if (promo && promo.finalPrice <= 10000) {
+    // Backstop legacy: order murah lama di Scalev bisa memblokir promo meski
+    // ledger lokal sudah direset oleh owner. Pengecualian ini hanya untuk
+    // pasangan nomor+kode yang diberikan owner lewat env, dan otomatis habis
+    // setelah ada reservasi/konsumsi baru di ledger. Tidak mengubah aturan
+    // untuk pelanggan lain dan tidak menghapus catatan pembayaran Scalev.
+    const reuseGrant = (process.env.PROMO_LEGACY_REUSE_GRANTS || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .some((entry) => {
+        const separator = entry.lastIndexOf(":");
+        if (separator < 1) return false;
+        const grantedPhone = normalizePhone(entry.slice(0, separator));
+        const grantedCode = normalizePromoCode(entry.slice(separator + 1));
+        return grantedPhone === cleanPhone && grantedCode === normalizedPromo;
+      });
+    if (promo && promo.finalPrice <= 10000 && !reuseGrant) {
       try {
         const historyRes = await fetch(
           `${SCALEV_API_BASE}/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
