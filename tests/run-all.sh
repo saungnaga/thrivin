@@ -48,6 +48,10 @@ echo "2/13 unit checks (pure helpers)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-remediation-units.mts"
 node --experimental-strip-types "$HERE/test-wa-first-units.mts"
+# Nina pascabayar (t_ef348cbc): outbound pembelian HANYA lewat WhatsApp Cloud,
+# nol jalur Baileys walau env bridge lama masih terpasang.
+node --experimental-strip-types "$HERE/test-welcome-message.mts"
+node --experimental-strip-types "$HERE/test-wa-cloud-units.mts"
 # Nomor terdaftar → langsung pilih paket (t_a40e5534): snapshot jadi payload
 # langkah 2–8 + kunci sumber UI (jalur terdaftar tidak boleh ke langkah 2).
 node --experimental-strip-types "$HERE/test-registered-onboarding-units.mts"
@@ -165,6 +169,13 @@ echo "13/13 end-to-end: nomor terdaftar → pilih paket (snapshot + status + CTA
 echo "     (kartu t_a40e5534; pakai slot port probe 15/16)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-registered-onboarding-e2e.mts"
+
+echo
+echo "=============================================================="
+echo "14/14 end-to-end: Nina pascabayar Cloud-only + halaman sukses WA"
+echo "     (kartu t_ef348cbc; mock Graph + mock bridge hitung nol panggilan)"
+echo "=============================================================="
+node --experimental-strip-types "$HERE/test-postpay-e2e.mts"
 
 echo
 echo "ALL SUITES PASSED"

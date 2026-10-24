@@ -7,7 +7,6 @@ import {
   buildWelcomeMessage,
   splitBubbles,
   focusLabel,
-  toWhatsAppChatId,
   maskedPhone,
 } from "../src/lib/welcome-message.ts";
 
@@ -53,14 +52,13 @@ const wide = buildWelcomeMessage("Budi", {
 });
 assert.ok(splitBubbles(wide).length <= 5, "bubble cap exceeded");
 
-// 6. JID: normalisation + rejection of junk (no fake-number substitution).
-assert.equal(toWhatsAppChatId("0812999"), null, "too short must be rejected");
-assert.equal(toWhatsAppChatId("+62 813-8334-1841"), "6281383341841@s.whatsapp.net");
-assert.equal(toWhatsAppChatId("081383341841"), "6281383341841@s.whatsapp.net");
-assert.equal(toWhatsAppChatId("813833418 41"), "6281383341841@s.whatsapp.net");
-assert.equal(toWhatsAppChatId("6281234567890"), "6281234567890@s.whatsapp.net");
-assert.equal(toWhatsAppChatId(""), null);
-assert.equal(toWhatsAppChatId("abc"), null);
+// 6. JID helper is gone: purchase/postpaid delivery is Cloud API only, so the
+//    greeting must not build Baileys chat ids any more (kartu t_ef348cbc).
+assert.equal(
+  (await import("../src/lib/welcome-message.ts")).toWhatsAppChatId,
+  undefined,
+  "toWhatsAppChatId must not exist on the purchase path"
+);
 
 // 7. W-6: maskedPhone verification
 assert.equal(maskedPhone("6281383341841"), "***1841");
