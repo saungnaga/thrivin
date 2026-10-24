@@ -62,11 +62,12 @@ export function buildWelcomeMessage(
     cleanName
       ? `Halo ${cleanName}! 👋 Selamat datang di Thrivin 😊`
       : `Halo! 👋 Selamat datang di Thrivin 😊`,
-    `Aku Nina, aku bakal nemenin perjalanan fitness kamu.`,
+    `Aku Nina, companion fitness kamu. Aku bakal bantu latihan, nutrisi, dan konsistensi harianmu.`,
     focus
-      ? `Aku udah baca profil kamu — fokus kamu ${focus}. Nanti aku bantu susun langkah kecilnya ya.`
-      : `Ceritain dong, fokus latihan kamu apa? Nanti aku bantu susun langkah kecilnya.`,
-    `Siap mulai dari mana nih?`,
+      ? `Aku udah baca profil kamu — fokus kamu ${focus}. Kita lanjut dari situ, bukan mulai dari nol.`
+      : `Nanti kita susun langkah kecil yang paling cocok buat kamu.`,
+    `Yang bisa kamu pakai: kirim foto makanan untuk dibantu estimasi kalori dan protein, kirim screenshot aktivitas untuk dibahas progresnya, dan minta aku pasang pengingat latihan atau kebiasaan harian.`,
+    `Mau mulai dari mana? Kirim foto makananmu, screenshot latihan, atau bilang aja targetmu hari ini.`,
   ];
 
   return bubbles.slice(0, MAX_BUBBLES).join(BUBBLE_SEPARATOR);

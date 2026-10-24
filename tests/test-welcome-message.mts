@@ -21,22 +21,27 @@ assert.ok(full.includes("Halo Budi!"), "name missing: " + full);
 assert.ok(full.includes("Workout & Strength"), "goal missing: " + full);
 assert.ok(!full.includes("Ceritain dong"), "should not ask for goal when present");
 const bubbles = splitBubbles(full);
-assert.equal(bubbles.length, 4, `expected 4 bubbles, got ${bubbles.length}`);
+assert.equal(bubbles.length, 5, `expected 5 bubbles, got ${bubbles.length}`);
 assert.ok(bubbles.length <= 5, "SOUL.md allows max 5 bubbles");
 assert.ok(full.includes(SEP), "bridge separator missing");
 
-// 2. Partial data (no goal): falls back to asking, still 4 bubbles.
+assert.ok(full.includes("foto makanan"), "food photo capability missing");
+assert.ok(full.includes("kalori dan protein"), "nutrition estimate missing");
+assert.ok(full.includes("screenshot aktivitas"), "activity screenshot capability missing");
+assert.ok(full.includes("pengingat"), "reminder capability missing");
+
+// 2. Partial data (no goal): explains capabilities without interrogating.
 const partial = buildWelcomeMessage("Sari", { age: 30 });
 assert.ok(partial.includes("Halo Sari!"), "name missing: " + partial);
-assert.ok(partial.includes("Ceritain dong"), "should ask for goal: " + partial);
-assert.equal(splitBubbles(partial).length, 4);
+assert.ok(!partial.includes("Ceritain dong"), "should not repeat onboarding: " + partial);
+assert.equal(splitBubbles(partial).length, 5);
 
 // 3. Missing name: greeting still reads naturally, no "undefined"/"null".
 for (const empty of [undefined, null, "", "   "]) {
   const msg = buildWelcomeMessage(empty as string, null);
   assert.ok(msg.startsWith("Halo! 👋"), "bad greeting: " + msg);
   assert.ok(!/undefined|null/i.test(msg), "placeholder leaked: " + msg);
-  assert.equal(splitBubbles(msg).length, 4);
+  assert.equal(splitBubbles(msg).length, 5);
 }
 
 // 4. programFocus accepts string or array; empty values are dropped.
