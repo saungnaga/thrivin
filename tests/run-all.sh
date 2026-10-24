@@ -58,6 +58,9 @@ node --experimental-strip-types "$HERE/test-registered-onboarding-units.mts"
 node --experimental-strip-types "$HERE/test-consent-gate-units.mts"
 # F-W4-1c: klasifikasi hasil cancel + verifikasi response (nol DB/HTTP).
 node --experimental-strip-types "$HERE/test-cancel-ttl-units.mts"
+# t_170cdb60: URL Scalev pada custom domain mati (SSL) wajib diprobe lalu
+# dialihkan ke host Scalev — berlaku untuk paymentUrl DAN redirectUrl.
+node --experimental-strip-types "$HERE/test-scalev-url.mts"
 # F-W4-1c ronde V (V-7): streak sapuan yang tidak bisa disimpan wajib tetap ber-alert.
 # Stub HTTP lokal + child proses sapuan; nol DB.
 FW41C_V7_PROBE_PORT=$((HARNESS_PORT_BASE + 90)) node --experimental-strip-types "$HERE/harness/fw41c-v7-alert-probe.mts"

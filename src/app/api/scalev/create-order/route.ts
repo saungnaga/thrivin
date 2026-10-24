@@ -30,6 +30,7 @@ import {
 } from "@/lib/checkout-gate";
 import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
 import { TERMS_VERSION } from "@/lib/consent";
+import { reachableScalevUrl } from "@/lib/scalev-url";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
@@ -718,20 +719,12 @@ export async function POST(req: Request) {
       );
     }
 
-    let paymentUrl: string =
+    const paymentUrl = await reachableScalevUrl(
       orderData?.pg_payment_info?.payment_url ||
-      orderData?.payment_url ||
-      orderData?.public_order_url ||
-      "";
-
-    // Custom domain SSL (checkout.thrivin.id) may still be provisioning.
-    if (paymentUrl.includes("checkout.thrivin.id")) {
-      try {
-        await fetch(paymentUrl, { method: "HEAD", signal: AbortSignal.timeout(1500) });
-      } catch {
-        paymentUrl = paymentUrl.replace("checkout.thrivin.id", "thrivin.myscalev.com");
-      }
-    }
+        orderData?.payment_url ||
+        orderData?.public_order_url ||
+        ""
+    );
 
     // C-4 (kartu t_bd4781a6): `order_id`/`id` whitespace-only BUKAN pengenal —
     // perlakukan seperti kosong, sama seperti fallback `order_id || id` yang sudah
@@ -819,9 +812,11 @@ export async function POST(req: Request) {
 
     // Canonical checkout destination per Scalev docs (public order read).
     // Informational for the client: the order itself already exists.
-    const redirectUrl = await lookupCheckoutRedirect(
-      storeId,
-      String(orderData.secret_slug ?? "").trim()
+    // Same dead-host rule as `paymentUrl`: the canonical redirect is also
+    // built on `checkout.thrivin.id`, and the client opens it verbatim
+    // (`resData.redirectUrl || resData.paymentUrl`).
+    const redirectUrl = await reachableScalevUrl(
+      await lookupCheckoutRedirect(storeId, String(orderData.secret_slug ?? "").trim())
     );
 
     return NextResponse.json({
