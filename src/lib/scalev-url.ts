@@ -1,28 +1,38 @@
 /**
- * Scalev hands back public URLs on the store's custom domain
- * (`checkout.thrivin.id`). That host currently fails TLS, so a buyer who is
- * sent there sees a browser error instead of the page. Never forward a URL on
- * that host without probing it first; when it does not answer, swap in the
- * Scalev-hosted domain that serves the same paths.
+ * Scalev builds every order URL on the store's custom domain
+ * (`checkout.thrivin.id`). Two facts proved live on 2026-10-25:
  *
- * Applies to every Scalev URL the browser is about to open: the checkout
- * `paymentUrl` AND the canonical `redirectUrl` (Scalev builds that one from
- * "After Checkout" and it also carries the custom host).
+ *  1. That host fails TLS at Scalev's edge (`sslv3 alert handshake failure`,
+ *     ERR_SSL_VERSION_OR_CIPHER_MISMATCH from a third-party fetcher too), so a
+ *     buyer who opens it sees a browser error.
+ *  2. Scalev resolves a public order by HOST + secret slug
+ *     (`/v2/order/public/<host>/<slug>/`). Swapping the host to any other
+ *     domain — e.g. `thrivin.myscalev.com` — returns 404, which is the
+ *     "ERROR 404" buyers saw after paying.
+ *
+ * So the URL must never be rewritten: a rewritten host is a guaranteed 404.
+ * The only useful thing to do is report that the canonical host is unreachable
+ * so the UI can show a contact path instead of navigating into a dead end.
  */
-export const DEAD_CUSTOM_HOST = "checkout.thrivin.id";
-export const SCALEV_HOSTED_HOST = "thrivin.myscalev.com";
+export const STORE_CUSTOM_HOST = "checkout.thrivin.id";
 
-export async function reachableScalevUrl(
+export interface CheckoutLink {
+  url: string;
+  /** false only when the canonical host was probed and did not answer. */
+  reachable: boolean;
+}
+
+export async function checkCheckoutLink(
   url: string | null | undefined,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 1500
-): Promise<string> {
+): Promise<CheckoutLink> {
   const value = (url ?? "").trim();
-  if (!value.includes(DEAD_CUSTOM_HOST)) return value;
+  if (!value.includes(STORE_CUSTOM_HOST)) return { url: value, reachable: true };
   try {
     await fetchImpl(value, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) });
-    return value;
+    return { url: value, reachable: true };
   } catch {
-    return value.split(DEAD_CUSTOM_HOST).join(SCALEV_HOSTED_HOST);
+    return { url: value, reachable: false };
   }
 }

@@ -150,6 +150,9 @@ export default function OnboardingStepPage({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  // Diisi hanya kalau host checkout Scalev tidak menjawab: pembeli diberi jalur
+  // kontak, bukan diarahkan ke tautan mati (404 / TLS gagal).
+  const [checkoutSupportUrl, setCheckoutSupportUrl] = useState("");
 
   // ── A7: dua persetujuan TERPISAH, dua-duanya mulai TIDAK tercentang ───────
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -776,6 +779,17 @@ export default function OnboardingStepPage({
         throw new Error(
           resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
         );
+      }
+
+      // Order sudah tercetak, tapi halaman bayar Scalev tidak bisa dibuka dari
+      // server (host custom domain mati). Jangan kirim pembeli ke tautan mati.
+      if (resData.paymentPageReachable === false) {
+        setCheckoutSupportUrl(typeof resData.supportUrl === "string" ? resData.supportUrl : "");
+        setIsCheckingOut(false);
+        setCheckoutError(
+          "Halaman pembayaran sedang gangguan. Pesananmu sudah tercatat — chat Nina di WhatsApp supaya dibantu langsung."
+        );
+        return;
       }
 
       setCheckoutComplete(true);
@@ -2496,7 +2510,22 @@ export default function OnboardingStepPage({
                   className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2"
                 >
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{checkoutError}</span>
+                  <span>
+                    {checkoutError}
+                    {checkoutSupportUrl && (
+                      <>
+                        {" "}
+                        <a
+                          href={checkoutSupportUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline font-medium"
+                        >
+                          Buka WhatsApp
+                        </a>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
 

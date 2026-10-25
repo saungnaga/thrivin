@@ -1,70 +1,73 @@
 /**
- * Unit checks for the Scalev URL host rule (kartu t_170cdb60).
+ * Unit checks for the Scalev checkout-link rule (kartu t_170cdb60).
  *
  *   node --experimental-strip-types tests/test-scalev-url.mts
  *
- * The store's custom domain `checkout.thrivin.id` fails TLS (proven live:
- * curl exit 35, `sslv3 alert handshake failure`). Any Scalev URL handed to the
- * browser must be probed and swapped to the Scalev-hosted domain when the
- * custom host does not answer — for `paymentUrl` AND `redirectUrl`.
+ * Proved live 2026-10-25: Scalev resolves a public order by HOST + secret slug,
+ * so a URL rewritten to another domain is a guaranteed 404 (that is the
+ * "ERROR 404" buyers saw). The helper must therefore NEVER swap the host — it
+ * only reports whether the canonical host answered.
  */
 import assert from "node:assert/strict";
-import {
-  DEAD_CUSTOM_HOST,
-  SCALEV_HOSTED_HOST,
-  reachableScalevUrl,
-} from "../src/lib/scalev-url.ts";
+import { readFileSync } from "node:fs";
+import { STORE_CUSTOM_HOST, checkCheckoutLink } from "../src/lib/scalev-url.ts";
 
 const results: Array<[string, string]> = [];
 function check(ok: boolean, name: string, detail = "") {
   results.push([ok ? "PASS" : "FAIL", `${name}${detail ? " — " + detail : ""}`]);
 }
 
-const DEAD_URL = `https://${DEAD_CUSTOM_HOST}/o/abc123/success`;
+const DEAD_URL = `https://${STORE_CUSTOM_HOST}/o/abc123/success`;
 const calls: string[] = [];
 
-// 1. Dead custom host + HEAD fails => rewritten to the hosted domain.
+// 1. Canonical host unreachable => flagged, URL untouched (no host swap).
 {
   calls.length = 0;
-  const out = await reachableScalevUrl(DEAD_URL, (async (url: string) => {
+  const out = await checkCheckoutLink(DEAD_URL, (async (url: string) => {
     calls.push(String(url));
     throw new Error("sslv3 alert handshake failure");
   }) as unknown as typeof fetch);
-  check(out === `https://${SCALEV_HOSTED_HOST}/o/abc123/success`, "dead host fails -> hosted host", out);
-  check(calls.length === 1 && calls[0] === DEAD_URL, "dead host is probed before rewriting", `${calls.length} call(s)`);
+  check(out.url === DEAD_URL, "unreachable host keeps the canonical URL", out.url);
+  check(out.reachable === false, "unreachable host is reported", String(out.reachable));
+  check(calls.length === 1 && calls[0] === DEAD_URL, "host is probed before flagging", `${calls.length} call(s)`);
 }
 
-// 2. Dead custom host but reachable (SSL fixed later) => untouched, not rewritten blindly.
+// 2. Host answers (SSL fixed later) => reachable, URL untouched.
 {
-  const out = await reachableScalevUrl(DEAD_URL, (async () => new Response(null, { status: 200 })) as unknown as typeof fetch);
-  check(out === DEAD_URL, "reachable custom host is kept verbatim", out);
+  const out = await checkCheckoutLink(DEAD_URL, (async () => new Response(null, { status: 200 })) as unknown as typeof fetch);
+  check(out.url === DEAD_URL && out.reachable === true, "reachable host passes through", out.url);
 }
 
-// 3. Any other host: no probe, no rewrite (no latency on the happy path).
+// 3. Any other host: no probe (no latency on the happy path), always reachable.
 {
   calls.length = 0;
   const other = "https://thrivin.myscalev.com/pay/xyz";
-  const out = await reachableScalevUrl(other, (async (url: string) => {
+  const out = await checkCheckoutLink(other, (async (url: string) => {
     calls.push(String(url));
     throw new Error("must not be called");
   }) as unknown as typeof fetch);
-  check(out === other, "hosted host passes through", out);
+  check(out.url === other && out.reachable === true, "foreign host passes through", out.url);
   check(calls.length === 0, "non-custom host is not probed", `${calls.length} call(s)`);
 }
 
-// 4. Missing URL stays empty (caller keeps its existing fallback path).
+// 4. Missing URL stays empty and is not treated as an outage.
 {
-  check((await reachableScalevUrl("")) === "", "empty stays empty");
-  check((await reachableScalevUrl(null)) === "", "null becomes empty");
+  const empty = await checkCheckoutLink("");
+  const nil = await checkCheckoutLink(null);
+  check(empty.url === "" && empty.reachable, "empty stays empty");
+  check(nil.url === "" && nil.reachable, "null becomes empty");
 }
 
-// 5. Rewrite covers future redirect targets too (path preserved exactly).
+// 5. Regression guard: no substitute host may be hardcoded again. Swapping the
+//    host is what produced the 404; only the canonical host may appear.
 {
-  const direct = `https://${DEAD_CUSTOM_HOST}/o/zz9/success?src=nota`;
-  const out = await reachableScalevUrl(direct, (async () => {
-    throw new Error("down");
-  }) as unknown as typeof fetch);
-  check(out === `https://${SCALEV_HOSTED_HOST}/o/zz9/success?src=nota`, "path and query preserved", out);
+  const src = readFileSync(new URL("../src/lib/scalev-url.ts", import.meta.url), "utf8");
+  const code = src
+    .split("\n")
+    .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+    .join("\n");
+  const hosts = [...code.matchAll(/["'`](?:https:\/\/)?([a-z0-9.-]*myscalev\.com)["'`]/g)].map((m) => m[1]);
+  check(hosts.length === 0, "no substitute Scalev host is hardcoded", hosts.join(",") || "none");
 }
 
 const failed = results.filter(([s]) => s === "FAIL");

@@ -30,7 +30,8 @@ import {
 } from "@/lib/checkout-gate";
 import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
 import { TERMS_VERSION } from "@/lib/consent";
-import { reachableScalevUrl } from "@/lib/scalev-url";
+import { checkCheckoutLink } from "@/lib/scalev-url";
+import { NINA_WA_LINK } from "@/lib/wa-cloud";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
@@ -719,12 +720,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const paymentUrl = await reachableScalevUrl(
+    // Never rewrite Scalev's host: the public order is resolved by HOST + slug,
+    // so any substituted domain returns 404 (proved 2026-10-25). We only report
+    // whether the canonical host answered, so the client can offer a contact
+    // path instead of navigating into a dead end.
+    const paymentLink = await checkCheckoutLink(
       orderData?.pg_payment_info?.payment_url ||
         orderData?.payment_url ||
         orderData?.public_order_url ||
         ""
     );
+    const paymentUrl = paymentLink.url;
 
     // C-4 (kartu t_bd4781a6): `order_id`/`id` whitespace-only BUKAN pengenal —
     // perlakukan seperti kosong, sama seperti fallback `order_id || id` yang sudah
@@ -812,11 +818,11 @@ export async function POST(req: Request) {
 
     // Canonical checkout destination per Scalev docs (public order read).
     // Informational for the client: the order itself already exists.
-    // Same dead-host rule as `paymentUrl`: the canonical redirect is also
-    // built on `checkout.thrivin.id`, and the client opens it verbatim
-    // (`resData.redirectUrl || resData.paymentUrl`).
-    const redirectUrl = await reachableScalevUrl(
-      await lookupCheckoutRedirect(storeId, String(orderData.secret_slug ?? "").trim())
+    // Kept verbatim: rewriting the host to another domain yields a 404 on
+    // Scalev's host-scoped public-order lookup.
+    const redirectUrl = await lookupCheckoutRedirect(
+      storeId,
+      String(orderData.secret_slug ?? "").trim()
     );
 
     return NextResponse.json({
@@ -825,6 +831,10 @@ export async function POST(req: Request) {
       paymentUrl,
       publicOrderUrl: orderData.public_order_url,
       redirectUrl,
+      // `false` means Scalev's canonical host did not answer from the server:
+      // the buyer must be offered a contact path instead of a dead link.
+      paymentPageReachable: paymentLink.reachable,
+      supportUrl: NINA_WA_LINK,
       amount: orderData.gross_revenue,
     });
   } catch (error: any) {
