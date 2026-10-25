@@ -818,12 +818,12 @@ export async function POST(req: Request) {
 
     // Canonical checkout destination per Scalev docs (public order read).
     // Informational for the client: the order itself already exists.
-    // Kept verbatim: rewriting the host to another domain yields a 404 on
-    // Scalev's host-scoped public-order lookup.
-    const redirectUrl = await lookupCheckoutRedirect(
-      storeId,
-      String(orderData.secret_slug ?? "").trim()
+    // Same dead-host rule as `paymentUrl`: this URL is also built on the store's
+    // custom host, so probe it and swap to the verified hosted domain when dead.
+    const redirectLink = await checkCheckoutLink(
+      await lookupCheckoutRedirect(storeId, String(orderData.secret_slug ?? "").trim())
     );
+    const redirectUrl = redirectLink.url;
 
     return NextResponse.json({
       orderId: orderData.order_id,
@@ -831,9 +831,9 @@ export async function POST(req: Request) {
       paymentUrl,
       publicOrderUrl: orderData.public_order_url,
       redirectUrl,
-      // `false` means Scalev's canonical host did not answer from the server:
-      // the buyer must be offered a contact path instead of a dead link.
-      paymentPageReachable: paymentLink.reachable,
+      // `false` means Scalev's canonical host did not answer AND no verified
+      // hosted fallback applies: offer a contact path instead of a dead link.
+      paymentPageReachable: paymentLink.reachable && redirectLink.reachable,
       supportUrl: NINA_WA_LINK,
       amount: orderData.gross_revenue,
     });
