@@ -258,9 +258,12 @@ export async function POST(req: Request) {
           if (welcomeSent && orderUniqueId) {
             // `sent` only means Meta accepted it; only a template send is
             // deliverable outside the 24h window (see lib/welcome-message.ts).
+            // The wamid is kept so Meta's async status receipt can prove (or
+            // disprove) actual delivery later — see /api/wa/cloud-status.
             await recordGreetingStatus(
               orderUniqueId,
-              result.verified ? "sent" : "sent_unverified"
+              result.verified ? "sent" : "sent_unverified",
+              result.messageId
             );
           }
           if (!welcomeSent) {

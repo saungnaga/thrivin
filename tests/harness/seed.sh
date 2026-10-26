@@ -62,6 +62,8 @@ cp "$REPO/staging/schema-consent.sql" "$HERE/migrations/006-consent-gate.sql"
 # supaya jalur apply-untuk-DB-lama (007 lalu 006) ikut diuji oleh harness.
 cp "$REPO/staging/migration-fw41c-cancel.sql" "$HERE/migrations/007-fw41c-cancel.sql"
 cp "$REPO/staging/migration-memory-bridge.sql" "$HERE/migrations/010-memory-bridge.sql"
+# t_22ccd958: kolom wamid sapaan — harness apply DDL draft yang sama dengan prod.
+cp "$REPO/staging/migration-first-greeting-wamid.sql" "$HERE/migrations/011-first-greeting-wamid.sql"
 
 for f in "$HERE"/migrations/*.sql; do
   echo ">> applying $(basename "$f")"

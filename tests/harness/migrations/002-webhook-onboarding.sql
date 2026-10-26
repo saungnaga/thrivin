@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS onboarding_snapshots (
   snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   first_greeting_status VARCHAR(50) NOT NULL DEFAULT 'pending',
   first_greeting_sent_at TIMESTAMPTZ,
+  -- t_22ccd958: wamid pesan sapaan = kunci korelasi receipt `statuses` Meta.
+  -- NULL untuk baris lama (wamid dulu dibuang); lihat
+  -- staging/migration-first-greeting-wamid.sql untuk DB produksi yang sudah ada.
+  first_greeting_wamid VARCHAR(150),
   status VARCHAR(50) NOT NULL DEFAULT 'active',    -- active, applied, expired
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   processed_at TIMESTAMPTZ,
@@ -68,9 +72,16 @@ CREATE TABLE IF NOT EXISTS onboarding_snapshots (
   CONSTRAINT uq_onboarding_snapshots_tenant_order UNIQUE (tenant_id, order_id)
 );
 
+-- t_22ccd958: kolom lama (DB yang sudah ada) — aman dijalankan ulang.
+ALTER TABLE onboarding_snapshots ADD COLUMN IF NOT EXISTS first_greeting_wamid VARCHAR(150);
+
 CREATE INDEX IF NOT EXISTS idx_onboarding_snapshots_phone ON onboarding_snapshots (tenant_id, phone);
 CREATE INDEX IF NOT EXISTS idx_onboarding_snapshots_order_id ON onboarding_snapshots (order_id);
 CREATE INDEX IF NOT EXISTS idx_onboarding_snapshots_greeting ON onboarding_snapshots (first_greeting_status);
+-- t_22ccd958: lookup receipt Meta = (tenant_id, first_greeting_wamid).
+CREATE INDEX IF NOT EXISTS idx_onboarding_snapshots_greeting_wamid
+  ON onboarding_snapshots (tenant_id, first_greeting_wamid)
+  WHERE first_greeting_wamid IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_onboarding_snapshots_retention ON onboarding_snapshots (expires_at);
 
 -- H-5: defence in depth. The route no longer writes pre-order rows (order_id IS

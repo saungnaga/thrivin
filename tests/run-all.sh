@@ -52,6 +52,8 @@ node --experimental-strip-types "$HERE/test-wa-first-units.mts"
 # nol jalur Baileys walau env bridge lama masih terpasang.
 node --experimental-strip-types "$HERE/test-welcome-message.mts"
 node --experimental-strip-types "$HERE/test-wa-cloud-units.mts"
+# t_22ccd958: korelasi receipt Meta (wamid) → status sapaan pertama.
+node --experimental-strip-types "$HERE/test-greeting-status-units.mts"
 # Nomor terdaftar → langsung pilih paket (t_a40e5534): snapshot jadi payload
 # langkah 2–8 + kunci sumber UI (jalur terdaftar tidak boleh ke langkah 2).
 node --experimental-strip-types "$HERE/test-registered-onboarding-units.mts"

@@ -316,27 +316,91 @@ export async function getOnboardingSnapshot(
  * `sent` = an APPROVED template was accepted by Meta (deliverable outside the
  * 24h window). `sent_unverified` = free-form text accepted, but no template was
  * configured, so delivery to a first-time recipient is not guaranteed.
+ *
+ * `wamid` is the correlation key for Meta's asynchronous delivery receipt. It is
+ * written in a SECOND, best-effort PATCH so that deploying this code before the
+ * `first_greeting_wamid` DDL still records the status exactly as before (a
+ * single PATCH would 400 on the missing column and lose the status too).
  */
-export async function recordGreetingStatus(orderId: string, status: string): Promise<void> {
+export async function recordGreetingStatus(
+  orderId: string,
+  status: string,
+  wamid?: string | null
+): Promise<void> {
   if (!orderId) return;
   const { url, key } = getSupabaseConfig();
   if (!url || !key) return;
+  const rowFilter = `tenant_id=eq.${TENANT_ID}&order_id=eq.${encodeURIComponent(orderId)}`;
   try {
-    await fetch(
-      `${url}/rest/v1/onboarding_snapshots?tenant_id=eq.${TENANT_ID}&order_id=eq.${encodeURIComponent(
-        orderId
-      )}`,
-      {
-        method: "PATCH",
-        headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
-        body: JSON.stringify({
-          first_greeting_status: status,
-          first_greeting_sent_at: new Date().toISOString(),
-        }),
-      }
-    );
+    await fetch(`${url}/rest/v1/onboarding_snapshots?${rowFilter}`, {
+      method: "PATCH",
+      headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
+      body: JSON.stringify({
+        first_greeting_status: status,
+        first_greeting_sent_at: new Date().toISOString(),
+      }),
+    });
   } catch (err) {
     console.warn("[OnboardingStore] Failed to update greeting status:", redactError(err));
+  }
+
+  const cleanWamid = String(wamid || "").trim();
+  if (!cleanWamid) return;
+  try {
+    const res = await fetch(`${url}/rest/v1/onboarding_snapshots?${rowFilter}`, {
+      method: "PATCH",
+      headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
+      body: JSON.stringify({ first_greeting_wamid: cleanWamid }),
+    });
+    if (!res.ok) {
+      console.warn(
+        `[OnboardingStore] first_greeting_wamid not stored (${res.status}) — apply staging/migration-first-greeting-wamid.sql`
+      );
+    }
+  } catch (err) {
+    console.warn("[OnboardingStore] Failed to store greeting wamid:", redactError(err));
+  }
+}
+
+/**
+ * Apply a Meta delivery receipt to the greeting it belongs to.
+ *
+ * Matching is by `wamid` ONLY: a receipt for a message we never stored must
+ * update nothing (proof: no wamid ⇒ no row touched). Returns true only when a
+ * row actually matched.
+ *
+ * A `failed:*` receipt never downgrades a row that already reached `delivered`:
+ * out-of-order retries must not erase delivery evidence.
+ */
+export async function recordGreetingDelivery(
+  wamid: string | null | undefined,
+  status: string
+): Promise<boolean> {
+  const cleanWamid = String(wamid || "").trim();
+  if (!cleanWamid) return false;
+  const { url, key } = getSupabaseConfig();
+  if (!url || !key) return false;
+  const noDowngrade = status.startsWith("failed") ? "&first_greeting_status=neq.delivered" : "";
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/onboarding_snapshots?tenant_id=eq.${TENANT_ID}&first_greeting_wamid=eq.${encodeURIComponent(
+        cleanWamid
+      )}${noDowngrade}`,
+      {
+        method: "PATCH",
+        headers: { ...serviceHeaders(key), Prefer: "return=representation" },
+        body: JSON.stringify({ first_greeting_status: status }),
+      }
+    );
+    if (!res.ok) {
+      console.warn(`[OnboardingStore] Greeting receipt not applied (${res.status}) for status=${status}`);
+      return false;
+    }
+    const rows = await res.json().catch(() => []);
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (err) {
+    console.warn("[OnboardingStore] Failed to apply greeting receipt:", redactError(err));
+    return false;
   }
 }
 

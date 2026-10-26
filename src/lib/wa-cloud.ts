@@ -155,3 +155,26 @@ export function sendCloudTemplate(
     },
   });
 }
+
+/**
+ * Map a Meta delivery receipt (`statuses[].status`) to the value stored in
+ * `onboarding_snapshots.first_greeting_status`.
+ *
+ * `delivered`/`read` are the only real proof a customer received the greeting.
+ * `failed` keeps Meta's error code — `failed:131026` ("message undeliverable")
+ * is the difference between "number has no WhatsApp" and "we broke something".
+ * Anything else (`sent`, `deleted`, …) returns null: `sent` only repeats what
+ * the send call already recorded and is not delivery evidence.
+ */
+export function greetingStatusFromReceipt(
+  status: string | null | undefined,
+  errors?: Array<{ code?: number | string }> | null
+): string | null {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "delivered" || s === "read") return "delivered";
+  if (s === "failed") {
+    const code = errors?.[0]?.code;
+    return code === undefined || code === null || code === "" ? "failed" : `failed:${String(code)}`;
+  }
+  return null;
+}

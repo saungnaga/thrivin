@@ -37,6 +37,9 @@ const HERE = path.dirname(new URL(import.meta.url).pathname);
 const REPO = path.resolve(HERE, "..");
 
 const WEBHOOK_SECRET = "test_postpay_secret_6789";
+/** Meta app secret + verify token for the delivery-receipt endpoint (§4d). */
+const APP_SECRET = "test_meta_app_secret_2468";
+const VERIFY_TOKEN = "test_meta_verify_token_1357";
 const APP_PORT = Number(process.env.HARNESS_APP_PORT || PORTS.w4App);
 const GRAPH_PORT = Number(process.env.HARNESS_GRAPH_PORT || PORTS.w4Broken);
 const MOCK_PORT = Number(process.env.MOCK_SCALEV_PORT || PORTS.w4Mock);
@@ -71,6 +74,61 @@ function assertOk(cond: boolean, name: string, detail = "") {
 
 function sign(rawBody: string): string {
   return crypto.createHmac("sha256", WEBHOOK_SECRET).update(rawBody).digest("base64");
+}
+
+/** Meta signs the receipt body as `sha256=<hex>` (X-Hub-Signature-256). */
+function statusSignature(rawBody: string, secret = APP_SECRET): string {
+  return `sha256=${crypto.createHmac("sha256", secret).update(rawBody).digest("hex")}`;
+}
+
+async function postStatusReceipt(
+  body: unknown,
+  opts: { signature?: string | null } = {}
+): Promise<{ status: number; json: any }> {
+  const raw = JSON.stringify(body);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const signature = opts.signature === undefined ? statusSignature(raw) : opts.signature;
+  if (signature) headers["X-Hub-Signature-256"] = signature;
+  const res = await fetch(`${BASE_URL}/api/wa/cloud-status`, { method: "POST", headers, body: raw });
+  return { status: res.status, json: await res.json().catch(() => ({})) };
+}
+
+/** Minimal Meta `statuses` webhook envelope. */
+function statusReceipt(wamid: string, status: string, code?: number) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "WABA_TEST",
+        changes: [
+          {
+            field: "messages",
+            value: {
+              messaging_product: "whatsapp",
+              statuses: [
+                {
+                  id: wamid,
+                  status,
+                  timestamp: String(Math.floor(Date.now() / 1000)),
+                  recipient_id: "6281270000000",
+                  ...(code ? { errors: [{ code, title: "undeliverable" }] } : {}),
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** `query()` returns "|"-split field arrays, not objects. */
+function greetingRow(orderId: string): { status?: string; wamid?: string | null } {
+  const rows = query<string[]>(
+    `SELECT first_greeting_status, first_greeting_wamid FROM onboarding_snapshots WHERE order_id='${orderId}' LIMIT 1;`
+  );
+  const row = rows[0];
+  return row ? { status: row[0], wamid: row[1] || null } : {};
 }
 
 async function waitFor(url: string, timeoutMs = 40000): Promise<Response> {
@@ -204,6 +262,7 @@ async function startApp(env: Record<string, string | undefined>): Promise<Stack>
     SCALEV_API_BASE_URL: MOCK_URL,
     SCALEV_STORE_ID: "store_test",
     SCALEV_API_KEY: "sk_test_key",
+    SCALEV_PAGE_API_KEY: "ppk_test_key",
     WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
     WA_SESSION_EPOCH: "0",
     // The legacy bridge stays configured on purpose: zero calls is the point.
@@ -424,6 +483,94 @@ async function main() {
       "log line missing"
     );
 
+    // ── 4d. delivery receipt correlation (wamid) ────────────────────────────
+    // t_22ccd958: `sent` only means Meta ACCEPTED the send call. The real
+    // verdict arrives asynchronously as a `statuses` webhook keyed by wamid.
+    // Proof below: stored wamid ⇒ row flips; no stored wamid ⇒ zero rows.
+    console.log("\n── delivery receipt correlation (wamid) ──");
+    stopApp();
+    app = await startApp({
+      SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE: "nina_p2_checkin",
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE_LANG: "id",
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS: "2",
+      WHATSAPP_CLOUD_APP_SECRET: APP_SECRET,
+      WHATSAPP_CLOUD_VERIFY_TOKEN: VERIFY_TOKEN,
+    });
+    const callsBefore4d = graphCalls.length;
+    const phone4d = "6281270000010";
+    seedSnapshot("250130PAY0010", phone4d);
+    const res4d = await postWebhook(
+      paymentEvent({ eventId: `evt_postpay_4d_${Date.now()}`, orderId: "250130PAY0010", phone: phone4d })
+    );
+    assertEq(res4d.status, 200, "webhook paid accepted (receipt suite)");
+    const wamid1 = `wamid.MOCK${callsBefore4d + 1}`;
+    assertEq(greetingRow("250130PAY0010").wamid, wamid1, "greeting wamid stored on the snapshot");
+    assertEq(greetingRow("250130PAY0010").status, "sent", "status still `sent` before any receipt");
+
+    // Fail closed + Meta handshake — an unauthenticated writer into a customer
+    // table is not acceptable, so a signature is required, not optional.
+    const unsigned = await postStatusReceipt(statusReceipt(wamid1, "delivered"), { signature: null });
+    assertEq(unsigned.status, 401, "unsigned receipt rejected");
+    assertEq(greetingRow("250130PAY0010").status, "sent", "unsigned receipt changed nothing");
+    const forged = await postStatusReceipt(statusReceipt(wamid1, "delivered"), {
+      signature: statusSignature("not-the-body"),
+    });
+    assertEq(forged.status, 401, "tampered signature rejected");
+    assertEq(greetingRow("250130PAY0010").status, "sent", "tampered receipt changed nothing");
+
+    const handshake = await fetch(
+      `${BASE_URL}/api/wa/cloud-status?hub.mode=subscribe&hub.verify_token=${VERIFY_TOKEN}&hub.challenge=chal123`
+    );
+    assertEq(handshake.status, 200, "Meta verification handshake accepted");
+    assertEq(await handshake.text(), "chal123", "challenge echoed verbatim");
+    const badHandshake = await fetch(
+      `${BASE_URL}/api/wa/cloud-status?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=chal123`
+    );
+    assertEq(badHandshake.status, 403, "wrong verify token refused");
+
+    // Positive: delivered → the row stops claiming only "accepted by Meta".
+    const delivered = await postStatusReceipt(statusReceipt(wamid1, "delivered"));
+    assertEq(delivered.status, 200, "delivered receipt accepted");
+    assertEq(delivered.json.updated, 1, "exactly one stored greeting matched the wamid");
+    assertEq(greetingRow("250130PAY0010").status, "delivered", "sent → delivered");
+
+    // Positive: failure keeps Meta's code (131026 = message undeliverable).
+    const phone4e = "6281270000011";
+    seedSnapshot("250130PAY0011", phone4e);
+    await postWebhook(
+      paymentEvent({ eventId: `evt_postpay_4e_${Date.now()}`, orderId: "250130PAY0011", phone: phone4e })
+    );
+    const wamid2 = `wamid.MOCK${graphCalls.length}`;
+    const failedReceipt = await postStatusReceipt(statusReceipt(wamid2, "failed", 131026));
+    assertEq(failedReceipt.json.updated, 1, "failed receipt matched the stored greeting");
+    assertEq(
+      greetingRow("250130PAY0011").status,
+      "failed:131026",
+      "failure is recorded with Meta's error code, not a generic 'sent'"
+    );
+
+    // Not-a-verdict receipts and out-of-order retries must not rewrite history.
+    const sentAgain = await postStatusReceipt(statusReceipt(wamid2, "sent"));
+    assertEq(sentAgain.json.updated, 0, "`sent` receipt is not delivery evidence — ignored");
+    assertEq(greetingRow("250130PAY0011").status, "failed:131026", "row unchanged by `sent`");
+    const lateFailure = await postStatusReceipt(statusReceipt(wamid1, "failed", 131047));
+    assertEq(lateFailure.json.updated, 0, "late failure cannot downgrade a delivered row");
+    assertEq(greetingRow("250130PAY0010").status, "delivered", "delivery proof kept");
+
+    // NEGATIVE PROOF: a receipt for a message we never stored updates nothing.
+    const unknown = await postStatusReceipt(statusReceipt("wamid.NOT-OURS", "delivered"));
+    assertEq(unknown.status, 200, "unknown wamid still 200 so Meta stops retrying");
+    assertEq(unknown.json.updated, 0, "unknown wamid matched zero rows");
+    assertEq(greetingRow("250130PAY0010").status, "delivered", "no collateral update");
+
+    // Fail closed when the app secret is missing (config slip ≠ open door).
+    stopApp();
+    app = await startApp({ SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET, WHATSAPP_CLOUD_VERIFY_TOKEN: VERIFY_TOKEN });
+    const unconfigured = await postStatusReceipt(statusReceipt(wamid1, "delivered"));
+    assertEq(unconfigured.status, 503, "no APP_SECRET → receipts refused");
+    assertEq(greetingRow("250130PAY0010").status, "delivered", "refused receipt wrote nothing");
+
     // ── 5. thank-you page: static, safe on direct access, correct WA link ───
     console.log("\n── /pembayaran/sukses direct access ──");
     const callsBeforePage = graphCalls.length;
@@ -457,7 +604,15 @@ async function main() {
     });
     const orderJson = await orderRes.json();
     assertEq(orderRes.status, 200, "order created");
-    assertEq(orderJson.redirectUrl, REDIRECT_TARGET, "response carries redirect_url from the public order read");
+    assertOk(typeof orderJson.redirectUrl === "string" && orderJson.redirectUrl.startsWith("https://digitanest.myscalev.com/pay/"), "response carries Scalev's immediate PayLink redirect");
+    const scalevOrders = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8"));
+    const redirectOrder = scalevOrders[scalevOrders.length - 1] || { body: {} };
+    assertEq(redirectOrder.path, "/v3/pages/page_cc17802cd39f34cd/orders", "order uses the redirect-capable HTML Mode page");
+    assertEq(redirectOrder.body.is_post_payment_redirect_enabled, true, "post-payment override enabled for every order");
+    assertEq(redirectOrder.body.post_payment_redirect_url, REDIRECT_TARGET, "post-payment snapshot targets Nina success page");
+    assertOk(redirectOrder.body.ordervariants?.length === 1, "flattened runtime variant payload preserved");
+    assertEq(redirectOrder.body.payment_method, "payment_link", "PayLink behavior preserved");
+    assertEq(orderJson.paymentUrl, orderJson.redirectUrl, "compatibility paymentUrl is the same immediate destination");
     assertOk(
       typeof orderJson.paymentUrl === "string" && orderJson.paymentUrl.length > 0,
       "paymentUrl kept for older responses",
