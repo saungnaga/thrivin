@@ -176,6 +176,15 @@ function insertSnapshot(tenant: string, orderId: string) {
       )}$json$) ` +
       `ON CONFLICT (tenant_id, order_id) DO UPDATE SET snapshot = EXCLUDED.snapshot;`
   );
+  // t_5783e59e: entitlement requires the order to be RECORDED (claim with an
+  // amount) — a paid event for an order we never printed grants nothing.
+  psqlSuper(
+    `INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, ` +
+      `order_id, scalev_order_uuid, payment_url, amount) VALUES ` +
+      `('thrivin','${tenant}','mem-${orderId}','quarter','created',` +
+      `'${orderId}','uuid_${orderId}','https://pay.test/${orderId}',219000) ` +
+      `ON CONFLICT DO NOTHING;`
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -188,7 +197,22 @@ async function main() {
     process.exit(1);
   }
 
-  // ── HASH: paritas SQL vs Python (paling penting) ───────────────────────────
+  const logFd = fs.openSync(LOG_FILE, "a");
+  let app: ReturnType<typeof spawn> | null = null;
+  let appStopped = false;
+  const stopApp = () => {
+    if (appStopped) return;
+    appStopped = true;
+    try {
+      app?.kill("SIGKILL");
+    } catch {
+      /* gone */
+    }
+    fs.closeSync(logFd);
+  };
+
+  try {
+    // ── HASH: paritas SQL vs Python (paling penting) ───────────────────────────
   console.log("\n── HASH: normalisasi + sha256 SQL == Python store.py ──");
   const samples = [
     "Nama: Raihan", // huruf besar
@@ -336,8 +360,7 @@ async function main() {
   } catch {
     /* ignore */
   }
-  const logFd = fs.openSync(LOG_FILE, "a");
-  const app = spawn("./node_modules/.bin/next", ["start", "-p", String(APP_PORT)], {
+  app = spawn("./node_modules/.bin/next", ["start", "-p", String(APP_PORT)], {
     cwd: REPO,
     env: {
       PATH: process.env.PATH,
@@ -395,11 +418,7 @@ async function main() {
     assertEq(memCount(TENANT_B), 0, "AKTIV nol baris memori saat RPC mati (fail-open, bukan error)");
   } finally {
     psqlSuper("GRANT EXECUTE ON FUNCTION public.seed_nina_memory_from_onboarding(text) TO service_role;");
-    try {
-      app.kill("SIGKILL");
-    } catch {
-      /* gone */
-    }
+    stopApp();
   }
 
   console.log("\n══════════════════════════════════════════════════════════════");
@@ -409,7 +428,11 @@ async function main() {
   console.log(`${results.length - failed}/${results.length} PASS`);
   if (failed) {
     console.error(`${failed} FAILED`);
-    process.exit(1);
+    process.exitCode = 1;
+  }
+  } finally {
+    stopApp();
+    postgrest.stop();
   }
 }
 

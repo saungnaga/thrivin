@@ -34,6 +34,24 @@ const PRODUCTS = [
   { name: "Checkout Nina 12 Bulan", variants: [{ unique_id: "variant_Year12M0JKm9wXQp7ZbV2Nq", price: 465000 }] },
 ];
 
+/**
+ * t_5783e59e: gross_revenue must be computed from the variant the order
+ * actually names. The old mock hardcoded 219000 for every order, so the suite
+ * could not prove the 1/6/12-month or yearly price at all.
+ */
+function variantPrice(uniqueId) {
+  for (const product of PRODUCTS) {
+    for (const variant of product.variants) {
+      if (variant.unique_id === uniqueId) return variant.price;
+    }
+  }
+  return null;
+}
+
+/** HTML Mode page identity the route must present (Origin + Referer). */
+const PAGE_ORIGIN = "https://digitanest.myscalev.com";
+const PAGE_REFERER = `${PAGE_ORIGIN}/nina-api-redirect-bridge`;
+
 /** Every order this mock has been asked to create — the assertion surface. */
 export const createdOrders = [];
 
@@ -162,6 +180,65 @@ const server = http.createServer(async (req, res) => {
     const body = { data: { secret_slug: slug, redirect_url: process.env.MOCK_SCALEV_REDIRECT_URL || null } };
     return send(res, 200, body);
   }
+  if (req.method === "GET" && url.pathname.endsWith("/page-displays")) {
+    return send(res, 200, { data: { form_display: { store_id: 99165 } } });
+  }
+
+  if (req.method === "POST" && /^\/v3\/pages\/[^/]+\/orders$/.test(url.pathname)) {
+    const body = await readBody(req);
+    if (String(body.customer_name || "").startsWith("FAILORDER")) {
+      return send(res, 422, { message: "mock: order rejected on purpose" });
+    }
+    if (req.headers["x-scalev-page-api-key"] !== "ppk_test_key") {
+      return send(res, 401, { message: "page key rejected" });
+    }
+    if (req.headers.origin !== PAGE_ORIGIN) {
+      return send(res, 403, { message: "origin rejected" });
+    }
+    // The published HTML Mode runtime always sends Referer = the page URL. It is
+    // not authentication, but the route must present it; the suite asserts it.
+    if (String(req.headers.referer || "") !== PAGE_REFERER) {
+      return send(res, 403, { message: "referer rejected" });
+    }
+    if (
+      body.is_post_payment_redirect_enabled !== true ||
+      body.post_payment_redirect_url !== "https://thrivin.id/pembayaran/sukses"
+    ) {
+      return send(res, 422, { message: "post-payment redirect override required" });
+    }
+    if (!Array.isArray(body.ordervariants) || !body.ordervariants.length) {
+      return send(res, 400, { error: "Product or Bundle is required" });
+    }
+    const unitPrice = variantPrice(body.ordervariants[0].variant_unique_id);
+    if (unitPrice === null) {
+      return send(res, 400, { error: `unknown variant ${body.ordervariants[0].variant_unique_id}` });
+    }
+    const quantity = Number(body.ordervariants[0].quantity || 1);
+    const gross = unitPrice * quantity - Number(body.product_discount || 0);
+    const orderId = `test_${createdOrders.length + 1}_${Date.now().toString(36)}`;
+    const redirect = `https://digitanest.myscalev.com/pay/${orderId}`;
+    createdOrders.push({
+      receivedAt: Date.now(),
+      body,
+      path: url.pathname,
+      headers: {
+        origin: req.headers.origin,
+        referer: req.headers.referer,
+        hasPageKey: Boolean(req.headers["x-scalev-page-api-key"]),
+      },
+    });
+    persistOrders();
+    return send(res, 201, {
+      id: `uuid_${orderId}`,
+      order_id: orderMode() === "ws_order_id" ? "   " : orderId,
+      secret_slug: `slug_${orderId}`,
+      public_order_url: `https://digitanest.myscalev.com/o/slug_${orderId}`,
+      redirect_url: redirect,
+      payment_url: redirect,
+      gross_revenue: gross.toFixed(2),
+      notes: body.notes,
+    });
+  }
 
   if (req.method === "GET" && url.pathname.endsWith("/products")) {
     return send(res, 200, { data: PRODUCTS });
@@ -188,8 +265,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       const orderId = `test_${createdOrders.length}_${Date.now().toString(36)}`;
-      const unitPrice = 219000;
       const qty = Array.isArray(body.ordervariants) ? body.ordervariants[0]?.quantity || 1 : 1;
+      // Same per-variant pricing rule as the HTML Mode path (t_5783e59e).
+      const unitPrice = variantPrice(body.ordervariants?.[0]?.variant_unique_id) ?? 219000;
       const gross = unitPrice * qty - (Number(body.product_discount) || 0);
 
       return send(res, 200, {

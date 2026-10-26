@@ -122,7 +122,11 @@ interface Stack {
 async function startMockScalev(): Promise<Stack> {
   const child = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: MOCK_ORDERS_FILE },
+    env: {
+      ...process.env,
+      MOCK_SCALEV_ORDERS_FILE: MOCK_ORDERS_FILE,
+      MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses",
+    },
   });
   child.stderr.on("data", (d) => process.stderr.write(`[mock-scalev] ${d}`));
   await assertMockOwner(MOCK_PORT, child.pid);
@@ -156,6 +160,7 @@ async function startApp(
       SCALEV_API_BASE_URL: MOCK_URL,
       SCALEV_STORE_ID: "store_test",
       SCALEV_API_KEY: "sk_test_key",
+      SCALEV_PAGE_API_KEY: "ppk_test_key",
       SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET,
       ADMIN_USERNAME: ADMIN_USER,
       ADMIN_PASSWORD: ADMIN_PASS,
@@ -1361,6 +1366,12 @@ async function main() {
     );
     assertOk(Boolean(winnerOrder), "webhook: reservasi terikat ke order Scalev", `order_ref=${winnerOrder}`);
 
+    // t_5783e59e: the paid amount must cover the claim's recorded amount, so the
+    // event carries what this order actually asked Scalev to charge.
+    const winnerAmount = psqlSuper(
+      `SELECT coalesce(amount::text,'0') FROM checkout_claims WHERE order_id = '${winnerOrder}';`,
+      { csv: true }
+    );
     const event = {
       event: "payment.received",
       unique_id: `evt_promo_${Date.now()}`,
@@ -1369,7 +1380,7 @@ async function main() {
         id: `01948092-9b80-7f91-b23d-${winnerOrder}`,
         order_id: winnerOrder,
         payment_status: "paid",
-        gross_revenue: "131400.00",
+        gross_revenue: `${winnerAmount}.00`,
         customer_phone: winnerPhone,
         customer_name: "Dummy Race",
       },

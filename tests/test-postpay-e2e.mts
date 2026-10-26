@@ -327,6 +327,27 @@ function seedSnapshot(orderId: string, phone: string): void {
   );
 }
 
+/**
+ * t_5783e59e: the payment webhook only activates an order WE recorded
+ * (`checkout_claims` from `create-order`), with money covering its amount. These
+ * cases exercise the greeting, not pricing, so the claim mirrors the fixture's
+ * `gross_revenue` ("219000.00").
+ */
+function seedClaim(orderId: string, phone: string): void {
+  query(
+    `INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, ` +
+      `order_id, scalev_order_uuid, payment_url, amount) VALUES ` +
+      `('thrivin','${phone}','pp-${orderId}','quarter','created','${orderId}',` +
+      `'uuid_${orderId}','https://pay.test/${orderId}',219000) ON CONFLICT DO NOTHING;`
+  );
+}
+
+/** Snapshot + claim: the two rows a real post-order write leaves behind. */
+function seedPaidOrder(orderId: string, phone: string): void {
+  seedSnapshot(orderId, phone);
+  seedClaim(orderId, phone);
+}
+
 async function postWebhook(body: unknown): Promise<Response> {
   const raw = JSON.stringify(body);
   return fetch(`${BASE_URL}/api/scalev/webhook`, {
@@ -361,6 +382,7 @@ async function main() {
     // ── 1. paid webhook → Cloud greeting with the official phone-number-id ──
     console.log("\n── Cloud-only greeting (phone-number-id from config) ──");
     const phone1 = "6281270000001";
+    seedClaim("250130PAY0001", phone1);
     const evt1 = paymentEvent({ eventId: `evt_postpay_1_${Date.now()}`, orderId: "250130PAY0001", phone: phone1 });
     const res1 = await postWebhook(evt1);
     const body1 = await res1.json();
@@ -391,6 +413,7 @@ async function main() {
     console.log("\n── outbound failure: recorded, activation kept ──");
     fs.writeFileSync(GRAPH_MODE_FILE, "500");
     const phone3 = "6281270000003";
+    seedClaim("250130PAY0003", phone3);
     const res3 = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_3_${Date.now()}`, orderId: "250130PAY0003", phone: phone3 })
     );
@@ -410,6 +433,7 @@ async function main() {
     console.log("\n── 24h window closed without an approved template ──");
     fs.writeFileSync(GRAPH_MODE_FILE, "131047");
     const phone4 = "6281270000004";
+    seedClaim("250130PAY0004", phone4);
     const res4 = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_4_${Date.now()}`, orderId: "250130PAY0004", phone: phone4 })
     );
@@ -439,7 +463,7 @@ async function main() {
     });
     const callsBeforeTpl = graphCalls.length;
     const phone4b = "6281270000008";
-    seedSnapshot("250130PAY0008", phone4b);
+    seedPaidOrder("250130PAY0008", phone4b);
     const res4b = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_4b_${Date.now()}`, orderId: "250130PAY0008", phone: phone4b })
     );
@@ -466,7 +490,7 @@ async function main() {
     stopApp();
     app = await startApp({ SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET });
     const phone4c = "6281270000009";
-    seedSnapshot("250130PAY0009", phone4c);
+    seedPaidOrder("250130PAY0009", phone4c);
     const res4c = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_4c_${Date.now()}`, orderId: "250130PAY0009", phone: phone4c })
     );
@@ -499,7 +523,7 @@ async function main() {
     });
     const callsBefore4d = graphCalls.length;
     const phone4d = "6281270000010";
-    seedSnapshot("250130PAY0010", phone4d);
+    seedPaidOrder("250130PAY0010", phone4d);
     const res4d = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_4d_${Date.now()}`, orderId: "250130PAY0010", phone: phone4d })
     );
@@ -537,7 +561,7 @@ async function main() {
 
     // Positive: failure keeps Meta's code (131026 = message undeliverable).
     const phone4e = "6281270000011";
-    seedSnapshot("250130PAY0011", phone4e);
+    seedPaidOrder("250130PAY0011", phone4e);
     await postWebhook(
       paymentEvent({ eventId: `evt_postpay_4e_${Date.now()}`, orderId: "250130PAY0011", phone: phone4e })
     );
@@ -619,6 +643,82 @@ async function main() {
       `paymentUrl=${JSON.stringify(orderJson.paymentUrl)}`
     );
 
+    // t_5783e59e #4: the HTML Mode contract proof used to stop at "an order was
+    // created". The mock now prices per variant, so the suite can prove the
+    // amount for EVERY plan, the page identity the request carries, and that a
+    // replay returns the same order instead of printing a second one.
+    assertEq(
+      redirectOrder.headers?.referer,
+      "https://digitanest.myscalev.com/nina-api-redirect-bridge",
+      "HTML Mode order carries the page Referer"
+    );
+    assertEq(
+      redirectOrder.headers?.origin,
+      "https://digitanest.myscalev.com",
+      "HTML Mode order carries the page Origin"
+    );
+    const claimAmount = (orderId: string): string =>
+      query<string[]>(`SELECT amount::text FROM checkout_claims WHERE order_id = '${orderId}' LIMIT 1;`)[0]?.[0] || "";
+    assertEq(claimAmount(orderJson.orderId), "231000", "quarter: claim records the charged amount");
+    assertEq(Number(orderJson.amount), 231000, "quarter: response amount = server price");
+
+    const orderCountBeforeReplay = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8")).length;
+    const replayRes = await fetch(`${BASE_URL}/api/scalev/create-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.77.1.2", cookie: cookie6 },
+      body: JSON.stringify({ planId: "quarter", customerPhone: phone6, idempotencyKey: arm6.idempotencyKey }),
+    });
+    const replayJson = await replayRes.json();
+    assertEq(replayRes.status, 200, "replay with the same idempotency key is served");
+    assertEq(replayJson.orderId, orderJson.orderId, "replay returns the SAME order id");
+    assertEq(
+      JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8")).length,
+      orderCountBeforeReplay,
+      "replay printed no second Scalev order"
+    );
+
+    // Variant unit prices as published by the mock product catalog.
+    const VARIANT_PRICE: Record<string, number> = {
+      "variant_vF4j4Pwv1wIizRu3VP6FVOgt": 99000,
+      "variant_HQdTVIe99NfKi4yjdryOprFc": 219000,
+      "variant_f_rx-DoyHQGghKA9LCQsaoz9": 359000,
+      "variant_Year12M0JKm9wXQp7ZbV2Nq": 465000,
+    };
+    const variantMatrix: Array<{ plan: string; phone: string; price: number }> = [
+      { plan: "month", phone: "6281270000031", price: 99000 },
+      { plan: "half", phone: "6281270000032", price: 357000 },
+      { plan: "year", phone: "6281270000033", price: 465000 },
+    ];
+    for (const [i, variant] of variantMatrix.entries()) {
+      const cookie = waSessionCookie(variant.phone);
+      const arm = await armCheckout({ base: BASE_URL, phone: variant.phone, cookie });
+      const res = await fetch(`${BASE_URL}/api/scalev/create-order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": `10.77.2.${i + 1}`,
+          cookie,
+        },
+        body: JSON.stringify({ planId: variant.plan, customerPhone: variant.phone, idempotencyKey: arm.idempotencyKey }),
+      });
+      const body = await res.json();
+      assertEq(res.status, 200, `${variant.plan}: order created`);
+      assertEq(Number(body.amount), variant.price, `${variant.plan}: charged amount = list price`);
+      assertEq(claimAmount(body.orderId), String(variant.price), `${variant.plan}: claim records the charged amount`);
+      const sent = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8")).slice(-1)[0];
+      const line = sent.body.ordervariants[0];
+      assertEq(
+        VARIANT_PRICE[line.variant_unique_id] * Number(line.quantity) - Number(sent.body.product_discount || 0),
+        variant.price,
+        `${variant.plan}: Scalev is asked for the list price`
+      );
+      assertEq(
+        sent.headers?.referer,
+        "https://digitanest.myscalev.com/nina-api-redirect-bridge",
+        `${variant.plan}: page Referer present`
+      );
+    }
+
     // ── 7. half-configured Cloud binding fails safe (no other channel) ──────
     console.log("\n── Cloud binding broken: fail safe ──");
     stopApp();
@@ -626,6 +726,7 @@ async function main() {
     const callsBefore = graphCalls.length;
     const bridgeBefore = bridgeHits;
     const phone7 = "6281270000007";
+    seedClaim("250130PAY0007", phone7);
     const res7 = await postWebhook(
       paymentEvent({ eventId: `evt_postpay_7_${Date.now()}`, orderId: "250130PAY0007", phone: phone7 })
     );

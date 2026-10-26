@@ -137,8 +137,10 @@ async function startApp(): Promise<{ stop: () => void }> {
       WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
       WA_SESSION_EPOCH: "0",
       SCALEV_API_KEY: "mock-scalev-key-not-real",
+      SCALEV_PAGE_API_KEY: "ppk_test_key",
       SCALEV_CANCEL_API_KEY: "mock-scalev-cancel-key-not-real",
       SCALEV_API_BASE_URL: MOCK_URL,
+      MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses",
     } as Record<string, string>,
     stdio: ["ignore", logFd, logFd],
   });

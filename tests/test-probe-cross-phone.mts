@@ -78,7 +78,7 @@ async function main() {
 
   const postgrest = await startPostgrest();
   const mock = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
-    env: { ...process.env, MOCK_SCALEV_PORT: String(MOCK_PORT), MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
+    env: { ...process.env, MOCK_SCALEV_PORT: String(MOCK_PORT), MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE, MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   await assertMockOwner(MOCK_PORT, mock.pid);
@@ -95,6 +95,7 @@ async function main() {
       WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
       WA_SESSION_EPOCH: "0",
       SCALEV_API_KEY: "mock-scalev-key-not-real",
+      SCALEV_PAGE_API_KEY: "ppk_test_key",
       SCALEV_API_BASE_URL: MOCK_URL,
     } as Record<string, string>,
     stdio: ["ignore", logFd, logFd],

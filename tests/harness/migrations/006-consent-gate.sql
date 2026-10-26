@@ -853,17 +853,42 @@ END;
 $function$;
 
 -- ============================================================================
--- 9b. RPC: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran)
+-- 9b. RPC: gerbang entitlement + tandai klaim sudah DIBAYAR (dipanggil webhook)
 -- ============================================================================
 -- F-W4-1: `paid_at` adalah satu-satunya pembeda antara "punya order belum
 -- dibayar" (dipakai ulang / memblokir paket lain) dan riwayat lunas yang boleh
 -- dibeli ulang. Di-set dari jalur uang (webhook `payment.received`/`order.paid`)
 -- dengan kunci `order_id` — sama seperti consume_promo_for_order.
 -- Idempotent: retry webhook tidak mengubah timestamp pertama.
+--
+-- T1 (t_5783e59e — BLOKER review HTML Mode `62d9974`): fungsi ini dulu HANYA
+-- menulis `paid_at`; webhook mengaktifkan langganan tanpa pernah menilai
+-- hasilnya, jadi order yang tidak pernah lewat gate kita (atau order yang
+-- dibayar jauh di bawah harga paket) tetap mengaktifkan langganan. Sekarang
+-- fungsi yang sama adalah GERBANG-nya, dan hanya menjawab `marked` kalau:
+--   * order tercatat di `checkout_claims` (`not_found` kalau tidak),
+--   * nomor pembeli = nomor klaim (`phone_mismatch`),
+--   * jumlah yang dibayar >= `amount` klaim (`amount_mismatch`), dan
+--   * keduanya ada (`amount_unverifiable` kalau klaim/muatan nominal kosong).
+-- Alasan aturan ">=", bukan "=": kontrak Scalev (`runtime.md` §estimateSummary)
+-- menyatakan `grossRevenue` = total yang ditagihkan, tapi order `payment_link`
+-- masih bisa menambahkan Other Charges/Biaya layanan di halaman bayar Scalev
+-- setelah order dibuat. Yang ditagih tidak pernah LEBIH KECIL dari harga order;
+-- kelebihan biaya bukan alasan menahan akses. Tidak ada toleransi angka yang
+-- dikarang di sini — arahnya satu sisi dan berasal dari kontrak, bukan tebakan.
+-- Klaim NULL `amount` (baris warisan) sengaja TIDAK diberi default: fail closed.
+--
+-- Signature bertambah (p_phone, p_paid_amount) ⇒ versi 3-argumen DIBUANG lebih
+-- dulu; kalau tidak, keduanya hidup sebagai overload dan panggilan tanpa cast
+-- jadi ambigu (preseden `complete_checkout_claim`, drop-stale.sql).
+DROP FUNCTION IF EXISTS mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR);
+
 CREATE OR REPLACE FUNCTION mark_checkout_claim_paid(
   p_order_id TEXT,
   p_paid_at TIMESTAMPTZ DEFAULT NULL,
-  p_tenant_id VARCHAR DEFAULT 'thrivin'
+  p_tenant_id VARCHAR DEFAULT 'thrivin',
+  p_phone TEXT DEFAULT NULL,
+  p_paid_amount NUMERIC DEFAULT NULL
 ) RETURNS JSON
 LANGUAGE plpgsql
 SECURITY INVOKER
@@ -872,10 +897,47 @@ AS $function$
 DECLARE
   v_id UUID;
   v_state TEXT;
+  v_plan TEXT;
+  v_amount INTEGER;
+  v_phone TEXT;
   v_late BOOLEAN := false;
 BEGIN
-  IF p_order_id IS NULL OR length(p_order_id) = 0 THEN
+  -- Nomor order kosong/whitespace BUKAN order (preseden C-4).
+  IF p_order_id IS NULL OR btrim(p_order_id) = '' THEN
     RETURN json_build_object('status', 'invalid_order');
+  END IF;
+
+  SELECT id, status, plan_key, amount, phone
+    INTO v_id, v_state, v_plan, v_amount, v_phone
+  FROM checkout_claims
+  WHERE tenant_id = p_tenant_id AND order_id = p_order_id;
+
+  IF v_id IS NULL THEN
+    -- Order yang tidak lewat gate (mis. dibuat manual di dashboard Scalev).
+    RETURN json_build_object('status', 'not_found');
+  END IF;
+
+  -- Satu order hanya boleh mengaktifkan nomor yang tercatat di klaimnya.
+  IF p_phone IS NOT NULL AND v_phone <> p_phone THEN
+    RETURN json_build_object('status', 'phone_mismatch');
+  END IF;
+
+  -- Jumlah: klaim WAJIB punya nominal, dan pembayaran WAJIB menutupinya.
+  IF v_amount IS NULL OR p_paid_amount IS NULL THEN
+    RETURN json_build_object(
+      'status', 'amount_unverifiable',
+      'claim_amount', v_amount,
+      'claim_plan', v_plan
+    );
+  END IF;
+
+  IF p_paid_amount < v_amount THEN
+    RETURN json_build_object(
+      'status', 'amount_mismatch',
+      'claim_amount', v_amount,
+      'paid_amount', p_paid_amount,
+      'claim_plan', v_plan
+    );
   END IF;
 
   -- F-W4-1c: pembayaran yang masuk SETELAH order di-retire / sedang-gagal
@@ -892,17 +954,18 @@ BEGIN
         END,
         updated_at = now()
     WHERE tenant_id = p_tenant_id AND order_id = p_order_id
-    RETURNING id, status, (late_payment_at IS NOT NULL) INTO v_id, v_state, v_late;
+    RETURNING status, (late_payment_at IS NOT NULL) INTO v_state, v_late;
 
-  IF v_id IS NULL THEN
-    -- Order yang tidak lewat gate (mis. dibuat manual di dashboard Scalev).
-    RETURN json_build_object('status', 'not_found');
-  END IF;
   RETURN json_build_object(
     'status', 'marked',
     'claim_id', v_id,
     'state', v_state,
-    'late_payment', COALESCE(v_late, false)
+    'late_payment', COALESCE(v_late, false),
+    -- Paket follow dari KLAIM (yang dicetak server sebelum pelanggan membayar),
+    -- bukan dari snapshot yang bisa tidak ada / beda versi.
+    'plan_key', v_plan,
+    'amount', v_amount,
+    'phone', v_phone
   );
 END;
 $function$;
@@ -1273,7 +1336,7 @@ REVOKE ALL ON FUNCTION blocked_live_status(VARCHAR, TEXT) FROM PUBLIC, anon, aut
 REVOKE ALL ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION release_checkout_claim(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR, TEXT, NUMERIC) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION claim_checkout_cancel(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION nominate_stale_cancels(TEXT, INTEGER, INTEGER) FROM PUBLIC, anon, authenticated;
@@ -1287,7 +1350,7 @@ GRANT EXECUTE ON FUNCTION blocked_live_status(VARCHAR, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION claim_checkout_order(TEXT, INTEGER[], TEXT, TEXT, TEXT, INTEGER, VARCHAR) TO service_role;
 GRANT EXECUTE ON FUNCTION complete_checkout_claim(UUID, TEXT, TEXT, INTEGER, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION release_checkout_claim(UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR) TO service_role;
+GRANT EXECUTE ON FUNCTION mark_checkout_claim_paid(TEXT, TIMESTAMPTZ, VARCHAR, TEXT, NUMERIC) TO service_role;
 GRANT EXECUTE ON FUNCTION claim_checkout_cancel(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION record_checkout_cancel_result(UUID, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION nominate_stale_cancels(TEXT, INTEGER, INTEGER) TO service_role;

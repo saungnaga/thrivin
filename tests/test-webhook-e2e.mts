@@ -97,7 +97,7 @@ interface Stack {
 
 async function startMockScalev(): Promise<Stack> {
   const child = spawn(process.execPath, [path.join(HERE, "mock-scalev.mjs"), String(MOCK_PORT)], {
-    env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE },
+    env: { ...process.env, MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE, MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.on("data", () => {});
@@ -136,6 +136,7 @@ async function startApp(env: Record<string, string | undefined>): Promise<Stack>
       SCALEV_API_BASE_URL: MOCK_URL,
       SCALEV_STORE_ID: "store_test",
       SCALEV_API_KEY: "sk_test_key",
+      SCALEV_PAGE_API_KEY: "ppk_test_key",
       // Sesi pelanggan (kontrak W4 §2): `create-order` menuntut identitas
       // terverifikasi; suite ini membuat cookie HMAC sendiri lewat helper.
       WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
@@ -199,7 +200,7 @@ function paymentEvent(opts: {
   orderId: string;
   phone: string;
   paymentStatus: string;
-  gross?: number | string;
+  gross?: number | string | null;
   name?: string;
 }) {
   return {
@@ -210,7 +211,8 @@ function paymentEvent(opts: {
       id: `01948092-9b80-7f91-b23d-${opts.orderId}`,
       order_id: opts.orderId,
       payment_status: opts.paymentStatus,
-      gross_revenue: String(opts.gross ?? "219000.00"),
+      // `null` = the documented payment event shape that carries NO money field.
+      ...(opts.gross === null ? {} : { gross_revenue: String(opts.gross ?? "219000.00") }),
       customer_id: 28024,
       customer: { name: opts.name || "Budi Santoso", phone: opts.phone },
       destination_address: {
@@ -224,6 +226,31 @@ function paymentEvent(opts: {
       notes: "PII should never be persisted verbatim",
     },
   };
+}
+
+/**
+ * Record the order in OUR books the same way `create-order` does before a buyer
+ * ever sees a payment link (`complete_checkout_claim`). t_5783e59e: entitlement
+ * is only granted for an order with a recorded claim, amount, and plan.
+ */
+function seedClaim(opts: {
+  orderId: string;
+  phone: string;
+  planKey?: string;
+  amount?: number | null;
+  status?: string;
+  paidAt?: string | null;
+}): void {
+  const planKey = opts.planKey ?? "quarter";
+  const amount = opts.amount === undefined ? 231000 : opts.amount;
+  const status = opts.status ?? "created";
+  psqlSuper(
+    `INSERT INTO checkout_claims (tenant_id, phone, idempotency_key, plan_key, status, order_id, ` +
+      `scalev_order_uuid, payment_url, amount, paid_at) VALUES (` +
+      `'thrivin','${opts.phone}','${newIdempotencyKey("gate")}','${planKey}','${status}',` +
+      `'${opts.orderId}','uuid_${opts.orderId}','https://pay.test/${opts.orderId}',` +
+      `${amount === null ? "NULL" : amount},${opts.paidAt ? `'${opts.paidAt}'` : "NULL"});`
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -381,6 +408,7 @@ async function main() {
         orderId: orderJson.orderId,
         phone: phoneB2,
         paymentStatus: "paid",
+        gross: "231000.00",
       })
     );
     assertEq(paidMark.status, 200, "F-W4-1  webhook pembayaran -> 200");
@@ -440,18 +468,22 @@ async function main() {
       `INSERT INTO onboarding_snapshots (tenant_id, phone, order_id, snapshot) VALUES ` +
         `('thrivin', '${racePhone}', '${raceOrder}', '{"plan_key":"quarter","weight":70}'::jsonb)`
     );
+    // ...and the claim row create-order closes before handing out the link.
+    seedClaim({ orderId: raceOrder, phone: racePhone, planKey: "quarter", amount: 231000 });
 
     const paidEvent = paymentEvent({
       eventId: `evt_paid_${Date.now()}`,
       orderId: raceOrder,
       phone: racePhone,
       paymentStatus: "paid",
+      gross: "231000.00",
     });
     const settledEvent = paymentEvent({
       eventId: `evt_settled_${Date.now()}`,
       orderId: raceOrder,
       phone: racePhone,
       paymentStatus: "settled",
+      gross: "231000.00",
     });
 
     const [paidRes, settledRes] = await Promise.all([
@@ -517,6 +549,7 @@ async function main() {
       `INSERT INTO onboarding_snapshots (tenant_id, phone, order_id, snapshot) VALUES ` +
         `('thrivin', '${racePhone2}', '${raceOrder2}', '{"plan_key":"month"}'::jsonb)`
     );
+    seedClaim({ orderId: raceOrder2, phone: racePhone2, planKey: "month", amount: 99000 });
     await Promise.all([
       postWebhook(
         paymentEvent({
@@ -524,6 +557,7 @@ async function main() {
           orderId: raceOrder2,
           phone: racePhone2,
           paymentStatus: "settled",
+          gross: "99000.00",
         })
       ),
       postWebhook(
@@ -532,6 +566,7 @@ async function main() {
           orderId: raceOrder2,
           phone: racePhone2,
           paymentStatus: "paid",
+          gross: "99000.00",
         })
       ),
     ]);
@@ -563,12 +598,14 @@ async function main() {
       `INSERT INTO onboarding_snapshots (tenant_id, phone, order_id, snapshot) VALUES ` +
         `('thrivin', '${m6PhoneQ}', '${m6OrderQ}', '{"plan_key":"quarter"}'::jsonb)`
     );
+    seedClaim({ orderId: m6OrderQ, phone: m6PhoneQ, planKey: "quarter", amount: 231000 });
     await postWebhook(
       paymentEvent({
         eventId: `evt_m6q_${Date.now()}`,
         orderId: m6OrderQ,
         phone: m6PhoneQ,
         paymentStatus: "paid",
+        gross: "231000.00",
       })
     );
     const quarterRow = query<[string, string]>(
@@ -692,10 +729,204 @@ async function main() {
       paymentStatus: "paid",
       gross: "0.00",
     });
+    // A fully discounted promo order is recorded with amount 0, so Rp0 paid
+    // legitimately covers it (the gate is "paid >= recorded", not "paid > 0").
+    seedClaim({ orderId: "250130PROMOZERO", phone: "6281299900088", planKey: "quarter", amount: 0 });
     const promoRes = await postWebhook(promoEvt);
     assertEq(promoRes.status, 200, "paid status with 0 gross (valid promo) succeeds");
     const promoBody = await promoRes.json();
     assertOk("welcomeSent" in promoBody, "welcomeSent field returned in response");
+
+    // ── ENTITLEMENT GATE (t_5783e59e) ─────────────────────────────────────
+    // The blocker from the HTML Mode review: a valid HMAC over an order we never
+    // recorded activated a subscription (paid, gross_revenue "1.00", plan=month).
+    // Rule now: activate ONLY for a claim we recorded (order + phone + amount),
+    // with the plan taken from that claim.
+    console.log("\n── Entitlement gate: recorded order + amount + plan ──");
+    stopApp();
+    app = await startApp({ SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET });
+    truncateAll();
+
+    const subOf = (phone: string): { planId: string; tokenLimit: string } => {
+      const row = query<[string, string]>(
+        `SELECT s.plan_id::text, s.token_limit::text FROM subscriptions s ` +
+          `JOIN users u ON u.id = s.user_id WHERE u.phone = '${phone}'`
+      )[0];
+      return { planId: row?.[0] || "", tokenLimit: row?.[1] || "" };
+    };
+
+    // C1: order never recorded in checkout_claims, paid Rp1 → ZERO activation.
+    const gateUnknownOrder = `250130UNK${Date.now().toString().slice(-6)}`;
+    const gateUnknownPhone = "6281299900301";
+    const c1 = await postWebhook(
+      paymentEvent({
+        eventId: `evt_gate_unknown_${Date.now()}`,
+        orderId: gateUnknownOrder,
+        phone: gateUnknownPhone,
+        paymentStatus: "paid",
+        gross: "1.00",
+      })
+    );
+    const c1Body = await c1.json();
+    assertEq(c1.status, 200, "GATE  unknown order: 200 ack (no retry storm)");
+    assertEq(c1Body.userActivated, false, "GATE  unknown order paid Rp1 -> userActivated false");
+    assertEq(c1Body.code, "ENTITLEMENT_NOT_VERIFIED", "GATE  unknown order -> ENTITLEMENT_NOT_VERIFIED");
+    assertEq(countRows("subscriptions"), 0, "GATE  unknown order -> 0 subscriptions");
+    assertEq(countRows("users"), 0, "GATE  unknown order -> 0 users");
+    assertEq(
+      countRows("webhook_events_inbox", `fulfillment_key = '${gateUnknownOrder}' AND status = 'failed'`),
+      1,
+      "GATE  audit: inbox row kept and marked failed for reconciliation"
+    );
+
+    // C2: recorded order, but the money does not cover the recorded amount.
+    const gateUnderOrder = `250130UND${Date.now().toString().slice(-6)}`;
+    const gateUnderPhone = "6281299900302";
+    seedClaim({ orderId: gateUnderOrder, phone: gateUnderPhone, planKey: "quarter", amount: 231000 });
+    const c2 = await postWebhook(
+      paymentEvent({
+        eventId: `evt_gate_under_${Date.now()}`,
+        orderId: gateUnderOrder,
+        phone: gateUnderPhone,
+        paymentStatus: "paid",
+        gross: "1.00",
+      })
+    );
+    const c2Body = await c2.json();
+    assertEq(c2Body.userActivated, false, "GATE  amount mismatch (Rp1 < Rp231.000) -> 0 activation");
+    assertEq(countRows("subscriptions"), 0, "GATE  amount mismatch -> 0 subscriptions");
+    assertEq(
+      psqlSuper(`SELECT coalesce(paid_at::text,'') FROM checkout_claims WHERE order_id = '${gateUnderOrder}';`, { csv: true }),
+      "",
+      "GATE  amount mismatch -> claim NOT marked paid (reconcilable later)"
+    );
+    assertEq(
+      countRows("webhook_events_inbox", `fulfillment_key = '${gateUnderOrder}' AND status = 'failed'`),
+      1,
+      "GATE  amount mismatch -> audit row marked failed"
+    );
+
+    // C3: recorded order paid, but for a DIFFERENT phone → no activation.
+    const gatePhoneOrder = `250130TEL${Date.now().toString().slice(-6)}`;
+    seedClaim({ orderId: gatePhoneOrder, phone: "6281299900303", planKey: "quarter", amount: 231000 });
+    const c3Body = await (
+      await postWebhook(
+        paymentEvent({
+          eventId: `evt_gate_phone_${Date.now()}`,
+          orderId: gatePhoneOrder,
+          phone: "6281299900304",
+          paymentStatus: "paid",
+          gross: "231000.00",
+        })
+      )
+    ).json();
+    assertEq(c3Body.userActivated, false, "GATE  claim phone mismatch -> 0 activation");
+
+    // C4: no money field in the event at all → unverifiable, no activation.
+    const gateNoAmtOrder = `250130NOA${Date.now().toString().slice(-6)}`;
+    const gateNoAmtPhone = "6281299900305";
+    seedClaim({ orderId: gateNoAmtOrder, phone: gateNoAmtPhone, planKey: "quarter", amount: 231000 });
+    const c4Body = await (
+      await postWebhook(
+        paymentEvent({
+          eventId: `evt_gate_noamt_${Date.now()}`,
+          orderId: gateNoAmtOrder,
+          phone: gateNoAmtPhone,
+          paymentStatus: "paid",
+          gross: null,
+        })
+      )
+    ).json();
+    assertEq(c4Body.userActivated, false, "GATE  event without gross_revenue -> 0 activation");
+    assertEq(countRows("subscriptions"), 0, "GATE  C1–C4 created no subscription at all");
+
+    // C5: every paid plan activates exactly once and the PLAN COMES FROM THE
+    // CLAIM. The snapshot below deliberately says "year" so a snapshot-derived
+    // plan would show up as plan_id 3 for the month order.
+    const planMatrix: Array<{ key: string; planId: string; tokenLimit: string; gross: string; phone: string }> = [
+      { key: "month", planId: "1", tokenLimit: "100000", gross: "99000.00", phone: "6281299900311" },
+      { key: "quarter", planId: "2", tokenLimit: "500000", gross: "231000.00", phone: "6281299900312" },
+      { key: "half", planId: "3", tokenLimit: "2000000", gross: "357000.00", phone: "6281299900313" },
+      { key: "year", planId: "3", tokenLimit: "2000000", gross: "465000.00", phone: "6281299900314" },
+    ];
+    for (const plan of planMatrix) {
+      const orderId = `250130PLAN${plan.key.toUpperCase()}${Date.now().toString().slice(-5)}`;
+      seedClaim({ orderId, phone: plan.phone, planKey: plan.key, amount: Number(plan.gross.split(".")[0]) });
+      psqlSuper(
+        `INSERT INTO onboarding_snapshots (tenant_id, phone, order_id, snapshot) VALUES ` +
+          `('thrivin','${plan.phone}','${orderId}','{"plan_key":"year"}'::jsonb);`
+      );
+      const res = await postWebhook(
+        paymentEvent({
+          eventId: `evt_gate_plan_${plan.key}_${Date.now()}`,
+          orderId,
+          phone: plan.phone,
+          paymentStatus: "paid",
+          gross: plan.gross,
+        })
+      );
+      const body = await res.json();
+      assertEq(body.userActivated, true, `GATE  plan ${plan.key}: valid order activates`);
+      assertEq(countRows("subscriptions s JOIN users u ON u.id = s.user_id", `u.phone='${plan.phone}'`), 1, `GATE  plan ${plan.key}: exactly one subscription`);
+      assertEq(subOf(plan.phone).planId, plan.planId, `GATE  plan ${plan.key}: plan_id from the claim`);
+      assertEq(subOf(plan.phone).tokenLimit, plan.tokenLimit, `GATE  plan ${plan.key}: token_limit from the claim`);
+    }
+
+    // C6: replay of a valid delivery AND late payment on a retired claim.
+    const replayOrder = `250130RPL${Date.now().toString().slice(-6)}`;
+    const replayPhone = "6281299900321";
+    seedClaim({ orderId: replayOrder, phone: replayPhone, planKey: "month", amount: 99000 });
+    const replayEvent = paymentEvent({
+      eventId: `evt_gate_replay_${Date.now()}`,
+      orderId: replayOrder,
+      phone: replayPhone,
+      paymentStatus: "paid",
+      gross: "99000.00",
+    });
+    const first = await (await postWebhook(replayEvent)).json();
+    const second = await (await postWebhook(replayEvent)).json();
+    assertEq(first.userActivated, true, "GATE  replay: first delivery activates");
+    assertOk(second.userActivated !== true, "GATE  replay: second delivery does not activate again");
+    assertEq(
+      countRows("subscriptions s JOIN users u ON u.id = s.user_id", `u.phone='${replayPhone}'`),
+      1,
+      "GATE  replay: still exactly one subscription"
+    );
+
+    const lateOrder = `250130LATE${Date.now().toString().slice(-6)}`;
+    const latePhone = "6281299900322";
+    seedClaim({ orderId: lateOrder, phone: latePhone, planKey: "quarter", amount: 231000, status: "retired" });
+    const lateBody = await (
+      await postWebhook(
+        paymentEvent({
+          eventId: `evt_gate_late_${Date.now()}`,
+          orderId: lateOrder,
+          phone: latePhone,
+          paymentStatus: "paid",
+          gross: "231000.00",
+        })
+      )
+    ).json();
+    assertEq(lateBody.userActivated, true, "GATE  late payment on a RECORDED claim still grants access");
+    assertEq(
+      psqlSuper(
+        `SELECT (paid_at IS NOT NULL)::text || '/' || (late_payment_at IS NOT NULL)::text ` +
+          `FROM checkout_claims WHERE order_id = '${lateOrder}';`,
+        { csv: true }
+      ),
+      "true/true",
+      "GATE  late payment flagged for ops (paid_at + late_payment_at)"
+    );
+    assertEq(
+      countRows("subscriptions s JOIN users u ON u.id = s.user_id", `u.phone='${latePhone}'`),
+      1,
+      "GATE  late payment grants access exactly once"
+    );
+    assertOk(
+      /ENTITLEMENT_NOT_VERIFIED|amount_mismatch|not_found|amount_unverifiable/.test(serverLog()),
+      "GATE  held entitlements are logged for reconciliation",
+      "no hold line in the server log"
+    );
 
     console.log("\n==============================================================");
     let failed = 0;

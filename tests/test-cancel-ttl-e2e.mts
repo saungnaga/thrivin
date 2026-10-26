@@ -135,6 +135,7 @@ async function startMock(): Promise<Stack> {
       MOCK_SCALEV_ORDERS_FILE: ORDERS_FILE,
       MOCK_SCALEV_CANCEL_MODE_FILE: MODE_FILE,
       MOCK_SCALEV_CANCEL_FILE: CANCEL_FILE,
+      MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses",
     } as Record<string, string>,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -174,6 +175,7 @@ async function startApp(
     SCALEV_API_BASE_URL: MOCK_URL,
     SCALEV_STORE_ID: "store_test",
     SCALEV_API_KEY: CREATE_KEY,
+    SCALEV_PAGE_API_KEY: "ppk_test_key",
     SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET,
     SCALEV_CANCEL_API_KEY: CANCEL_KEY,
     WHATSAPP_BRIDGE_URL: "http://127.0.0.1:59997",
@@ -672,6 +674,12 @@ async function main() {
         { csv: true }
       );
       assertOk(retiredOrderId !== "", "pra-syarat: order retired masih menyimpan nomor bisnisnya");
+      // t_5783e59e: the paid amount must cover the RECORDED claim amount, so the
+      // event carries what this order actually asked Scalev to charge.
+      const retiredAmount = psqlSuper(
+        `select coalesce(amount::text,'219000') from checkout_claims where scalev_order_uuid='${retiredUuid}'`,
+        { csv: true }
+      );
 
       const event = (uniqueId: string) => {
         const body = {
@@ -682,7 +690,7 @@ async function main() {
             id: retiredUuid,
             order_id: retiredOrderId,
             payment_status: "paid",
-            gross_revenue: "219000.00",
+            gross_revenue: `${retiredAmount}.00`,
             customer: { name: "Kawan Uji", phone: P.happy },
             customer_phone: P.happy,
             notes: "late payment test",

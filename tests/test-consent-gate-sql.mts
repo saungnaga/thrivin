@@ -548,11 +548,11 @@ eq(fw1CrossPhone.status, "key_conflict", "F-S1 tetap: kunci milik nomor lain ⇒
 
 // (4) mark_checkout_claim_paid (dipanggil webhook): idempotent + membuka pembelian ulang
 eq(paidAt(fw1.claim_id), "", "F-W4-1: pra-syarat — klaim belum lunas");
-const mark1 = rpc(`select mark_checkout_claim_paid('ord-FW1')`);
+const mark1 = rpc(`select mark_checkout_claim_paid(p_order_id => 'ord-FW1', p_paid_amount => 231000)`);
 eq(mark1.status, "marked", "F-W4-1: mark_checkout_claim_paid ⇒ marked");
 const firstPaidAt = paidAt(fw1.claim_id);
 check(firstPaidAt.length > 0, "F-W4-1: paid_at terisi");
-rpc(`select mark_checkout_claim_paid('ord-FW1', now() + interval '1 hour')`);
+rpc(`select mark_checkout_claim_paid(p_order_id => 'ord-FW1', p_paid_at => now() + interval '1 hour', p_paid_amount => 231000)`);
 eq(paidAt(fw1.claim_id), firstPaidAt, "F-W4-1: retry webhook TIDAK menggeser paid_at pertama");
 eq(
   rpc(`select mark_checkout_claim_paid('ord-tidak-ada')`).status,
@@ -747,7 +747,7 @@ eq(fw1bPaidB.status, "granted", "T2: pra-syarat — retire membebaskan nomor");
 complete(fw1bPaidB, "ord-T2-B", "https://pay/t2-b");
 // Webhook pembayaran: order kunci lama lunas SESUDAH barisnya di-retire.
 eq(
-  rpc(`select mark_checkout_claim_paid('ord-T2-A')`).status,
+  rpc(`select mark_checkout_claim_paid(p_order_id => 'ord-T2-A', p_paid_amount => 231000)`).status,
   "marked",
   "T2: pra-syarat — order kunci lama ditandai dibayar"
 );
@@ -761,7 +761,7 @@ eq(
   "F-W4-1c: pembayaran SESUDAH retire ditandai duplikat (late_payment_at)"
 );
 eq(
-  rpc(`select (mark_checkout_claim_paid('ord-T2-A'))::json->>'late_payment'`),
+  rpc(`select (mark_checkout_claim_paid(p_order_id => 'ord-T2-A', p_paid_amount => 231000))::json->>'late_payment'`),
   true,
   "F-W4-1c: RPC pembayaran membalas late_payment=true (dipakai webhook untuk alert)"
 );
@@ -981,7 +981,7 @@ eq(
 
 // (7) `paid_at` hanya lewat jalur uang: anon/authenticated dilarang
 const anonMarkPaid = throws(
-  `begin; set local role anon; select mark_checkout_claim_paid('ord-FW1'); rollback;`
+  `begin; set local role anon; select mark_checkout_claim_paid(p_order_id => 'ord-FW1', p_paid_amount => 231000); rollback;`
 );
 check(!!anonMarkPaid, "anon DILARANG memanggil mark_checkout_claim_paid", "ternyata boleh");
 
@@ -1118,7 +1118,7 @@ eq(
 
 // (10) pemulihan: begitu order penahan lunas, kunci lama itu jalan lagi (bukan
 // terkunci selamanya karena perbaikan yang terlalu longgar/terlalu ketat).
-rpc(`select mark_checkout_claim_paid('ord-F2-K2')`);
+rpc(`select mark_checkout_claim_paid(p_order_id => 'ord-F2-K2', p_paid_amount => 231000)`);
 eq(
   claimSafe(P_f2, "quarter", KEY_F2_K1).status,
   "granted",

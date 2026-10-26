@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { normalizePhone } from "@/lib/phone";
-import { resolveSubscriptionPlan } from "@/lib/plans";
+import { resolveSubscriptionPlan, isPlanKey } from "@/lib/plans";
 import { limitRequest } from "@/lib/rate-limit";
 import {
   getOnboardingSnapshot,
@@ -48,6 +48,24 @@ function verifyScalevSignature(
 // Per-IP ceiling: Scalev retries are a handful of deliveries per order.
 const IP_LIMIT = 120;
 const PHONE_LIMIT = 60;
+
+/**
+ * Money reported by the payment event (T1, t_5783e59e).
+ *
+ * Scalev documents `grossRevenue` as "the displayed and charged total". The
+ * payment event is documented as the `order.payment_status_changed` data shape,
+ * which MAY omit money fields entirely — so a missing value is not guessed from
+ * the price table. Missing = unverifiable = the claim gate holds access
+ * (`amount_unverifiable`) and ops reconciles. Decimal strings are accepted.
+ */
+function parsePaidAmount(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -207,20 +225,53 @@ export async function POST(req: Request) {
       }
 
       try {
-        const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
-        const plan = resolveSubscriptionPlan(snapshot?.plan_key);
-        const activation = await activateUserSubscription(cleanPhone, customerName, snapshot);
-        // F-W4-1: pembayaran masuk → klaim gate nomor ini ditandai lunas, jadi
-        // kunci checkout BARU dari nomor yang sama mencetak order baru (pembelian
-        // ulang sah), bukan memakai ulang / diblokir oleh order yang sudah dibayar.
-        // F-W4-1c: kalau order itu sudah `retired` / sedang-gagal dicancel, event
-        // ini TELAT — akses TETAP diberikan (dedup `fulfillment_key` tetap penentu),
-        // tapi ops diangkat alert-nya (refund manual hanya kalau duplikat nyata).
-        // Best effort: tidak pernah melempar ke jalur webhook. Tanpa PII.
-        const paid = await markCheckoutClaimPaid(String(orderUniqueId));
-        if (paid.latePayment) {
+        // T1 (t_5783e59e): THE gate, evaluated BEFORE any side effect. Only an
+        // order we recorded (claim exists), for the phone that recorded it, with
+        // money that covers the recorded amount, may activate anything. Every
+        // other status keeps access at zero and lands in reconciliation.
+        const paidAmount = parsePaidAmount(
+          data.gross_revenue ?? data.grossRevenue ?? data.total ?? null
+        );
+        const gate = await markCheckoutClaimPaid(String(orderUniqueId), {
+          phone: cleanPhone,
+          paidAmount,
+        });
+        if (gate.status !== "marked" || !isPlanKey(gate.planKey)) {
+          const reason = gate.status === "marked" ? "plan_unreadable" : gate.status;
+          // 200 + no retry: a re-delivery cannot change the order, amount, or
+          // plan — a retry storm would only hide the row ops needs to see.
+          await finalizeWebhookEvent(String(eventId), { status: "failed" });
           console.error(
-            `[webhook][ALERT] pembayaran TELAT untuk order ${orderUniqueId} (state=${paid.state}) — cek refund/duplikat, akses sudah diberikan`
+            `[Scalev Webhook][ALERT] entitlement DITAHAN order=${orderUniqueId} reason=${reason} paidAmount=${
+              paidAmount === null ? "absent" : paidAmount
+            } — nol aktivasi, rekonsiliasi manual`
+          );
+          return NextResponse.json({
+            ok: true,
+            eventId: String(eventId),
+            orderId: orderUniqueId,
+            userActivated: false,
+            code: "ENTITLEMENT_NOT_VERIFIED",
+            reason,
+          });
+        }
+
+        const snapshot = await getOnboardingSnapshot(cleanPhone, orderUniqueId);
+        // Plan comes from the claim (printed by the server before payment), not
+        // from `resolveSubscriptionPlan(undefined) => month`.
+        const plan = resolveSubscriptionPlan(gate.planKey);
+        const activation = await activateUserSubscription(
+          cleanPhone,
+          customerName,
+          snapshot,
+          gate.planKey
+        );
+        // F-W4-1c: late payment (claim already `retired` / mid-cancel) keeps the
+        // access — dedup `fulfillment_key` decides the grant — but is flagged so
+        // ops can check for a real duplicate/refund.
+        if (gate.latePayment) {
+          console.error(
+            `[webhook][ALERT] pembayaran TELAT untuk order ${orderUniqueId} (state=${gate.state}) — cek refund/duplikat, akses sudah diberikan`
           );
         }
         // Pembayaran diterima -> reservasi promo jadi 'consumed' (mengunci 1x

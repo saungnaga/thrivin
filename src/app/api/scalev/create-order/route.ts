@@ -39,6 +39,55 @@ const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 // a real order in the Scalev production account. Default is the real API.
 const SCALEV_API_BASE = process.env.SCALEV_API_BASE_URL || "https://api.scalev.com";
 
+const POST_PAYMENT_REDIRECT_URL = "https://thrivin.id/pembayaran/sukses";
+const SCALEV_PAGE_ID = process.env.SCALEV_PAGE_ID || "page_cc17802cd39f34cd";
+const SCALEV_PAGE_ORIGIN = process.env.SCALEV_PAGE_ORIGIN || "https://digitanest.myscalev.com";
+const SCALEV_PAGE_SLUG = process.env.SCALEV_PAGE_SLUG || "nina-api-redirect-bridge";
+
+/**
+ * Business POST /v3/orders has no post-payment redirect input. HTML Mode does:
+ * Scalev snapshots this URL at creation and reveals it only after paid/settled.
+ */
+async function createScalevOrder(input: {
+  customerName: string;
+  customerPhone: string;
+  variantId: string;
+  quantity: number;
+  productDiscount: number;
+  notes: string;
+}) {
+  const pageKey = (process.env.SCALEV_PAGE_API_KEY || "").trim();
+  if (!pageKey) {
+    return { response: null, data: { message: "SCALEV_PAGE_API_KEY is not configured" } };
+  }
+  const payload = {
+    // This is the exact flattened shape emitted by the published HTML Mode
+    // runtime (`mo()`), not the different business-order shape.
+    customer_name: input.customerName,
+    customer_phone: input.customerPhone,
+    ordervariants: [{ variant_unique_id: input.variantId, quantity: input.quantity }],
+    product_discount: input.productDiscount,
+    payment_method: "payment_link",
+    notes: input.notes,
+    is_post_payment_redirect_enabled: true,
+    post_payment_redirect_url: POST_PAYMENT_REDIRECT_URL,
+  };
+  const pageUrl = `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`;
+  const response = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
+    method: "POST",
+    headers: {
+      "X-Scalev-Page-Api-Key": pageKey,
+      Origin: SCALEV_PAGE_ORIGIN,
+      Referer: pageUrl,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  return { response, data: await response.json().catch(() => ({})) };
+}
+
 const PAID_ORDER_STATUSES = new Set([
   "confirmed",
   "in_process",
@@ -120,39 +169,6 @@ function planKeyFromVariantPrice(price: number): PlanKey | null {
   // Identical fallback variant × price (half/year) is not unambiguous.
   const distinctVariants = new Set(matches.map((k) => PLAN_CATALOG[k].fallbackVariantId));
   return distinctVariants.size === 1 ? null : matches[0];
-}
-
-/**
- * Scalev contract (docs/creating-orders §5): `POST /v3/orders` has NO redirect
- * field. The canonical checkout destination is `redirect_url` on the PUBLIC
- * order read, which needs the storefront key. We surface that field verbatim —
- * never reconstructed, never copied from the deprecated `payment_url`.
- * Best effort: without the key (or on any error) the client keeps using
- * `paymentUrl`.
- */
-async function lookupCheckoutRedirect(
-  storeId: string,
-  secretSlug: string
-): Promise<string | null> {
-  const storefrontKey = (process.env.SCALEV_STOREFRONT_API_KEY || "").trim();
-  if (!storefrontKey || !secretSlug) return null;
-  try {
-    const res = await fetch(
-      `${SCALEV_API_BASE}/v3/stores/${storeId}/public/orders/${encodeURIComponent(secretSlug)}`,
-      {
-        headers: { "X-Scalev-Storefront-Api-Key": storefrontKey },
-        cache: "no-store",
-      } as RequestInit
-    );
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
-    const raw = json?.data?.redirect_url ?? json?.redirect_url;
-    const value = typeof raw === "string" ? raw.trim() : "";
-    return value || null;
-  } catch (err) {
-    console.warn("[create-order] public order lookup failed:", redactError(err));
-    return null;
-  }
 }
 
 /**
@@ -675,34 +691,23 @@ export async function POST(req: Request) {
     } (Rp ${targetAmount.toLocaleString("id-ID")})`;
 
     const orderPayload = {
-      store_unique_id: storeId,
-      customer_name: cleanName,
-      customer_phone: cleanPhone,
-      ordervariants: [{ variant_unique_id: variant.uniqueId, quantity }],
-      product_discount: productDiscount,
-      payment_method: "payment_link",
+      customerName: cleanName,
+      customerPhone: cleanPhone,
+      variantId: variant.uniqueId,
+      quantity,
+      productDiscount,
       notes: orderNotes,
     };
 
-    const orderRes = await fetch(`${SCALEV_API_BASE}/v3/orders`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(orderPayload),
-    });
+    const { response: orderRes, data: orderData } = await createScalevOrder(orderPayload);
 
-    const orderData = await orderRes.json();
-
-    if (!orderRes.ok) {
+    if (!orderRes?.ok) {
       // Klien kita tidak bisa memperbaiki error Scalev -> jangan teruskan status
       // upstream mentah (422 dari Scalev bukan berarti request browser salah).
       // 502 = gateway downstream gagal; pesan aslinya tetap ikut.
       console.error(
         "Scalev order creation failed:",
-        orderRes.status,
+        orderRes?.status ?? "unconfigured",
         redactError(orderData)
       );
       // Kuota sudah diklaim tapi ordernya gagal -> slotnya dikembalikan.
@@ -720,12 +725,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // Never rewrite Scalev's host: the public order is resolved by HOST + slug,
-    // so any substituted domain returns 404 (proved 2026-10-25). We only report
-    // whether the canonical host answered, so the client can offer a contact
-    // path instead of navigating into a dead end.
     const paymentLink = await checkCheckoutLink(
-      orderData?.pg_payment_info?.payment_url ||
+      orderData?.redirect_url ||
+        orderData?.pg_payment_info?.payment_url ||
         orderData?.payment_url ||
         orderData?.public_order_url ||
         ""
@@ -816,14 +818,7 @@ export async function POST(req: Request) {
       activeClaimId = null;
     }
 
-    // Canonical checkout destination per Scalev docs (public order read).
-    // Informational for the client: the order itself already exists.
-    // Same dead-host rule as `paymentUrl`: this URL is also built on the store's
-    // custom host, so probe it and swap to the verified hosted domain when dead.
-    const redirectLink = await checkCheckoutLink(
-      await lookupCheckoutRedirect(storeId, String(orderData.secret_slug ?? "").trim())
-    );
-    const redirectUrl = redirectLink.url;
+    const redirectUrl = paymentUrl;
 
     return NextResponse.json({
       orderId: orderData.order_id,
@@ -833,7 +828,7 @@ export async function POST(req: Request) {
       redirectUrl,
       // `false` means Scalev's canonical host did not answer AND no verified
       // hosted fallback applies: offer a contact path instead of a dead link.
-      paymentPageReachable: paymentLink.reachable && redirectLink.reachable,
+      paymentPageReachable: paymentLink.reachable,
       supportUrl: NINA_WA_LINK,
       amount: orderData.gross_revenue,
     });

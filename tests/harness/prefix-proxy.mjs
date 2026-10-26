@@ -76,6 +76,12 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(listenPort, "127.0.0.1");
-const shutdown = () => server.close(() => process.exit(0));
+const shutdown = () => {
+  // A persistent request may keep server.close() waiting forever. The suite's
+  // teardown must release its port even when a test leaves an idle connection.
+  const forceExit = setTimeout(() => process.exit(0), 500);
+  forceExit.unref();
+  server.close(() => process.exit(0));
+};
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

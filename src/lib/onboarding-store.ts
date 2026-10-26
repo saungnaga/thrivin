@@ -545,11 +545,15 @@ export function formatNinaProfileMemory(
  *
  * Must only be called by the delivery that won `claimWebhookEvent` (H-6).
  * Quota comes from the plan recorded on the snapshot, never hardcoded (M-6).
+ * `planKey` (T1, t_5783e59e) lets the payment path pass the plan recorded on
+ * `checkout_claims` — the row printed by the server BEFORE the buyer paid — so
+ * provisioning no longer depends on a snapshot existing or still matching.
  */
 export async function activateUserSubscription(
   phone: string,
   name: string,
-  snapshot: OnboardingProfile | null
+  snapshot: OnboardingProfile | null,
+  planKey?: string | null
 ): Promise<{ success: boolean; memory: string; userId?: string }> {
   const cleanPhone = normalizePhone(phone);
   if (!cleanPhone) {
@@ -564,7 +568,7 @@ export async function activateUserSubscription(
     return { success: true, memory: memoryText, userId: "local-user-id" };
   }
 
-  const plan = resolveSubscriptionPlan(snapshot?.plan_key);
+  const plan = resolveSubscriptionPlan(planKey ?? snapshot?.plan_key);
 
   const upsertRes = await fetch(`${url}/rest/v1/users?on_conflict=phone`, {
     method: "POST",

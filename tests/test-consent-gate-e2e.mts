@@ -134,6 +134,7 @@ async function startApp(
     WA_SESSION_SECRET: DEFAULT_WA_SESSION_SECRET,
     WA_SESSION_EPOCH: "0",
     SCALEV_API_KEY: "mock-scalev-key-not-real",
+    SCALEV_PAGE_API_KEY: "ppk_test_key",
     // F-W4-1c: key cancel TERPISAH (least-privilege) — tanpa ini checkout
     // fail-closed begitu ada order basi, dan suite ini menguji jalur normalnya.
     SCALEV_CANCEL_API_KEY: CANCEL_KEY,
@@ -258,6 +259,7 @@ async function main() {
       MOCK_SCALEV_CANCEL_FILE: CANCEL_FILE,
       MOCK_SCALEV_CANCEL_MODE_FILE: CANCEL_MODE_FILE,
       MOCK_SCALEV_ORDER_MODE_FILE: ORDER_MODE_FILE,
+      MOCK_SCALEV_REDIRECT_URL: "https://thrivin.id/pembayaran/sukses",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -564,7 +566,15 @@ async function main() {
       "",
       "F-W4-1: pra-syarat — order pertama belum lunas"
     );
-    psqlSuper(`select mark_checkout_claim_paid('${fw1First.body.orderId}')`);
+    // Nominal dibaca dari klaimnya, bukan di-hardcode: validasi baru menolak
+    // pembayaran yang tidak menutupi nominal tercatat (t_5783e59e).
+    const fw1Amount = psqlSuper(
+      `select amount from checkout_claims where order_id='${fw1First.body.orderId}'`,
+      { csv: true }
+    ).trim();
+    psqlSuper(
+      `select mark_checkout_claim_paid(p_order_id => '${fw1First.body.orderId}', p_paid_amount => ${fw1Amount})`
+    );
     const afterPaid = await createOrder(P.repeatBuy, newIdempotencyKey("fw1paid"));
     assertEq(afterPaid.status, 200, "F-W4-1(a): setelah dibayar, kunci baru ⇒ 200");
     assertEq(mockOrderCount() - beforeReuse, 1, "F-W4-1(a): ... mencetak SATU order baru");
@@ -674,7 +684,13 @@ async function main() {
     const t2B = await createOrder(P.paidReplay, newIdempotencyKey("t2retire"));
     assertEq(t2B.status, 200, "T2: pra-syarat — retire TTL membebaskan nomor ⇒ 200");
     // Webhook pembayaran menandai order KUNCI LAMA lunas (cocok lewat order_id).
-    psqlSuper(`select mark_checkout_claim_paid('${t2A.body.orderId}')`);
+    const t2Amount = psqlSuper(
+      `select amount from checkout_claims where order_id='${t2A.body.orderId}'`,
+      { csv: true }
+    ).trim();
+    psqlSuper(
+      `select mark_checkout_claim_paid(p_order_id => '${t2A.body.orderId}', p_paid_amount => ${t2Amount})`
+    );
     assertOk(
       psqlSuper(
         `select (paid_at is not null) from checkout_claims where order_id='${t2A.body.orderId}'`,

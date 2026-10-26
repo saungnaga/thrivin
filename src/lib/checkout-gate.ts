@@ -240,26 +240,63 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
 
 /**
  * F-W4-1: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran, kunci
- * `order_id`). Setelah ini nomor boleh membeli lagi; tanpa ini, order belum
- * dibayar dipakai ulang / memblokir paket lain.
- * F-W4-1c: kalau order itu sudah `retired` / sedang-gagal dicancel, pembayaran
- * ini TELAT — akses tetap diberikan (dedup `fulfillment_key` yang menentukan),
- * tapi hasilnya ditandai `latePayment` supaya pemanggil bisa mengangkat alert.
- * Best effort: pembayaran yang sudah masuk tidak boleh gagal gara-gara ini.
+ * `order_id`) **dan** jadikan fungsi itu gerbang entitlement (T1, t_5783e59e).
+ *
+ * Kenapa satu panggilan: webhook dulu mengaktifkan langganan lalu baru menilai
+ * `mark_checkout_claim_paid` sebagai best-effort — hasil RPC-nya dibuang, jadi
+ * order yang tidak pernah tercatat (`not_found`) atau dibayar di bawah harga
+ * klaim tetap mengaktifkan paket (fallback `month`). Sekarang status RPC
+ * DIPROPAGASIKAN dan pemanggil dilarang mengaktifkan apa pun kecuali `marked`.
+ *
+ * Sengaja TIDAK menebak: `not_found`/`phone_mismatch`/`amount_mismatch`/
+ * `amount_unverifiable`/`invalid_order` semuanya berarti "jangan aktivasi".
+ * Kegagalan transport = `error` (juga jangan aktivasi, dan jangan melempar ke
+ * jalur webhook). Best effort yang tersisa hanyalah `paid_at` di dalam SQL.
  */
+export type CheckoutClaimPayment =
+  | {
+      status: "marked";
+      latePayment: boolean;
+      state: string;
+      planKey: string;
+      amount: number | null;
+    }
+  | { status: "not_found" | "phone_mismatch" | "amount_mismatch" | "amount_unverifiable" | "invalid_order" }
+  | { status: "error"; detail: string };
+
 export async function markCheckoutClaimPaid(
   orderId: string,
-  paidAt?: string
-): Promise<{ latePayment: boolean; state: string }> {
+  opts: { phone?: string | null; paidAmount?: number | null; paidAt?: string } = {}
+): Promise<CheckoutClaimPayment> {
+  let row: any;
   try {
-    const row = await callRpc("mark_checkout_claim_paid", {
+    row = await callRpc("mark_checkout_claim_paid", {
       p_order_id: String(orderId),
-      p_paid_at: paidAt || null,
+      p_paid_at: opts.paidAt || null,
+      p_phone: opts.phone || null,
+      p_paid_amount: opts.paidAmount ?? null,
     });
-    return { latePayment: row?.late_payment === true, state: String(row?.state || "") };
   } catch (err) {
-    console.error("[CheckoutGate] gagal menandai klaim dibayar:", redactError(err));
-    return { latePayment: false, state: "" };
+    console.error("[CheckoutGate] gagal menilai klaim pembayaran:", redactError(err));
+    return { status: "error", detail: redactError(err) };
+  }
+  switch (row?.status) {
+    case "marked":
+      return {
+        status: "marked",
+        latePayment: row?.late_payment === true,
+        state: String(row?.state || ""),
+        planKey: String(row?.plan_key || ""),
+        amount: row?.amount === null || row?.amount === undefined ? null : Number(row.amount),
+      };
+    case "not_found":
+    case "phone_mismatch":
+    case "amount_mismatch":
+    case "amount_unverifiable":
+    case "invalid_order":
+      return { status: row.status };
+    default:
+      return { status: "error", detail: JSON.stringify(row) };
   }
 }
 
