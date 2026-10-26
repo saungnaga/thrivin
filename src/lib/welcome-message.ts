@@ -88,21 +88,47 @@ export function maskedPhone(phone: string): string {
 }
 
 /**
+ * Short {{2}}-style context line for an approved greeting template.
+ * Only used when the template has a second body parameter.
+ */
+export function buildWelcomeContext(focus?: string): string {
+  const clean = hasText(focus) ? String(focus).trim() : "";
+  return clean
+    ? `Selamat datang di Thrivin! Fokus kamu ${clean} udah aku catat ya.`
+    : `Selamat datang di Thrivin! Profil kamu udah aku catat ya.`;
+}
+
+export interface WelcomeSendResult {
+  sent: boolean;
+  /** `template` = Meta accepted an APPROVED template (deliverable outside the 24h window). */
+  via?: "template" | "text";
+  /** Only a template send is delivery-safe for a first-time recipient. */
+  verified?: boolean;
+  reason?: string;
+  messageId?: string;
+}
+
+/**
  * Best-effort delivery of a first-touch greeting over WhatsApp Cloud API.
  *
  * NEVER throws and NEVER falls back to another channel: a dead Cloud binding or
  * a bad number must not fail a webhook that already activated a subscription,
  * and must not resurrect the Baileys bridge.
  *
- * A brand-new buyer usually has no open 24h window, so Graph answers 131047
- * (re-engagement). That path retries exactly once with the APPROVED welcome
- * template; with no template configured the send is recorded as failed.
+ * A brand-new buyer has no open 24h window BY DEFINITION, and Meta does not
+ * deliver free-form text there — it may even answer HTTP 200 and fail the
+ * delivery asynchronously (status webhook), which is why an accepted text was
+ * previously recorded as "sent" while nothing arrived. So when an APPROVED
+ * welcome template is configured we send that FIRST; text is only the fallback
+ * for a recipient that already has an open window (re-purchase), and such a
+ * send is reported as unverified.
  */
 export async function sendWelcomeMessage(
   phone: string,
   message: string,
-  name?: string | null
-): Promise<{ sent: boolean; reason?: string; messageId?: string }> {
+  name?: string | null,
+  context?: string | null
+): Promise<WelcomeSendResult> {
   const to = normalizePhone(phone);
   if (!to) {
     console.warn(
@@ -119,31 +145,50 @@ export async function sendWelcomeMessage(
     return { sent: false, reason: "cloud_not_configured" };
   }
 
-  const body = splitBubbles(message).join("\n\n");
-  let result = await sendCloudText(cfg, to, body);
+  const template = readWelcomeTemplate();
 
-  // 131047: outside the 24h customer-service window (or never opened). Only an
-  // approved template may open it — and only if the owner configured one.
-  if (!result.ok && result.errorCode === 131047) {
-    const template = readWelcomeTemplate();
-    if (!template) {
-      console.warn(
-        `[WelcomeMessage] 24h window closed (${maskedPhone(phone)}) and no approved welcome template configured — greeting NOT sent`
-      );
-      return { sent: false, reason: "template_not_configured" };
+  // First touch = closed window: only an approved template can be delivered.
+  if (template) {
+    const templated = await sendCloudTemplate(cfg, to, template, name, context);
+    if (templated.ok) {
+      return { sent: true, via: "template", verified: true, messageId: templated.messageId };
     }
-    result = await sendCloudTemplate(cfg, to, template, name);
+    console.warn(
+      `[WelcomeMessage] Approved template send failed (${maskedPhone(phone)}): ${
+        templated.reason || "unknown"
+      }${templated.errorCode ? ` code=${templated.errorCode}` : ""} — falling back to text`
+    );
   }
 
+  const body = splitBubbles(message).join("\n\n");
+  const result = await sendCloudText(cfg, to, body);
+
   if (!result.ok) {
+    if (result.errorCode === 131047 && !template) {
+      console.warn(
+        `[WelcomeMessage] 24h window closed (${maskedPhone(phone)}) and no approved welcome template configured — greeting NOT delivered`
+      );
+    }
     console.warn(
       `[WelcomeMessage] Cloud send failed (${maskedPhone(phone)}): ${result.reason || "unknown"}${
         result.errorCode ? ` code=${result.errorCode}` : ""
       }`
     );
-    return { sent: false, reason: result.reason || "cloud_send_failed" };
+    return {
+      sent: false,
+      reason:
+        result.errorCode === 131047 && !template ? "template_not_configured" : result.reason || "cloud_send_failed",
+    };
   }
-  return { sent: true, messageId: result.messageId };
+
+  if (!template) {
+    // Meta accepted a free-form message, but for a first-time recipient there is
+    // no window to accept it in: acceptance is NOT delivery. Say so out loud.
+    console.warn(
+      `[WelcomeMessage] Text accepted for ${maskedPhone(phone)} with NO approved welcome template configured — delivery to a first-time recipient is not guaranteed (set WHATSAPP_CLOUD_WELCOME_TEMPLATE)`
+    );
+  }
+  return { sent: true, via: "text", verified: false, messageId: result.messageId };
 }
 
 const WELCOME_DIR =

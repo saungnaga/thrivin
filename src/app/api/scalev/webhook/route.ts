@@ -8,14 +8,16 @@ import {
   claimWebhookEvent,
   finalizeWebhookEvent,
   activateUserSubscription,
-  recordGreetingSent,
+  recordGreetingStatus,
   isTimestampWithinReplayWindow,
   buildAuditPayload,
   redactError,
 } from "@/lib/onboarding-store";
 import {
+  buildWelcomeContext,
   buildWelcomeMessage,
   claimWelcomeSend,
+  focusLabel,
   sendWelcomeMessage,
 } from "@/lib/welcome-message";
 import { consumePromoForOrder } from "@/lib/promo";
@@ -240,22 +242,39 @@ export async function POST(req: Request) {
         // a dead binding never rolls back the subscription (never throws).
         let welcomeSent = false;
         let welcomeMessageId: string | undefined;
+        let welcomeVia: string | undefined;
+        let welcomeReason: string | undefined;
         if (activation.success && claimWelcomeSend(fulfillmentKey)) {
           const result = await sendWelcomeMessage(
             cleanPhone,
             buildWelcomeMessage(customerName, snapshot),
-            customerName
+            customerName,
+            buildWelcomeContext(focusLabel(snapshot))
           );
           welcomeSent = result.sent;
           welcomeMessageId = result.messageId;
+          welcomeVia = result.via;
+          welcomeReason = result.reason;
           if (welcomeSent && orderUniqueId) {
-            await recordGreetingSent(orderUniqueId);
+            // `sent` only means Meta accepted it; only a template send is
+            // deliverable outside the 24h window (see lib/welcome-message.ts).
+            await recordGreetingStatus(
+              orderUniqueId,
+              result.verified ? "sent" : "sent_unverified"
+            );
+          }
+          if (!welcomeSent) {
+            console.error(
+              `[Scalev Webhook][ALERT] first-touch greeting NOT sent order=${orderUniqueId} reason=${
+                welcomeReason || "unknown"
+              } — pembeli tidak akan disapa Nina`
+            );
           }
         }
 
         // M-4: event/order ids only — no phone number, no customer name.
         console.log(
-          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success} memorySeeded=${memorySeeded ?? "-"} welcomeSent=${welcomeSent}`
+          `[Scalev Webhook] Fulfilment completed event=${eventId} order=${orderUniqueId} plan=${plan.lastPlanKey} activated=${activation.success} memorySeeded=${memorySeeded ?? "-"} welcomeSent=${welcomeSent} welcomeVia=${welcomeVia ?? "-"}`
         );
 
         // M-3: no PII echoed back to the caller or any intermediary log.

@@ -311,8 +311,13 @@ export async function getOnboardingSnapshot(
   return null;
 }
 
-/** Record Nina's first-touch greeting delivery status in Supabase. */
-export async function recordGreetingSent(orderId: string): Promise<void> {
+/**
+ * Record Nina's first-touch greeting status in Supabase.
+ * `sent` = an APPROVED template was accepted by Meta (deliverable outside the
+ * 24h window). `sent_unverified` = free-form text accepted, but no template was
+ * configured, so delivery to a first-time recipient is not guaranteed.
+ */
+export async function recordGreetingStatus(orderId: string, status: string): Promise<void> {
   if (!orderId) return;
   const { url, key } = getSupabaseConfig();
   if (!url || !key) return;
@@ -325,7 +330,7 @@ export async function recordGreetingSent(orderId: string): Promise<void> {
         method: "PATCH",
         headers: { ...serviceHeaders(key), Prefer: "return=minimal" },
         body: JSON.stringify({
-          first_greeting_status: "sent",
+          first_greeting_status: status,
           first_greeting_sent_at: new Date().toISOString(),
         }),
       }

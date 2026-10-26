@@ -50,7 +50,7 @@ export function readCloudConfig(env: NodeJS.ProcessEnv = process.env): CloudConf
 export interface WelcomeTemplate {
   name: string;
   lang: string;
-  /** Body parameters to send (0 = greeting with no name hole). */
+  /** Body parameters to send: 0, 1 ({{1}} = name) or 2 ({{1}} = name, {{2}} = context). */
   params: number;
 }
 
@@ -60,8 +60,8 @@ export function readWelcomeTemplate(
   const name = String(env.WHATSAPP_CLOUD_WELCOME_TEMPLATE || "").trim();
   if (!name) return null;
   const lang = String(env.WHATSAPP_CLOUD_WELCOME_TEMPLATE_LANG || "id").trim() || "id";
-  const rawParams = Number(env.WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS || 0);
-  const params = Number.isFinite(rawParams) && rawParams > 0 ? 1 : 0;
+  const rawParams = Math.trunc(Number(env.WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS || 0));
+  const params = Number.isFinite(rawParams) && rawParams > 0 ? Math.min(rawParams, 2) : 0;
   return { name, lang, params };
 }
 
@@ -133,9 +133,17 @@ export function sendCloudTemplate(
   cfg: CloudConfig,
   to: string,
   template: WelcomeTemplate,
-  name?: string | null
+  name?: string | null,
+  context?: string | null
 ): Promise<CloudSendResult> {
-  const params = template.params === 1 ? [String(name || "Kawan Thrivin").trim()] : [];
+  const first = String(name || "Kawan Thrivin").trim() || "Kawan Thrivin";
+  const second = String(context || "").trim();
+  const params =
+    template.params === 0
+      ? []
+      : template.params === 1
+        ? [first]
+        : [first, second || "Selamat datang di Thrivin"];
   return send(cfg, to, {
     type: "template",
     template: {

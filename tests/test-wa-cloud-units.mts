@@ -133,7 +133,7 @@ async function run() {
     "zero Baileys/bridge calls even with WHATSAPP_BRIDGE_URL still set"
   );
 
-  // ── 5. 24h window closed, no approved template ⇒ recorded failure ─────────
+  // ── 5. no template ⇒ text attempt; a sync 131047 is recorded as a failure ──
   setCloudEnv();
   resetCalls();
   mode = "131047";
@@ -143,41 +143,95 @@ async function run() {
   assert.equal(calls.length, 1, "no retry through any other channel");
   assert.equal(calls[0].body.type, "text");
 
-  // ── 6. 24h window closed + template ⇒ exactly one template retry ──────────
+  // ── 5b. no template, text accepted ⇒ sent but NOT verified ────────────────
+  // A brand-new buyer has no 24h window, so Meta accepting a free-form text is
+  // not proof of delivery (t_b8e96a91). The caller must see that difference.
+  setCloudEnv();
+  resetCalls();
+  mode = "ok";
+  const textOnly = await sendWelcomeMessage("6281299900010", buildWelcomeMessage("Sari", null), "Sari");
+  assert.equal(textOnly.sent, true);
+  assert.equal(textOnly.via, "text");
+  assert.equal(textOnly.verified, false, "free-form text without a template must not count as verified");
+
+  // ── 6. template configured ⇒ TEMPLATE FIRST (first touch = closed window) ──
   setCloudEnv({
     WHATSAPP_CLOUD_WELCOME_TEMPLATE: "welcome_thrivin",
     WHATSAPP_CLOUD_WELCOME_TEMPLATE_LANG: "id",
     WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS: "1",
   });
   resetCalls();
-  mode = "131047";
-  const firstCallFails = await sendWelcomeMessage(
+  mode = "ok";
+  const templated = await sendWelcomeMessage(
     "6281299900004",
     buildWelcomeMessage("Sari", null),
-    "Sari"
+    "Sari",
+    "Selamat datang di Thrivin!"
   );
-  // The stub answers 131047 on every call, so the retry is visible as call #2.
-  assert.equal(firstCallFails.sent, false, "template retry also failed in this stub");
-  assert.equal(calls.length, 2, `expected text + one template retry, got ${calls.length}`);
-  assert.equal(calls[1].body.type, "template");
-  assert.equal(calls[1].body.template.name, "welcome_thrivin");
-  assert.equal(calls[1].body.template.language.code, "id");
-  assert.deepEqual(calls[1].body.template.components[0].parameters, [
-    { type: "text", text: "Sari" },
-  ]);
+  assert.equal(calls.length, 1, `expected exactly 1 call, got ${calls.length}`);
+  assert.equal(
+    calls[0].body.type,
+    "template",
+    "a first-time recipient can only be reached with an approved template — text must not be tried first"
+  );
+  assert.equal(calls[0].body.template.name, "welcome_thrivin");
+  assert.equal(calls[0].body.template.language.code, "id");
+  assert.deepEqual(calls[0].body.template.components[0].parameters, [{ type: "text", text: "Sari" }]);
+  assert.equal(templated.sent, true);
+  assert.equal(templated.via, "template");
+  assert.equal(templated.verified, true, "template acceptance is the only verified first-touch path");
 
-  // ── 7. template success path (text rejected, template accepted) ───────────
+  // ── 6b. template fails ⇒ one text fallback, reported unverified ───────────
+  resetCalls();
+  mode = "500";
+  const tplFails = await sendWelcomeMessage("6281299900011", buildWelcomeMessage("Sari", null), "Sari");
+  assert.equal(calls.length, 2, `expected template then text, got ${calls.length}`);
+  assert.equal(calls[0].body.type, "template");
+  assert.equal(calls[1].body.type, "text");
+  assert.equal(tplFails.sent, false);
+  assert.equal(tplFails.reason, "graph_http_500");
+
+  // ── 6c. two-parameter template carries name + context ─────────────────────
+  setCloudEnv({
+    WHATSAPP_CLOUD_WELCOME_TEMPLATE: "nina_p2_checkin",
+    WHATSAPP_CLOUD_WELCOME_TEMPLATE_LANG: "id",
+    WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS: "2",
+  });
+  resetCalls();
+  mode = "ok";
+  await sendWelcomeMessage(
+    "6281299900012",
+    buildWelcomeMessage("Rani", null),
+    "Rani",
+    "Selamat datang di Thrivin! Profil kamu udah aku catat ya."
+  );
+  assert.deepEqual(calls[0].body.template.components[0].parameters, [
+    { type: "text", text: "Rani" },
+    { type: "text", text: "Selamat datang di Thrivin! Profil kamu udah aku catat ya." },
+  ]);
+  // no context supplied ⇒ the {{2}} hole is still filled, never empty
+  resetCalls();
+  await sendWelcomeMessage("6281299900013", buildWelcomeMessage("Rani", null), "Rani");
+  assert.equal(String(calls[0].body.template.components[0].parameters[1].text).length > 0, true);
+
+  // ── 7. template accepted ⇒ single call, verified ──────────────────────────
+  setCloudEnv({
+    WHATSAPP_CLOUD_WELCOME_TEMPLATE: "welcome_thrivin",
+    WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS: "1",
+  });
   resetCalls();
   templateAccepts = true;
+  mode = "ok";
   const viaTemplate = await sendWelcomeMessage(
     "6281299900005",
     buildWelcomeMessage("Rani", null),
     "Rani"
   );
   assert.equal(viaTemplate.sent, true);
-  assert.equal(viaTemplate.messageId, "wamid.TPL");
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].body.type, "template");
+  assert.equal(viaTemplate.via, "template");
+  assert.equal(viaTemplate.verified, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[1]?.body.type, undefined, "no second call after a successful template");
   templateAccepts = false;
 
   // ── 8. other Graph errors do not retry elsewhere ──────────────────────────

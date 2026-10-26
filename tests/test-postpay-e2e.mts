@@ -25,6 +25,7 @@ import {
   tmpPath,
   truncateAll,
   countRows,
+  query,
 } from "./harness/stack.mts";
 import {
   DEFAULT_WA_SESSION_SECRET,
@@ -260,6 +261,13 @@ function paymentEvent(opts: { eventId: string; orderId: string; phone: string })
   };
 }
 
+/** Pre-payment profile row, so the greeting status update has a row to PATCH. */
+function seedSnapshot(orderId: string, phone: string): void {
+  query(
+    `INSERT INTO onboarding_snapshots (phone, order_id, snapshot) VALUES ('${phone}', '${orderId}', '{}'::jsonb) ON CONFLICT DO NOTHING;`
+  );
+}
+
 async function postWebhook(body: unknown): Promise<Response> {
   const raw = JSON.stringify(body);
   return fetch(`${BASE_URL}/api/scalev/webhook`, {
@@ -358,8 +366,67 @@ async function main() {
     );
     fs.writeFileSync(GRAPH_MODE_FILE, "ok");
 
+    // ── 4b. approved template configured ⇒ template FIRST for a first touch ──
+    // t_b8e96a91: a brand-new buyer has no 24h window, so free-form text is
+    // accepted-but-undelivered. Only an approved template is deliverable, so it
+    // must be the FIRST call and the row must say `sent` (verified), not text.
+    console.log("\n── approved welcome template: template-first greeting ──");
+    stopApp();
+    app = await startApp({
+      SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE: "nina_p2_checkin",
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE_LANG: "id",
+      WHATSAPP_CLOUD_WELCOME_TEMPLATE_PARAMS: "2",
+    });
+    const callsBeforeTpl = graphCalls.length;
+    const phone4b = "6281270000008";
+    seedSnapshot("250130PAY0008", phone4b);
+    const res4b = await postWebhook(
+      paymentEvent({ eventId: `evt_postpay_4b_${Date.now()}`, orderId: "250130PAY0008", phone: phone4b })
+    );
+    const body4b = await res4b.json();
+    assertEq(res4b.status, 200, "webhook paid accepted with a template configured");
+    assertEq(body4b.welcomeSent, true, "greeting reported as sent");
+    assertEq(graphCalls.length, callsBeforeTpl + 1, `exactly one Graph call (got ${graphCalls.length - callsBeforeTpl})`);
+    const tplCall = graphCalls[callsBeforeTpl];
+    assertEq(tplCall?.body?.type, "template", "template must be the FIRST attempt for a first-time buyer");
+    assertEq(tplCall?.body?.template?.name, "nina_p2_checkin", "configured approved template used");
+    assertEq(tplCall?.body?.template?.language?.code, "id", "template language from config");
+    assertEq(
+      JSON.stringify(tplCall?.body?.template?.components?.[0]?.parameters?.map((p: any) => p.text)),
+      JSON.stringify(["Siti Uji", "Selamat datang di Thrivin! Profil kamu udah aku catat ya."]),
+      "name + context fill both approved holes"
+    );
+    assertEq(
+      countRows("onboarding_snapshots", `order_id='250130PAY0008' AND first_greeting_status='sent'`),
+      1,
+      "verified template send recorded as sent"
+    );
+
+    // ── 4c. no template + text accepted ⇒ recorded as UNVERIFIED, not sent ──
+    stopApp();
+    app = await startApp({ SCALEV_WEBHOOK_SECRET: WEBHOOK_SECRET });
+    const phone4c = "6281270000009";
+    seedSnapshot("250130PAY0009", phone4c);
+    const res4c = await postWebhook(
+      paymentEvent({ eventId: `evt_postpay_4c_${Date.now()}`, orderId: "250130PAY0009", phone: phone4c })
+    );
+    const body4c = await res4c.json();
+    assertEq(body4c.welcomeSent, true, "text accepted by Graph");
+    assertEq(
+      countRows("onboarding_snapshots", `order_id='250130PAY0009' AND first_greeting_status='sent_unverified'`),
+      1,
+      "text-only greeting must be recorded as sent_unverified (no template = no delivery proof)"
+    );
+    assertOk(
+      /NO approved welcome template configured/.test(serverLog()),
+      "unverified text send is logged for ops",
+      "log line missing"
+    );
+
     // ── 5. thank-you page: static, safe on direct access, correct WA link ───
     console.log("\n── /pembayaran/sukses direct access ──");
+    const callsBeforePage = graphCalls.length;
     const subsBefore = countRows("subscriptions");
     const usersBefore = countRows("users");
     const page = await fetch(
@@ -375,7 +442,7 @@ async function main() {
     );
     assertEq(countRows("subscriptions"), subsBefore, "direct access activates nothing");
     assertEq(countRows("users"), usersBefore, "direct access creates/claims no user");
-    assertEq(graphCalls.length, 3, "direct access sends no WhatsApp message");
+    assertEq(graphCalls.length, callsBeforePage, "direct access sends no WhatsApp message");
     assertEq(bridgeHits, 0, "direct access touches no bridge");
 
     // ── 6. create-order surfaces Scalev's canonical redirect_url ────────────
