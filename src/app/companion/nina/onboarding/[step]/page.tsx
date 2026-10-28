@@ -162,13 +162,27 @@ export default function OnboardingStepPage({
   const [progressWarning, setProgressWarning] = useState("");
   // Satu kunci per percobaan checkout: klik dua kali / retry jaringan memakai
   // kunci yang sama, jadi server mengembalikan order yang SAMA (bukan dua order).
+  const generateCheckoutKey = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `co-${crypto.randomUUID()}`
+      : `co-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
   const checkoutKeyRef = useRef<string>("");
   if (!checkoutKeyRef.current) {
-    checkoutKeyRef.current =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? `co-${crypto.randomUUID()}`
-        : `co-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    checkoutKeyRef.current = generateCheckoutKey();
   }
+
+  // Reset checkout state and refresh key when navigating back from payment gateway
+  useEffect(() => {
+    const handlePageShow = () => {
+      setIsCheckingOut(false);
+      setCheckoutComplete(false);
+      setCheckoutError("");
+      checkoutKeyRef.current = generateCheckoutKey();
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
 
   // Kutipan promo dari SERVER, satu per (kode, paket) — supaya SEMUA kartu bisa
   // menampilkan harga coret sejak halaman dibuka, dan tiap kartu hanya memakai
@@ -230,6 +244,9 @@ export default function OnboardingStepPage({
 
   // Save changes to localStorage
   const updateData = (fields: Partial<OnboardingData>) => {
+    if (fields.selectedPlan !== undefined || fields.promoCode !== undefined) {
+      checkoutKeyRef.current = generateCheckoutKey();
+    }
     setData((prev) => {
       const updated = { ...prev, ...fields };
       try {
@@ -703,7 +720,7 @@ export default function OnboardingStepPage({
     }, 2200);
   };
 
-  // Scalev API Dynamic Checkout (checkout.thrivin.id)
+  // Scalev API Dynamic Checkout (checkout.thrivin.com)
   const handleCheckout = async () => {
     if (!termsAccepted) {
       // Kontrol UI ini tambahan; server menolak sendiri kalau consent tidak ada.
@@ -777,7 +794,7 @@ export default function OnboardingStepPage({
           updateData({ promoCode: "" });
         }
         throw new Error(
-          resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.id"
+          resData.error || "Gagal membuat sesi pembayaran di checkout.thrivin.com"
         );
       }
 
@@ -2546,7 +2563,7 @@ export default function OnboardingStepPage({
                 {isCheckingOut ? (
                   <span className="text-white font-bold">Menyiapkan Halaman Pembayaran...</span>
                 ) : checkoutComplete ? (
-                  <span className="text-white font-bold">✓ Mengalihkan ke checkout.thrivin.id...</span>
+                  <span className="text-white font-bold">✓ Mengalihkan ke checkout.thrivin.com...</span>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-accent" />

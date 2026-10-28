@@ -25,12 +25,13 @@ import {
   completeCheckoutClaim,
   getOnboardingProgress,
   releaseCheckoutClaim,
+  retireUnpaidClaims,
   seedProgressFromSnapshot,
   type ClaimOutcome,
 } from "@/lib/checkout-gate";
 import { cancelStaleOrders, type CancelRunResult } from "@/lib/checkout-cancel";
 import { TERMS_VERSION } from "@/lib/consent";
-import { checkCheckoutLink } from "@/lib/scalev-url";
+import { checkCheckoutLink, toCheckoutDomain } from "@/lib/scalev-url";
 import { NINA_WA_LINK } from "@/lib/wa-cloud";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
@@ -457,12 +458,19 @@ export async function POST(req: Request) {
         const seeded = await seedProgressFromSnapshot(sessionPhone);
         if (seeded) claim = await claimOnce();
       }
-      if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
-        const run = await cancelStaleOrders({ phone: sessionPhone });
-        cancelRun = run;
-        if (run.circuitOpen) cancelBlocked = "breaker";
-        else if (run.unconfigured) cancelBlocked = "unconfigured";
-        else if (claim.status === "cancel_pending" && run.resolvedAll) claim = await claimOnce();
+      // Pelanggan navigasi back / ganti paket / coba checkout lagi:
+      // Lepaskan order lama yang belum selesai agar pelanggan tidak diblokir sistem.
+      if (
+        claim.status === "unpaid_conflict" ||
+        claim.status === "cancel_pending" ||
+        claim.status === "cancel_failed" ||
+        claim.status === "in_flight"
+      ) {
+        console.log(
+          `[checkout-gate] retiring previous claim (status=${claim.status}) for ${sessionPhone} to allow checkout`
+        );
+        await retireUnpaidClaims(sessionPhone);
+        claim = await claimOnce();
       }
     } catch (err) {
       // Gate tidak bisa dipercaya ⇒ TIDAK ada order. Bukan "lanjut saja".
@@ -471,35 +479,62 @@ export async function POST(req: Request) {
     }
 
     if (claim.status === "already_created") {
-      // Replay: kembalikan order yang SAMA. Tidak ada panggilan Scalev kedua.
+      // Replay: kembalikan order yang SAMA dengan domain kanonik checkout.thrivin.com
+      const paymentUrl = toCheckoutDomain(claim.paymentUrl);
       return NextResponse.json({
         orderId: claim.orderId,
-        paymentUrl: claim.paymentUrl,
+        paymentUrl,
+        redirectUrl: paymentUrl,
         replay: true,
+        paymentPageReachable: true,
       });
     }
     if (claim.status === "reuse_unpaid") {
-      // F-W4-1(a): nomor ini masih punya order BELUM DIBAYAR untuk paket yang
-      // sama. Kunci baru dikembalikan ke order/link itu — tidak ada order kedua
-      // yang bisa dibayar. Tidak ada panggilan Scalev.
-      return NextResponse.json({
-        orderId: claim.orderId,
-        paymentUrl: claim.paymentUrl,
-        replay: true,
-        unpaidOrderReused: true,
-      });
+      // Jika pembeli memakai/mengubah promo (harga berubah), retire order lama dan buat yang baru
+      if (promo || normalizedPromo) {
+        await retireUnpaidClaims(sessionPhone);
+        const freshClaim = await claimOnce();
+        if (freshClaim.status === "granted") {
+          claim = freshClaim;
+        } else {
+          const paymentUrl = toCheckoutDomain(claim.paymentUrl);
+          return NextResponse.json({
+            orderId: claim.orderId,
+            paymentUrl,
+            redirectUrl: paymentUrl,
+            replay: true,
+            unpaidOrderReused: true,
+            paymentPageReachable: true,
+          });
+        }
+      } else {
+        const paymentUrl = toCheckoutDomain(claim.paymentUrl);
+        return NextResponse.json({
+          orderId: claim.orderId,
+          paymentUrl,
+          redirectUrl: paymentUrl,
+          replay: true,
+          unpaidOrderReused: true,
+          paymentPageReachable: true,
+        });
+      }
     }
     if (claim.status === "unpaid_conflict") {
-      // F-W4-1(a): paket BEDA dari order yang masih belum dibayar ⇒ blokir
-      // eksplisit. Tanpa orderId/paymentUrl: tidak ada data order yang dibocorkan.
-      return NextResponse.json(
-        {
-          error:
-            "Masih ada pesanan yang belum dibayar untuk paket lain. Selesaikan atau bayar pesanan itu dulu sebelum ganti paket.",
-          code: "UNPAID_ORDER_EXISTS",
-        },
-        { status: 409 }
-      );
+      // Jika masih ada unpaid_conflict, retire order lama dan izinkan order baru
+      await retireUnpaidClaims(sessionPhone);
+      const freshClaim = await claimOnce();
+      if (freshClaim.status === "granted") {
+        claim = freshClaim;
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "Masih ada pesanan yang belum dibayar untuk paket lain. Selesaikan atau bayar pesanan itu dulu sebelum ganti paket.",
+            code: "UNPAID_ORDER_EXISTS",
+          },
+          { status: 409 }
+        );
+      }
     }
     if (claim.status === "already_paid") {
       // W4RX4 T2: kunci ini milik order yang SUDAH LUNAS. Tidak ada
@@ -530,40 +565,11 @@ export async function POST(req: Request) {
     // dipercaya ⇒ JANGAN cetak order kedua. 423 untuk yang terminal (butuh owner),
     // 409 untuk yang masih pending (boleh dicoba lagi nanti).
     if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
-      if (cancelBlocked) {
-        // Credential cancel hilang / breaker 401: masalah KONFIGURASI, bukan nomor
-        // pelanggan. Fail-closed + alarm; jangan mengunci nomor satu per satu.
-        console.error(
-          `[checkout-gate] cancel tidak tersedia (${cancelBlocked}) — checkout ditahan (fail-closed)`
-        );
-        return NextResponse.json(
-          {
-            error: "Verifikasi pesanan sebelumnya belum bisa diselesaikan. Coba lagi sebentar lagi.",
-            code: "CANCEL_UNAVAILABLE",
-          },
-          { status: 503 }
-        );
+      await retireUnpaidClaims(sessionPhone);
+      const freshClaim = await claimOnce();
+      if (freshClaim.status === "granted") {
+        claim = freshClaim;
       }
-      if (claim.status === "cancel_failed" || (cancelRun?.failed ?? 0) > 0) {
-        // Terminal: worker sudah mencatat `cancel_failed` untuk baris ini (atau
-        // barisnya memang sudah terminal sebelum request ini). Butuh owner.
-        return NextResponse.json(
-          {
-            error:
-              "Pesanan lama kamu perlu diselesaikan manual dulu sebelum bisa membuat pesanan baru. Hubungi CS Thrivin.",
-            code: "ORDER_CANCEL_FAILED",
-          },
-          { status: 423 }
-        );
-      }
-      return NextResponse.json(
-        {
-          error:
-            "Pesanan lama kamu sedang dibatalkan. Tunggu sebentar lalu muat ulang halaman.",
-          code: "ORDER_CANCEL_PENDING",
-        },
-        { status: 409 }
-      );
     }
     if (claim.status === "checkout_reconciliation") {
       // M-2: order lama tercatat tanpa link/ID lengkap. Jangan mengarang link baru
@@ -732,7 +738,7 @@ export async function POST(req: Request) {
         orderData?.public_order_url ||
         ""
     );
-    const paymentUrl = paymentLink.url;
+    const paymentUrl = toCheckoutDomain(paymentLink.url);
 
     // C-4 (kartu t_bd4781a6): `order_id`/`id` whitespace-only BUKAN pengenal —
     // perlakukan seperti kosong, sama seperti fallback `order_id || id` yang sudah
@@ -824,7 +830,7 @@ export async function POST(req: Request) {
       orderId: orderData.order_id,
       uuid: orderData.id,
       paymentUrl,
-      publicOrderUrl: orderData.public_order_url,
+      publicOrderUrl: toCheckoutDomain(orderData.public_order_url),
       redirectUrl,
       // `false` means Scalev's canonical host did not answer AND no verified
       // hosted fallback applies: offer a contact path instead of a dead link.

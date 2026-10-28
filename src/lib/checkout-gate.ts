@@ -239,6 +239,52 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
 }
 
 /**
+ * Retire baris klaim yang belum lunas (created/in_flight/cancel_pending/cancel_failed)
+ * untuk nomor tertentu, supaya pelanggan yang menekan tombol back di browser lalu checkout
+ * lagi (atau ganti paket) tidak dihentikan oleh sistem.
+ */
+export async function retireUnpaidClaims(phone: string): Promise<boolean> {
+  try {
+    const { url, key } = rpcEndpoint();
+    const tenant = encodeURIComponent(process.env.THRIVIN_TENANT_ID || 'thrivin');
+
+    try {
+      const rpcRes = await callRpc('retire_unpaid_claims', {
+        p_phone: phone,
+        p_tenant_id: process.env.THRIVIN_TENANT_ID || 'thrivin',
+      });
+      if (rpcRes !== undefined && rpcRes !== null) return true;
+    } catch {
+      // Fall through to PostgREST PATCH if RPC is not deployed yet
+    }
+
+    const res = await fetch(
+      `${url}/rest/v1/checkout_claims?tenant_id=eq.${tenant}&phone=eq.${encodeURIComponent(
+        phone
+      )}&status=in.(created,cancel_pending,cancel_failed,in_flight)&paid_at=is.null`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          status: 'retired',
+          updated_at: new Date().toISOString(),
+        }),
+        cache: 'no-store',
+      }
+    );
+    return res.ok;
+  } catch (err) {
+    console.error('[CheckoutGate] gagal me-retire klaim belum lunas:', redactError(err));
+    return false;
+  }
+}
+
+/**
  * F-W4-1: tandai klaim sudah DIBAYAR (dipanggil webhook pembayaran, kunci
  * `order_id`) **dan** jadikan fungsi itu gerbang entitlement (T1, t_5783e59e).
  *

@@ -20,7 +20,8 @@ import {
 } from "../src/lib/wa-cloud.ts";
 import { buildWelcomeMessage, sendWelcomeMessage } from "../src/lib/welcome-message.ts";
 
-const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+import { fileURLToPath } from "url";
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 interface Call {
   url: string;

@@ -1,20 +1,11 @@
 /**
- * Scalev builds every order URL on the store's custom domain
- * (`checkout.thrivin.id`). Proved live 2026-10-25:
- *
- *  1. That host fails TLS at Scalev's edge (`sslv3 alert handshake failure`,
- *     and `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` in a real browser), so a buyer
- *     who opens it sees a browser error — the "error after paying" report.
- *  2. The store's Scalev-hosted domain is `digitanest.myscalev.com` (the
- *     business username), NOT `thrivin.myscalev.com`. An earlier attempt swapped
- *     to the wrong host and produced "ERROR 404" because Scalev resolves a
- *     public order by HOST + secret slug. `digitanest.myscalev.com` serves both
- *     `/pay/<id>` and `/o/<slug>/success` for this store (verified in a browser).
- *
- * So: probe the canonical host, and only when it does not answer, swap it to
- * the verified hosted domain of THIS store, preserving path and query.
+ * Scalev checkout domain configuration.
+ * Owner requirement: payment must go through `checkout.thrivin.com`.
+ * Any order link emitted by Scalev (hosted `digitanest.myscalev.com`, legacy `checkout.thrivin.id`,
+ * or `thrivin.myscalev.com`) is mapped to `checkout.thrivin.com` while preserving
+ * path, query parameters, and slug.
  */
-export const STORE_CUSTOM_HOST = "checkout.thrivin.id";
+export const STORE_CUSTOM_HOST = "checkout.thrivin.com";
 export const SCALEV_HOSTED_HOST = "digitanest.myscalev.com";
 
 export interface CheckoutLink {
@@ -23,21 +14,44 @@ export interface CheckoutLink {
   reachable: boolean;
 }
 
+/**
+ * Normalizes any checkout URL to use the canonical domain `checkout.thrivin.com`.
+ * Swaps older domains or hosted domains (`checkout.thrivin.id`, `digitanest.myscalev.com`,
+ * `thrivin.myscalev.com`, or any `*.myscalev.com`) while preserving path, query, and hash.
+ */
+export function toCheckoutDomain(url: string | null | undefined): string {
+  const value = (url ?? "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.hostname === "checkout.thrivin.id" ||
+      parsed.hostname === "digitanest.myscalev.com" ||
+      parsed.hostname === "thrivin.myscalev.com" ||
+      parsed.hostname.endsWith(".myscalev.com")
+    ) {
+      parsed.hostname = STORE_CUSTOM_HOST;
+      return parsed.toString();
+    }
+    return value;
+  } catch {
+    return value.replace(
+      /checkout\.thrivin\.id|digitanest\.myscalev\.com|thrivin\.myscalev\.com/g,
+      STORE_CUSTOM_HOST
+    );
+  }
+}
+
 export async function checkCheckoutLink(
   url: string | null | undefined,
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs = 1500
+  _fetchImpl: typeof fetch = fetch,
+  _timeoutMs = 1500
 ): Promise<CheckoutLink> {
   const value = (url ?? "").trim();
-  if (!value.includes(STORE_CUSTOM_HOST)) return { url: value, reachable: true };
-  try {
-    await fetchImpl(value, { method: "HEAD", signal: AbortSignal.timeout(timeoutMs) });
-    return { url: value, reachable: true };
-  } catch {
-    // Dead custom host: same path + query on the store's verified hosted domain.
-    return {
-      url: value.split(STORE_CUSTOM_HOST).join(SCALEV_HOSTED_HOST),
-      reachable: true,
-    };
-  }
+  if (!value) return { url: "", reachable: true };
+  const normalized = toCheckoutDomain(value);
+  return {
+    url: normalized,
+    reachable: true,
+  };
 }

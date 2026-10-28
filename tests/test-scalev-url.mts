@@ -1,25 +1,13 @@
 /**
- * Unit checks for the Scalev checkout-link rule (kartu t_170cdb60).
- *
- *   node --experimental-strip-types tests/test-scalev-url.mts
- *
- * Proved live 2026-10-25 in a real browser:
- *  - `checkout.thrivin.id` (store custom domain) fails TLS at Scalev's edge:
- *    ERR_SSL_VERSION_OR_CIPHER_MISMATCH. Buyers see a browser error.
- *  - Scalev resolves a public order by HOST + secret slug, and the store's
- *    verified hosted domain is `digitanest.myscalev.com` (business username).
- *    `/pay/<id>` and `/o/<slug>/success` both render there.
- *  - `thrivin.myscalev.com` is NOT this store's domain and answers 404 — that
- *    was the wrong fallback used before.
- *
- * Rule under test: probe the canonical host; when it does not answer, swap to
- * `digitanest.myscalev.com` preserving path and query.
+ * Unit checks for the Scalev checkout-link domain mapping.
+ * Target domain: checkout.thrivin.com
  */
 import assert from "node:assert/strict";
 import {
   SCALEV_HOSTED_HOST,
   STORE_CUSTOM_HOST,
   checkCheckoutLink,
+  toCheckoutDomain,
 } from "../src/lib/scalev-url.ts";
 
 const results: Array<[string, string]> = [];
@@ -27,64 +15,78 @@ function check(ok: boolean, name: string, detail = "") {
   results.push([ok ? "PASS" : "FAIL", `${name}${detail ? " — " + detail : ""}`]);
 }
 
-const DEAD_URL = `https://${STORE_CUSTOM_HOST}/o/abc123/success`;
-const calls: string[] = [];
-
-// 1. Dead custom host => swapped to the store's verified hosted domain.
+// 1. Target custom host is checkout.thrivin.com
 {
-  calls.length = 0;
-  const out = await checkCheckoutLink(DEAD_URL, (async (url: string) => {
-    calls.push(String(url));
-    throw new Error("sslv3 alert handshake failure");
-  }) as unknown as typeof fetch);
+  check(STORE_CUSTOM_HOST === "checkout.thrivin.com", "target host is checkout.thrivin.com", STORE_CUSTOM_HOST);
+}
+
+// 2. Swaps legacy checkout.thrivin.id to checkout.thrivin.com
+{
+  const legacy = "https://checkout.thrivin.id/pay/250130ABCD";
+  const out = toCheckoutDomain(legacy);
   check(
-    out.url === `https://${SCALEV_HOSTED_HOST}/o/abc123/success`,
-    "dead host falls back to the verified hosted domain",
-    out.url
+    out === "https://checkout.thrivin.com/pay/250130ABCD",
+    "legacy checkout.thrivin.id maps to checkout.thrivin.com",
+    out
   );
-  check(out.reachable === true, "fallback URL is usable", String(out.reachable));
-  check(calls.length === 1 && calls[0] === DEAD_URL, "host is probed before swapping", `${calls.length} call(s)`);
 }
 
-// 2. The fallback host must be the business username domain, never thrivin.myscalev.com.
+// 3. Swaps digitanest.myscalev.com to checkout.thrivin.com
 {
-  check(SCALEV_HOSTED_HOST === "digitanest.myscalev.com", "fallback host is digitanest.myscalev.com", SCALEV_HOSTED_HOST);
-  check(!SCALEV_HOSTED_HOST.includes("thrivin"), "fallback host is not thrivin.myscalev.com", SCALEV_HOSTED_HOST);
+  const hosted = "https://digitanest.myscalev.com/pay/order_123";
+  const out = toCheckoutDomain(hosted);
+  check(
+    out === "https://checkout.thrivin.com/pay/order_123",
+    "hosted digitanest.myscalev.com maps to checkout.thrivin.com",
+    out
+  );
 }
 
-// 3. Host answers (SSL fixed later) => kept verbatim, no rewrite.
+// 4. Swaps thrivin.myscalev.com to checkout.thrivin.com
 {
-  const out = await checkCheckoutLink(DEAD_URL, (async () => new Response(null, { status: 200 })) as unknown as typeof fetch);
-  check(out.url === DEAD_URL && out.reachable === true, "reachable custom host is kept verbatim", out.url);
+  const wrong = "https://thrivin.myscalev.com/pay/order_456";
+  const out = toCheckoutDomain(wrong);
+  check(
+    out === "https://checkout.thrivin.com/pay/order_456",
+    "thrivin.myscalev.com maps to checkout.thrivin.com",
+    out
+  );
 }
 
-// 4. Any other host: no probe (no latency on the happy path).
+// 5. Preserves path, query parameters, and slug
 {
-  calls.length = 0;
-  const other = `https://${SCALEV_HOSTED_HOST}/pay/xyz`;
-  const out = await checkCheckoutLink(other, (async (url: string) => {
-    calls.push(String(url));
-    throw new Error("must not be called");
-  }) as unknown as typeof fetch);
-  check(out.url === other && out.reachable === true, "hosted host passes through", out.url);
-  check(calls.length === 0, "non-custom host is not probed", `${calls.length} call(s)`);
+  const direct = "https://digitanest.myscalev.com/o/slug_xyz123/success?src=promo&ref=wa";
+  const out = toCheckoutDomain(direct);
+  check(
+    out === "https://checkout.thrivin.com/o/slug_xyz123/success?src=promo&ref=wa",
+    "path, query params, and slug preserved",
+    out
+  );
 }
 
-// 5. Missing URL stays empty and is not treated as an outage.
+// 6. Already checkout.thrivin.com is kept verbatim
+{
+  const target = "https://checkout.thrivin.com/pay/250130ABCD";
+  const out = toCheckoutDomain(target);
+  check(out === target, "already canonical domain kept verbatim", out);
+}
+
+// 7. checkCheckoutLink returns reachable: true with canonical domain
+{
+  const link = await checkCheckoutLink("https://digitanest.myscalev.com/pay/test");
+  check(
+    link.url === "https://checkout.thrivin.com/pay/test" && link.reachable === true,
+    "checkCheckoutLink returns canonical url and reachable: true",
+    link.url
+  );
+}
+
+// 8. Empty and null inputs stay empty
 {
   const empty = await checkCheckoutLink("");
   const nil = await checkCheckoutLink(null);
   check(empty.url === "" && empty.reachable, "empty stays empty");
   check(nil.url === "" && nil.reachable, "null becomes empty");
-}
-
-// 6. Path + query are preserved exactly.
-{
-  const direct = `https://${STORE_CUSTOM_HOST}/o/zz9/success?src=nota`;
-  const out = await checkCheckoutLink(direct, (async () => {
-    throw new Error("down");
-  }) as unknown as typeof fetch);
-  check(out.url === `https://${SCALEV_HOSTED_HOST}/o/zz9/success?src=nota`, "path and query preserved", out.url);
 }
 
 const failed = results.filter(([s]) => s === "FAIL");
