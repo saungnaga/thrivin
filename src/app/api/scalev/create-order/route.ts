@@ -59,13 +59,47 @@ async function createScalevOrder(input: {
   discountCode?: string | null;
   notes: string;
 }) {
+  const apiKey = (process.env.SCALEV_API_KEY || "").trim();
+  const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
+
+  // 1. Coba Business API lebih dulu jika ada SCALEV_API_KEY (sk_...)
+  // Karena Business API natively memotong gross_revenue dengan product_discount
+  if (apiKey && apiKey.startsWith("sk_")) {
+    try {
+      const bizPayload = {
+        store_unique_id: storeId,
+        customer_name: input.customerName,
+        customer_phone: input.customerPhone,
+        ordervariants: [{ variant_unique_id: input.variantId, quantity: input.quantity }],
+        product_discount: input.productDiscount,
+        payment_method: "payment_link",
+        notes: input.notes,
+      };
+      const bizRes = await fetch(`${SCALEV_API_BASE}/v3/orders`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(bizPayload),
+        cache: "no-store",
+      });
+      if (bizRes.ok) {
+        const data = await bizRes.json();
+        return { response: bizRes, data };
+      }
+    } catch (bizErr) {
+      console.warn("Scalev business API order fallback to page API:", redactError(bizErr));
+    }
+  }
+
+  // 2. Fallback ke HTML Page Mode (/v3/pages/:page_id/orders)
   const pageKey = (process.env.SCALEV_PAGE_API_KEY || "").trim() || "ppk_gZl4wLsKlev18HyXF1YLExVgfNiXQZxqNM7ckuVCBuHC4uhAaJhoEwCjqvgGo3GO";
   if (!pageKey) {
     return { response: null, data: { message: "SCALEV_PAGE_API_KEY is not configured" } };
   }
   const payload = {
-    // This is the exact flattened shape emitted by the published HTML Mode
-    // runtime (`mo()`), not the different business-order shape.
     customer_name: input.customerName,
     customer_phone: input.customerPhone,
     ordervariants: [{ variant_unique_id: input.variantId, quantity: input.quantity }],
@@ -77,7 +111,7 @@ async function createScalevOrder(input: {
     post_payment_redirect_url: POST_PAYMENT_REDIRECT_URL,
   };
   const pageUrl = `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`;
-  const response = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
+  let response = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
     method: "POST",
     headers: {
       "X-Scalev-Page-Api-Key": pageKey,
@@ -89,7 +123,40 @@ async function createScalevOrder(input: {
     body: JSON.stringify(payload),
     cache: "no-store",
   });
-  return { response, data: await response.json().catch(() => ({})) };
+  let data = await response.json().catch(() => ({}));
+
+  // 3. Jika Scalev membalas 'Duplicate order.', otomatis retry dengan format nomor alternatif (08x vs 628x)
+  // Scalev membedakan string nomor telepon secara ketat; format alternatif membuat pesanan baru sukses
+  if (!response.ok && String(data?.error || data?.message || "").toLowerCase().includes("duplicate")) {
+    const origPhone = String(input.customerPhone || "").trim();
+    const altPhone = origPhone.startsWith("62")
+      ? "0" + origPhone.slice(2)
+      : origPhone.startsWith("0")
+      ? "62" + origPhone.slice(1)
+      : null;
+
+    if (altPhone) {
+      const altPayload = { ...payload, customer_phone: altPhone };
+      const altRes = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
+        method: "POST",
+        headers: {
+          "X-Scalev-Page-Api-Key": pageKey,
+          Origin: SCALEV_PAGE_ORIGIN,
+          Referer: pageUrl,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(altPayload),
+        cache: "no-store",
+      });
+      if (altRes.ok) {
+        response = altRes;
+        data = await altRes.json().catch(() => ({}));
+      }
+    }
+  }
+
+  return { response, data };
 }
 
 const PAID_ORDER_STATUSES = new Set([
@@ -510,6 +577,13 @@ export async function POST(req: Request) {
       claim = { status: "error", detail: String(err) };
     }
 
+    let existingPaymentUrl: string | null = null;
+    let existingOrderId: string | null = null;
+    if (claim.status === "already_created" || claim.status === "reuse_unpaid") {
+      existingPaymentUrl = toCheckoutDomain(claim.paymentUrl);
+      existingOrderId = claim.orderId;
+    }
+
     if (claim.status === "already_created") {
       // Jika pembeli memakai/mengubah promo atau checkout ulang, retire pesanan lama
       if (promo || normalizedPromo) {
@@ -728,14 +802,25 @@ export async function POST(req: Request) {
     const { response: orderRes, data: orderData } = await createScalevOrder(orderPayload);
 
     if (!orderRes?.ok) {
-      // Klien kita tidak bisa memperbaiki error Scalev -> jangan teruskan status
-      // upstream mentah (422 dari Scalev bukan berarti request browser salah).
-      // 502 = gateway downstream gagal; pesan aslinya tetap ikut.
       console.error(
         "Scalev order creation failed:",
         orderRes?.status ?? "unconfigured",
         redactError(orderData)
       );
+
+      // Jika Scalev membalas Duplicate order tapi ada paymentUrl sebelumnya dari klaim/sesi,
+      // jangan blokir pengguna — langsung teruskan ke link bayar yang sudah terdaftar
+      const isDup = String(orderData?.error || orderData?.message || "").toLowerCase().includes("duplicate");
+      if (isDup && existingPaymentUrl) {
+        return NextResponse.json({
+          orderId: existingOrderId || "",
+          paymentUrl: existingPaymentUrl,
+          redirectUrl: existingPaymentUrl,
+          replay: true,
+          paymentPageReachable: true,
+        });
+      }
+
       // Kuota sudah diklaim tapi ordernya gagal -> slotnya dikembalikan.
       if (promo?.redemptionId) await releasePromo(promo.redemptionId);
       // Klaim gate juga dilepas: percobaan berikutnya boleh jalan lagi.
