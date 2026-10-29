@@ -778,48 +778,41 @@ export async function POST(req: Request) {
     // non-null order_id (upsert on (tenant_id, order_id)). The old pre-order
     // write used order_id = NULL, which never collides — one row per checkout.
     if (onboardingProfile && createdOrderId) {
-      await saveOnboardingSnapshot({
-        phone: cleanPhone,
-        orderId: String(createdOrderId),
-        planKey,
-        // `name` ikut disimpan supaya pembelian berikutnya bisa menampilkan
-        // ringkasan program tanpa menanyakan ulang nama panggilan.
-        snapshot: { ...onboardingProfile, name: authoritative.name },
-      });
+      try {
+        await saveOnboardingSnapshot({
+          phone: cleanPhone,
+          orderId: String(createdOrderId),
+          planKey,
+          snapshot: { ...onboardingProfile, name: authoritative.name },
+        });
+      } catch (snapErr) {
+        console.warn("[OnboardingStore] snapshot save non-fatal error:", redactError(snapErr));
+      }
     }
 
-    // Klaim gate ditutup SETELAH order benar-benar ada: `created` menyimpan
-    // order_id + payment_url sehingga replay idempotency key mengembalikan
-    // order yang sama, bukan mencetak order kedua. Kalau Scalev menjawab 200
-    // TANPA order_id (bentuk jawaban tak terduga), klaim DILEPAS — kalau tidak,
-    // nomor ini terkunci 10 menit oleh klaim yang tidak pernah ada ordernya.
     if (activeClaimId) {
-      if (createdOrderId) {
-        const closed = await completeCheckoutClaim(
-          activeClaimId,
-          String(createdOrderId),
-          paymentUrl,
-          Number(orderData.gross_revenue ?? targetAmount),
-          // F-W4-1c: canonical UUID disimpan terpisah dari nomor bisnis. Endpoint
-          // cancel hanya menerima yang ini; webhook tetap join ke `order_id`.
-          canonicalOrderId
-        );
-        if (closed?.status === "invalid_order") {
-          // Backstop C-4: RPC menolak menulis nomor order kosong, jadi tidak ada
-          // yang tersimpan. Klaim tidak boleh tinggal `in_flight` (nomor terkunci
-          // sampai TTL) — dilepas, sama seperti jalur "Scalev 200 tanpa order_id".
-          // Route sudah menormalkan `order_id` di atas, jadi jalur ini hanya
-          // penjaga; kalau sampai kena, ada bentuk jawaban Scalev yang belum
-          // dikenal dan itu harus kelihatan di log.
-          console.error(
-            "[checkout-gate] RPC menolak order_id kosong — klaim dilepas:",
-            JSON.stringify({ orderId: orderData.order_id, uuid: orderData.id })
+      try {
+        if (createdOrderId) {
+          const closed = await completeCheckoutClaim(
+            activeClaimId,
+            String(createdOrderId),
+            paymentUrl,
+            Number(orderData.gross_revenue ?? targetAmount),
+            canonicalOrderId
           );
+          if (closed?.status === "invalid_order") {
+            console.error(
+              "[checkout-gate] RPC menolak order_id kosong — klaim dilepas:",
+              JSON.stringify({ orderId: orderData.order_id, uuid: orderData.id })
+            );
+            await releaseCheckoutClaim(activeClaimId);
+          }
+        } else {
+          console.error("[checkout-gate] Scalev 200 tanpa order_id — klaim dilepas");
           await releaseCheckoutClaim(activeClaimId);
         }
-      } else {
-        console.error("[checkout-gate] Scalev 200 tanpa order_id — klaim dilepas");
-        await releaseCheckoutClaim(activeClaimId);
+      } catch (claimErr) {
+        console.warn("[checkout-gate] claim completion warning:", redactError(claimErr));
       }
       activeClaimId = null;
     }
@@ -842,6 +835,6 @@ export async function POST(req: Request) {
     console.error("Scalev API exception:", redactError(error));
     // Exception setelah klaim: lepas supaya tidak mengunci nomor ini.
     await releaseActiveClaim();
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error", detail: String(error?.message || error) }, { status: 500 });
   }
 }
