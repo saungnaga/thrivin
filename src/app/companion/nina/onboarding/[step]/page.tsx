@@ -24,6 +24,7 @@ declare global {
 }
 
 import { fbqTrack } from "@/components/MetaPixel";
+import { formatDisplayPhone } from "@/lib/phone";
 import { STEP_FIELDS } from "@/lib/onboarding-steps";
 import { PRIVACY_PATH, TERMS_PATH, TERMS_VERSION } from "@/lib/legal";
 import {
@@ -143,6 +144,9 @@ export default function OnboardingStepPage({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  const [checkoutErrorCode, setCheckoutErrorCode] = useState("");
+  const [isVerifyingSession, setIsVerifyingSession] = useState(false);
+  const [checkoutSuccessMessage, setCheckoutSuccessMessage] = useState("");
   // Diisi hanya kalau host checkout Scalev tidak menjawab: pembeli diberi jalur
   // kontak, bukan diarahkan ke tautan mati (404 / TLS gagal).
   const [checkoutSupportUrl, setCheckoutSupportUrl] = useState("");
@@ -592,16 +596,48 @@ export default function OnboardingStepPage({
 
   // Phone validation
   const validatePhone = (phone: string) => {
-    const clean = phone.replace(/\D/g, "");
-    if (clean.length < 10) return "Nomor terlalu pendek (minimal 10 digit).";
-    if (clean.length > 13) return "Nomor melebihi batas (maksimal 13 digit).";
+    const formatted = formatDisplayPhone(phone);
+    if (!formatted) return "Nomor WhatsApp wajib diisi.";
+    if (!formatted.startsWith("08")) return "Nomor WhatsApp harus diawali 08 (contoh: 0812xxxxxxxx).";
+    if (formatted.length < 10) return "Nomor terlalu pendek (minimal 10 digit).";
+    if (formatted.length > 13) return "Nomor melebihi batas (maksimal 13 digit).";
     return "";
+  };
+
+  const handleQuickVerifyWa = async () => {
+    const formatted = formatDisplayPhone(data.whatsappNumber);
+    if (!formatted) {
+      goToStep(1);
+      return;
+    }
+    setIsVerifyingSession(true);
+    try {
+      const res = await fetch("/api/wa/session/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: formatted }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.ok) {
+        setCheckoutError("");
+        setCheckoutErrorCode("");
+        setCheckoutSuccessMessage("Sesi nomor WhatsApp berhasil diverifikasi! Silakan klik 'Ambil Paket & Bayar Sekarang' di bawah.");
+      } else {
+        goToStep(1);
+      }
+    } catch {
+      goToStep(1);
+    } finally {
+      setIsVerifyingSession(false);
+    }
   };
 
   // Langkah 1: cek status nomor ke server (TANPA OTP) + terbitkan cookie sesi.
   // Server yang memutuskan status; klien tidak pernah menebak.
   const handleWaLookup = async () => {
-    const err = validatePhone(data.whatsappNumber);
+    const formatted = formatDisplayPhone(data.whatsappNumber);
+    updateData({ whatsappNumber: formatted });
+    const err = validatePhone(formatted);
     if (err) {
       setPhoneError(err);
       return;
@@ -612,7 +648,7 @@ export default function OnboardingStepPage({
       const res = await fetch("/api/wa/session/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: data.whatsappNumber }),
+        body: JSON.stringify({ phone: formatted }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) {
@@ -687,7 +723,9 @@ export default function OnboardingStepPage({
 
   // Handle WhatsApp submission with calculation/syncing animation
   const handleProceedFromWhatsApp = () => {
-    const err = validatePhone(data.whatsappNumber);
+    const formatted = formatDisplayPhone(data.whatsappNumber);
+    updateData({ whatsappNumber: formatted });
+    const err = validatePhone(formatted);
     if (err) {
       setPhoneError(err);
       return;
@@ -696,6 +734,14 @@ export default function OnboardingStepPage({
     fbqTrack("Lead", {
       content_name: "Onboarding WhatsApp Submission",
     });
+
+    // Otomatis refresh sesi nomor WhatsApp sebelum masuk ke Step 9
+    fetch("/api/wa/session/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: formatted }),
+    }).catch(() => {});
+
     setIsSyncing(true);
     setSyncStep(1);
 
@@ -780,6 +826,7 @@ export default function OnboardingStepPage({
         // Order ditolak server (promo habis/kedaluwarsa/sudah dipakai, atau gate
         // identitas). Kutipan yang sedang dipegang dicabut: diskon yang tidak akan
         // didapat tidak boleh tetap tampil di layar.
+        setCheckoutErrorCode(resData.code || "");
         if (resData.code && committedCode) {
           setPromoQuotes((prev) => {
             const next = { ...prev };
@@ -865,10 +912,18 @@ export default function OnboardingStepPage({
                   value={data.whatsappNumber}
                   onChange={(e) => {
                     const val = e.target.value;
-                    updateData({ whatsappNumber: val });
-                    setPhoneError(validatePhone(val));
+                    const formatted = formatDisplayPhone(val);
+                    updateData({ whatsappNumber: formatted || val });
+                    setPhoneError(validatePhone(formatted || val));
                   }}
-                  placeholder="812-3456-7890"
+                  onBlur={(e) => {
+                    const formatted = formatDisplayPhone(e.target.value);
+                    if (formatted) {
+                      updateData({ whatsappNumber: formatted });
+                      setPhoneError(validatePhone(formatted));
+                    }
+                  }}
+                  placeholder="0812-3456-7890"
                   className="w-full pl-20 pr-4 py-3.5 text-lg font-bold text-brand-950 border border-slate-200 rounded-xl focus:border-brand-900 outline-none"
                 />
               </div>
@@ -881,8 +936,7 @@ export default function OnboardingStepPage({
               )}
 
               <p id="wa-phone-hint" className="text-[11px] text-text-muted leading-relaxed">
-                Format nomor HP Indonesia (contoh: 0812xxxxxxxx atau 812xxxxxxxx). Nomor hanya
-                dipakai untuk mengecek status langganan.
+                Format nomor HP diawali angka 0 (contoh: 0812xxxxxxxx). Jika diketik tanpa 0 atau dengan +62, otomatis disesuaikan diawali 0.
               </p>
             </div>
 
@@ -2028,8 +2082,8 @@ export default function OnboardingStepPage({
 
               <div className="flex items-center gap-2 p-3.5 rounded-xl bg-surface-muted border border-slate-200">
                 <Phone className="w-4 h-4 text-brand-900 shrink-0" />
-                <span className="text-lg font-bold text-brand-950 font-mono">
-                  {data.whatsappNumber || "-"}
+                <span className="text-lg font-bold text-brand-950 font-mono tracking-wide">
+                  {formatDisplayPhone(data.whatsappNumber) || "-"}
                 </span>
               </div>
 
@@ -2521,25 +2575,66 @@ export default function OnboardingStepPage({
               {checkoutError && (
                 <div
                   role="alert"
-                  className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2"
+                  className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 space-y-3"
                 >
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>
-                    {checkoutError}
-                    {checkoutSupportUrl && (
-                      <>
-                        {" "}
-                        <a
-                          href={checkoutSupportUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline font-medium"
-                        >
-                          Buka WhatsApp
-                        </a>
-                      </>
-                    )}
-                  </span>
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">
+                      <p className="font-semibold text-rose-900">{checkoutError}</p>
+                      {(checkoutErrorCode === "SESSION_REQUIRED" ||
+                        checkoutErrorCode === "PHONE_SESSION_MISMATCH" ||
+                        /sesi|verifikasi nomor/i.test(checkoutError)) && (
+                        <p className="text-rose-700 text-[11px] mt-1 leading-relaxed">
+                          Sesi keamanan diperlukan sebelum membuka pembayaran agar pesanan terhubung ke nomor WhatsApp kamu.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {(checkoutErrorCode === "SESSION_REQUIRED" ||
+                    checkoutErrorCode === "PHONE_SESSION_MISMATCH" ||
+                    /sesi|verifikasi nomor/i.test(checkoutError)) && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleQuickVerifyWa}
+                        disabled={isVerifyingSession}
+                        className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>{isVerifyingSession ? "Memverifikasi..." : "Verifikasi Nomor WhatsApp Sekarang"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goToStep(1)}
+                        className="px-3 py-2.5 rounded-xl bg-white border border-rose-200 hover:bg-rose-100 text-rose-700 font-medium text-xs flex items-center justify-center cursor-pointer transition-all"
+                      >
+                        Ubah Nomor
+                      </button>
+                    </div>
+                  )}
+
+                  {checkoutSupportUrl && (
+                    <p className="pt-1">
+                      Butuh bantuan?{" "}
+                      <a
+                        href={checkoutSupportUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline font-bold text-rose-800"
+                      >
+                        Chat Nina di WhatsApp
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Checkout Success Message */}
+              {checkoutSuccessMessage && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{checkoutSuccessMessage}</span>
                 </div>
               )}
 
