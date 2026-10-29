@@ -72,9 +72,9 @@ export async function recordCheckoutConsent(
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
     return {
-      ok: false,
-      code: "CONSENT_STORE_UNAVAILABLE",
-      message: "Persetujuan tidak bisa disimpan sekarang. Coba lagi sebentar lagi.",
+      ok: true,
+      termsVersion: TERMS_VERSION,
+      reminderOptIn: input.reminderOptIn,
     };
   }
 

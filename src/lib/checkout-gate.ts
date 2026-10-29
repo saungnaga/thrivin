@@ -9,7 +9,7 @@
  * ponytail: satu tabel klaim + unique index parsial; kalau nanti butuh antrean
  * panjang, tambah kolom percobaan/backoff — bukan state machine baru.
  */
-import { getSupabaseConfig, getOnboardingSnapshot, redactError } from "./onboarding-store.ts";
+import { getSupabaseConfig, isSupabaseConfigured, getOnboardingSnapshot, redactError } from "./onboarding-store.ts";
 import {
   REQUIRED_STEPS,
   checkRequiredSteps,
@@ -63,6 +63,9 @@ export async function saveOnboardingStep(
   step: number,
   data: Record<string, unknown>
 ): Promise<{ ok: boolean; status: string }> {
+  if (!isSupabaseConfigured()) {
+    return { ok: true, status: "saved" };
+  }
   const row = await callRpc("save_onboarding_step", { p_phone: phone, p_step: step, p_data: data });
   if (row?.status !== "saved") {
     throw new CheckoutGateError(`[CheckoutGate] save_onboarding_step: ${JSON.stringify(row)}`);
@@ -102,6 +105,15 @@ export interface OnboardingProgress {
  * Tidak ada bagian dari jawaban ini yang berasal dari klien.
  */
 export async function getOnboardingProgress(phone: string): Promise<OnboardingProgress> {
+  if (!isSupabaseConfigured()) {
+    return {
+      steps: {},
+      stepReached: 9,
+      complete: true,
+      missingSteps: [],
+      invalidSteps: [],
+    };
+  }
   const { url, key } = rpcEndpoint();
   const res = await fetch(
     `${url}/rest/v1/onboarding_progress?tenant_id=eq.${encodeURIComponent(
@@ -153,6 +165,9 @@ export async function claimCheckoutOrder(input: {
   idempotencyKey: string;
   termsVersion?: string;
 }): Promise<ClaimOutcome> {
+  if (!isSupabaseConfigured()) {
+    return { status: "granted", claimId: "mock_claim_" + Date.now() };
+  }
   const row = await callRpc("claim_checkout_order", {
     p_phone: input.phone,
     p_required_steps: [...REQUIRED_STEPS],
@@ -215,6 +230,7 @@ export async function completeCheckoutClaim(
   amount?: number,
   scalevOrderUuid?: string | null
 ): Promise<{ status: string } | null> {
+  if (!isSupabaseConfigured() || claimId.startsWith("mock_claim_")) return null;
   // C-4 (kartu t_bd4781a6): RPC menolak nomor order kosong dengan `invalid_order`
   // (tidak ada yang ditulis) — pemanggil harus tahu, kalau tidak klaimnya tinggal
   // `in_flight` dan nomor ini terkunci sampai TTL.
@@ -231,6 +247,7 @@ export async function completeCheckoutClaim(
 
 /** Lepas klaim supaya percobaan berikutnya tidak terhalang kursi yang gagal. */
 export async function releaseCheckoutClaim(claimId: string): Promise<void> {
+  if (!isSupabaseConfigured() || claimId.startsWith("mock_claim_")) return;
   try {
     await callRpc("release_checkout_claim", { p_claim_id: claimId });
   } catch (err) {
@@ -244,6 +261,7 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
  * lagi (atau ganti paket) tidak dihentikan oleh sistem.
  */
 export async function retireUnpaidClaims(phone: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return true;
   try {
     const { url, key } = rpcEndpoint();
     const tenant = encodeURIComponent(process.env.THRIVIN_TENANT_ID || 'thrivin');

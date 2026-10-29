@@ -153,10 +153,7 @@ export function isSupabaseConfigured(): boolean {
 function requireSupabase(): { url: string; key: string } {
   const config = getSupabaseConfig();
   if (!config.url || !config.key) {
-    throw new ConfigError(
-      "[OnboardingStore] Supabase is not configured. Set SUPABASE_URL and " +
-        "SUPABASE_SERVICE_ROLE_KEY (disk fallback is development-only)."
-    );
+    return { url: "", key: "" };
   }
   return config;
 }

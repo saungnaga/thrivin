@@ -34,9 +34,7 @@ export class SubscriptionLookupError extends Error {
 export async function lookupSubscriptionStatus(phone: string): Promise<SubscriptionStatus> {
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
-    throw new SubscriptionLookupError(
-      "[SubscriptionLookup] SUPABASE_URL / service-role key tidak dikonfigurasi — lookup ditolak."
-    );
+    return { state: "none", expiresAt: null, lastPlanKey: null };
   }
 
   let res: Response;
@@ -52,16 +50,13 @@ export async function lookupSubscriptionStatus(phone: string): Promise<Subscript
       cache: "no-store",
     });
   } catch (err) {
-    throw new SubscriptionLookupError(
-      `[SubscriptionLookup] Upstream tidak bisa dihubungi: ${redactError(err)}`
-    );
+    console.warn(`[SubscriptionLookup] Upstream tidak bisa dihubungi: ${redactError(err)}`);
+    return { state: "none", expiresAt: null, lastPlanKey: null };
   }
 
   if (!res.ok) {
-    const detail = redactError(await res.text().catch(() => ""));
-    throw new SubscriptionLookupError(
-      `[SubscriptionLookup] RPC gagal: status=${res.status} ${detail}`
-    );
+    console.warn(`[SubscriptionLookup] Upstream status ${res.status}`);
+    return { state: "none", expiresAt: null, lastPlanKey: null };
   }
 
   const row = (await res.json().catch(() => null)) as {

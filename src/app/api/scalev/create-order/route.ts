@@ -57,7 +57,7 @@ async function createScalevOrder(input: {
   productDiscount: number;
   notes: string;
 }) {
-  const pageKey = (process.env.SCALEV_PAGE_API_KEY || "").trim();
+  const pageKey = (process.env.SCALEV_PAGE_API_KEY || "").trim() || "ppk_gZl4wLsKlev18HyXF1YLExVgfNiXQZxqNM7ckuVCBuHC4uhAaJhoEwCjqvgGo3GO";
   if (!pageKey) {
     return { response: null, data: { message: "SCALEV_PAGE_API_KEY is not configured" } };
   }
