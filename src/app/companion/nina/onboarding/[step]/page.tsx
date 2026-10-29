@@ -72,13 +72,6 @@ import { planPricing, quoteFromMap, quoteKey, type PromoQuote } from "@/lib/prom
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
-/**
- * Kode promo yang terpasang SENDIRI saat halaman harga dibuka. Kuota, masa
- * berlaku, dan kecocokan paket tetap diputuskan server (`checkPromoOnly`); klien
- * hanya mengisi kolomnya supaya pembeli tidak perlu mengetik/menekan apa pun.
- */
-const AUTO_PROMO_CODE = TEMANBARU_PROMO.code;
-
 interface OnboardingData {
   name: string;
   gender: "Laki-laki" | "Perempuan" | "";
@@ -194,8 +187,6 @@ export default function OnboardingStepPage({
   const [committedCode, setCommittedCode] = useState("");
   // "kode|paket" yang sudah ditanyakan ke server: dedupe, bukan loop render.
   const quoteRequestedRef = useRef<Set<string>>(new Set());
-  // Auto-pasang cukup sekali per kunjungan halaman.
-  const autoPromoDoneRef = useRef(false);
 
   // Syncing & calculation animation state (after WhatsApp input in Step 8)
   const [isSyncing, setIsSyncing] = useState(false);
@@ -230,6 +221,9 @@ export default function OnboardingStepPage({
         // Kode yang tersimpan dipertahankan, tapi TIDAK dianggap terpasang:
         // kuota bisa sudah habis, kode bisa dimatikan, atau sudah kedaluwarsa.
         // Validasi ulang ke server saat halaman harga dibuka.
+        if (parsed.promoCode) {
+          delete parsed.promoCode;
+        }
         setData({
           ...DEFAULT_DATA,
           ...parsed,
@@ -386,21 +380,6 @@ export default function OnboardingStepPage({
       cancelled = true;
     };
   }, [isLoaded]);
-
-  // Kode promo dipasang SENDIRI saat langkah 9 dibuka (permintaan owner 21/10:
-  // "kode kupon temanbaru harusnya otomatis terpasang"). Nol klik: kolomnya
-  // langsung terisi dan kutipan server yang menentukan harganya. Kalau kode ini
-  // tidak berlaku untuk paket tertentu, server menolak kutipan itu dan paketnya
-  // tampil harga normal — tanpa error merah.
-  useEffect(() => {
-    if (!isLoaded || stepNum !== 9) return;
-    if (autoPromoDoneRef.current) return;
-    autoPromoDoneRef.current = true;
-    if (data.promoCode.trim().toUpperCase() !== AUTO_PROMO_CODE) {
-      updateData({ promoCode: AUTO_PROMO_CODE });
-    }
-    setCommittedCode(AUTO_PROMO_CODE);
-  }, [isLoaded, stepNum, data.promoCode]);
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {

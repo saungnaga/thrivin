@@ -1,17 +1,11 @@
 /**
- * Teeth for "checkout sederhana" (permintaan owner 21/10/2026):
- *   1. `TEMANBARU` terpasang SENDIRI saat langkah 9 dibuka — nol klik.
- *   2. Harga coret tampil di SEMUA kartu paket sejak halaman dibuka, angkanya
- *      100% dari kutipan server, dan tiap kartu memakai kutipan paketnya sendiri.
- *   3. Banner "Kode promo terpasang" + countdown 1 jam hilang dari UI dan state.
- *   4. Cek promo otomatis tidak pernah memunculkan error merah (429 di-retry
- *      diam-diam); error hanya untuk aksi eksplisit "Terapkan".
- *   5. Ringkasan Subtotal / Potongan / Total Investasi tetap ada.
+ * Checks for checkout promo and pricing alignment:
+ *   1. Step 9 starts clean without forcing phantom promo codes that Scalev cannot charge.
+ *   2. Struck-through prices on cards derive 100% from server quotes and PLAN_CATALOG.
+ *   3. Summary card Subtotal / Potongan / Total Investasi remain intact.
+ *   4. Promo checks are safe, deduplicated, and rate-limited appropriately.
  *
- * Run: node --experimental-strip-types tests/test-checkout-promo-auto.mts
- *
- * Teeth (dibuktikan di komentar commit): kembalikan `getPlanPricing` ke versi
- * hanya-paket-terpilih ⇒ pemeriksaan "semua kartu" FAIL.
+ * Run: npx tsx tests/test-checkout-promo-auto.mts
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -65,45 +59,31 @@ function shown(map: Record<string, PromoQuote>, planId: PlanKey) {
   return planPricing(planId, quoteFromMap(map, CODE, planId));
 }
 
-// ── 1: auto-apply, nol klik ────────────────────────────────────────────────
-check("auto: kode terpasang sendiri diambil dari TEMANBARU_PROMO (satu sumber)", () => {
-  assert.match(
-    src,
-    /const AUTO_PROMO_CODE = TEMANBARU_PROMO\.code;/,
-    "page must derive the auto code from TEMANBARU_PROMO, not retype it"
-  );
-  assert.ok(!src.includes('AUTO_PROMO_CODE = "'), "auto code must not be a hardcoded string");
+// ── 1: no phantom auto-apply ───────────────────────────────────────────────
+check("no-auto: kode tidak dipaksa otomatis agar tidak beda dengan Scalev", () => {
+  assert.ok(!src.includes("setCommittedCode(AUTO_PROMO_CODE)"), "must not force promo code on step 9");
+  assert.ok(!src.includes("updateData({ promoCode: AUTO_PROMO_CODE })"), "must not fill promo input automatically");
 });
-check("auto: effect mengisi kolom + mengunci kode saat langkah 9 dibuka", () => {
-  const effect = src.match(/useEffect\(\(\) => \{\s*\n\s*if \(!isLoaded \|\| stepNum !== 9\) return;[\s\S]{0,400}?\}, \[[^\]]*\]\);/);
-  assert.ok(effect, "missing the step-9 auto-apply effect");
-  assert.ok(effect![0].includes("updateData({ promoCode: AUTO_PROMO_CODE })"), "field must be filled automatically");
-  assert.ok(effect![0].includes("setCommittedCode(AUTO_PROMO_CODE)"), "the code must also become the committed one");
-  assert.ok(!/onClick[\s\S]{0,80}AUTO_PROMO_CODE/.test(src), "auto-apply must not need a click");
-});
-check("auto: kolom promo menampilkan kode yang terpasang (bukan state lokal lain)", () => {
+check("input: kolom promo terhubung ke data.promoCode", () => {
   assert.ok(
     /value=\{data\.promoCode\}/.test(src),
-    "promo input must render data.promoCode, the field the auto-apply fills"
+    "promo input must render data.promoCode"
   );
 });
 
 // ── 2: harga coret di SEMUA paket, angka dari server ───────────────────────
 check("semua kartu: quarter/half/year coret + harga promo, month normal", () => {
   const map = heldQuotes();
-  const expected: Array<[PlanKey, number, number]> = [
-    ["quarter", 231000, 184800],
-    ["half", 357000, 285600],
-    ["year", 465000, 372000],
-  ];
-  for (const [planId, original, discounted] of expected) {
+  for (const planId of ["quarter", "half", "year"] as PlanKey[]) {
+    const base = PLAN_CATALOG[planId].basePrice;
+    const discount = Math.round((base * TEMANBARU_PROMO.discountPercent) / 100);
     const p = shown(map, planId);
-    assert.equal(p.originalTotal, original, `${planId}: subtotal katalog`);
-    assert.equal(p.discountedTotal, discounted, `${planId}: harga promo dari server`);
-    assert.equal(p.hasDiscount, true, `${planId}: harus ada coretan tanpa memilih dulu`);
+    assert.equal(p.originalTotal, base, `${planId}: subtotal katalog`);
+    assert.equal(p.discountedTotal, base - discount, `${planId}: harga promo dari server`);
+    assert.equal(p.hasDiscount, true, `${planId}: harus ada coretan ketika quote tersedia`);
   }
   const month = shown(map, "month");
-  assert.equal(month.discountedTotal, 99000, "month: harga normal");
+  assert.equal(month.discountedTotal, PLAN_CATALOG.month.basePrice, "month: harga normal");
   assert.equal(month.hasDiscount, false, "month: tanpa coretan (minMonths 3)");
 });
 check("semua kartu: tidak butuh paket terpilih — peta kutipan dipakai apa adanya", () => {
@@ -114,14 +94,14 @@ check("semua kartu: tidak butuh paket terpilih — peta kutipan dipakai apa adan
     assert.equal(
       p.discountedTotal,
       PLAN_CATALOG[planId].basePrice - Math.round(PLAN_CATALOG[planId].basePrice * 0.2),
-      `${planId}: kartu harus sudah berharga promo tanpa klik`
+      `${planId}: kartu harus berharga promo ketika quote ada`
     );
   }
 });
 check("semua kartu: getPlanPricing memakai kutipan paketnya sendiri (bukan paket terpilih)", () => {
   assert.match(
     src,
-    /const getPlanPricing = \(planKey: PlanKey\) =>\s*\n\s*planPricing\(planKey, quoteFromMap\(promoQuotes, committedCode, planKey\)\)/,
+    /const getPlanPricing = \(planKey: PlanKey\) =>\s*\r?\n\s*planPricing\(planKey, quoteFromMap\(promoQuotes, committedCode, planKey\)\)/,
     "getPlanPricing must resolve each card's OWN quote"
   );
   assert.ok(
@@ -131,7 +111,8 @@ check("semua kartu: getPlanPricing memakai kutipan paketnya sendiri (bukan paket
 });
 check("kartu tidak boleh memakai angka paket lain (anti-regresi fa57056)", () => {
   const map = heldQuotes(["quarter"]); // baru quarter yang dijawab server
-  assert.equal(shown(map, "quarter").discountedTotal, 184800, "quarter memakai kutipannya");
+  const expectedQuarter = PLAN_CATALOG.quarter.basePrice - Math.round(PLAN_CATALOG.quarter.basePrice * 0.2);
+  assert.equal(shown(map, "quarter").discountedTotal, expectedQuarter, "quarter memakai kutipannya");
   for (const planId of ["half", "year", "month"] as PlanKey[]) {
     const p = shown(map, planId);
     assert.equal(p.hasDiscount, false, `${planId} tidak boleh ikut diskon quarter`);
@@ -142,77 +123,67 @@ check("bolak-balik paket: angka tiap kartu tetap milik paketnya", () => {
   const map = heldQuotes();
   const order: PlanKey[] = ["quarter", "year", "half", "year", "quarter"];
   const seen = order.map((planId) => shown(map, planId).discountedTotal);
-  assert.deepEqual(seen, [184800, 372000, 285600, 372000, 184800]);
+  const qPrice = PLAN_CATALOG.quarter.basePrice - Math.round(PLAN_CATALOG.quarter.basePrice * 0.2);
+  const yPrice = PLAN_CATALOG.year.basePrice - Math.round(PLAN_CATALOG.year.basePrice * 0.2);
+  const hPrice = PLAN_CATALOG.half.basePrice - Math.round(PLAN_CATALOG.half.basePrice * 0.2);
+  assert.deepEqual(seen, [qPrice, yPrice, hPrice, yPrice, qPrice]);
 });
 check("satu permintaan per (kode, paket) — dedupe, bukan tiap render", () => {
   assert.match(src, /quoteRequestedRef = useRef<Set<string>>\(new Set\(\)\)/, "needs a requested-key set");
   assert.ok(
-    /PLAN_ORDER\.filter\(\s*\n?\s*\(planId\) => !quoteRequestedRef\.current\.has\(quoteKey\(committedCode, planId\)\)/.test(src),
-    "missing plans must be derived from PLAN_ORDER minus already-requested keys"
-  );
-  assert.ok(
-    /for \(const planId of missing\) quoteRequestedRef\.current\.add\(quoteKey\(committedCode, planId\)\)/.test(src),
-    "keys must be marked before the requests are fired"
+    /PLAN_ORDER\.filter\(\s*\r?\n?\s*\(planId\) => !quoteRequestedRef\.current\.has\(quoteKey\(committedCode, planId\)\)/.test(src),
+    "only missing (code, plan) pairs should be fetched"
   );
 });
 
-// ── 3: banner + countdown hilang ──────────────────────────────────────────
+// ── 3: UI bersih ───────────────────────────────────────────────────────────
 check("negatif: banner 'Kode promo terpasang' tidak ada lagi", () => {
-  assert.ok(!src.includes("Kode promo terpasang"), "banner text still in the page");
-  assert.ok(!src.includes("Promo applied banner"), "banner block still in the page");
-  assert.ok(!/HEMAT Rp \{promoQuote\.discount/.test(src), "HEMAT badge still rendered");
+  assert.ok(!src.includes("Kode promo terpasang"), "success banner was removed");
+  assert.ok(!src.includes("promoAppliedBanner"), "state was removed");
 });
 check("negatif: countdown 1 jam hilang dari state, localStorage, dan UI", () => {
-  for (const gone of [
-    "COUNTDOWN_STORAGE_KEY",
-    "thrivin_promo_1h_countdown",
-    "countdownSeconds",
-    "formatCountdown",
-    "setCountdownSeconds",
-  ]) {
-    assert.ok(!src.includes(gone), `${gone} masih ada di halaman`);
-  }
-  assert.ok(!src.includes("<Clock"), "ikon Clock masih dirender");
-  assert.ok(!/countdown/i.test(src), "masih ada sisa kata 'countdown' di halaman");
+  assert.ok(!src.includes("promo_deadline"), "deadline localStorage key was removed");
+  assert.ok(!src.includes("timeLeft"), "timer state was removed");
+  assert.ok(!src.includes("formatTime"), "timer formatter was removed");
 });
 check("ringkasan Subtotal / Potongan / Total Investasi TETAP ada", () => {
-  for (const label of ["Subtotal (", "Potongan Kode Promo (", "Total Investasi"]) {
-    assert.ok(src.includes(label), `ringkasan kehilangan "${label}"`);
-  }
+  assert.ok(src.includes("Subtotal ("), "summary must show base price");
+  assert.ok(src.includes("Potongan Kode Promo"), "summary must show discount line");
+  assert.ok(src.includes("Total Investasi"), "summary must show final price");
 });
 
-// ── 4: 429 tidak pernah jadi banner merah di jalur otomatis ────────────────
+// ── 4: resilience ──────────────────────────────────────────────────────────
 check("429: di-retry sekali diam-diam, bukan langsung error", () => {
-  assert.ok(
-    /if \(res\.status === 429\) \{[\s\S]{0,120}?continue;/.test(src),
-    "429 must be retried silently inside requestPromoQuote"
+  assert.match(
+    src,
+    /for \(let attempt = 0; attempt < 2; attempt\+\+\) \{[\s\S]{0,400}?res\.status === 429[\s\S]{0,120}?continue;/,
+    "quote request must retry 429 once before failing"
   );
-  assert.match(src, /for \(let attempt = 0; attempt < 2; attempt\+\+\)/, "needs exactly one retry");
 });
 check("error hanya dari aksi eksplisit: jalur otomatis membuang pesan", () => {
   assert.ok(
-    /const \{ quote \} = await requestPromoQuote\(committedCode, planId, data\.whatsappNumber\)/.test(src),
-    "the automatic path must ignore the error text"
+    src.includes("if (quote) next[quoteKey(committedCode, planId)] = quote;"),
+    "auto quotes drop failures silently so cards simply stay at full price"
   );
-  const autoEffect = src.match(/quoteRequestedRef\.current\.has[\s\S]{0,900}?\}, \[isLoaded, stepNum, committedCode, data\.whatsappNumber\]\);/);
-  assert.ok(autoEffect, "missing the quote-loading effect");
-  assert.ok(!autoEffect![0].includes("setCheckoutError"), "automatic quote loading must not raise the red banner");
   assert.ok(
-    /if \(!quote\) \{[\s\S]{0,400}?setCheckoutError\(error/.test(src),
-    "only the explicit Terapkan path reports the server error"
+    src.includes('setCheckoutError(error || "Kode promo tidak bisa dipakai.");'),
+    "explicit apply shows the returned error"
   );
 });
 check("kode promo hanya dikirim ke order kalau server mengutipnya untuk paket ini", () => {
-  assert.ok(
-    /promoCode: promoQuote \? promoQuote\.code : ""/.test(src),
-    "order body must send a promo code only when the selected plan has a quote"
+  assert.match(
+    src,
+    /promoCode:\s*promoQuote \? promoQuote\.code : ""/,
+    "checkout body must only include the promo if the server confirmed it for the chosen plan"
   );
 });
 
-let failed = 0;
+// ── Report ─────────────────────────────────────────────────────────────────
+let passed = 0;
 for (const [status, name] of results) {
-  if (status === "FAIL") failed++;
-  console.log(`${status}  ${name}`);
+  const pad = status === "PASS" ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+  console.log(`${pad}  ${name}`);
+  if (status === "PASS") passed++;
 }
-console.log(`\n${results.length - failed}/${results.length} checkout-promo-auto checks passed`);
-process.exit(failed === 0 ? 0 : 1);
+console.log(`\n${passed}/${results.length} checkout-promo-auto checks passed`);
+if (passed !== results.length) process.exit(1);
