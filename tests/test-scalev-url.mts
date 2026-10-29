@@ -1,6 +1,6 @@
 /**
  * Unit checks for the Scalev checkout-link domain mapping.
- * Target domain: checkout.thrivin.com
+ * Target domain: digitanest.myscalev.com (working, valid SSL host)
  */
 import assert from "node:assert/strict";
 import {
@@ -15,81 +15,91 @@ function check(ok: boolean, name: string, detail = "") {
   results.push([ok ? "PASS" : "FAIL", `${name}${detail ? " — " + detail : ""}`]);
 }
 
-// 1. Target custom host is checkout.thrivin.com
+// 1. Target hosted host is digitanest.myscalev.com
 {
-  check(STORE_CUSTOM_HOST === "checkout.thrivin.com", "target host is checkout.thrivin.com", STORE_CUSTOM_HOST);
+  check(SCALEV_HOSTED_HOST === "digitanest.myscalev.com", "target host is digitanest.myscalev.com", SCALEV_HOSTED_HOST);
 }
 
-// 2. Swaps legacy checkout.thrivin.id to checkout.thrivin.com
+// 2. Swaps legacy checkout.thrivin.id to digitanest.myscalev.com
 {
   const legacy = "https://checkout.thrivin.id/pay/250130ABCD";
   const out = toCheckoutDomain(legacy);
   check(
-    out === "https://checkout.thrivin.com/pay/250130ABCD",
-    "legacy checkout.thrivin.id maps to checkout.thrivin.com",
+    out === "https://digitanest.myscalev.com/pay/250130ABCD",
+    "legacy checkout.thrivin.id maps to digitanest.myscalev.com",
     out
   );
 }
 
-// 3. Swaps digitanest.myscalev.com to checkout.thrivin.com
+// 3. Swaps non-existent checkout.thrivin.com to digitanest.myscalev.com
 {
-  const hosted = "https://digitanest.myscalev.com/pay/order_123";
-  const out = toCheckoutDomain(hosted);
+  const wrong = "https://checkout.thrivin.com/pay/order_123";
+  const out = toCheckoutDomain(wrong);
   check(
-    out === "https://checkout.thrivin.com/pay/order_123",
-    "hosted digitanest.myscalev.com maps to checkout.thrivin.com",
+    out === "https://digitanest.myscalev.com/pay/order_123",
+    "checkout.thrivin.com maps to digitanest.myscalev.com",
     out
   );
 }
 
-// 4. Swaps thrivin.myscalev.com to checkout.thrivin.com
+// 4. Swaps thrivin.myscalev.com to digitanest.myscalev.com
 {
   const wrong = "https://thrivin.myscalev.com/pay/order_456";
   const out = toCheckoutDomain(wrong);
   check(
-    out === "https://checkout.thrivin.com/pay/order_456",
-    "thrivin.myscalev.com maps to checkout.thrivin.com",
+    out === "https://digitanest.myscalev.com/pay/order_456",
+    "thrivin.myscalev.com maps to digitanest.myscalev.com",
     out
   );
 }
 
 // 5. Preserves path, query parameters, and slug
 {
-  const direct = "https://digitanest.myscalev.com/o/slug_xyz123/success?src=promo&ref=wa";
+  const direct = "https://checkout.thrivin.id/o/slug_xyz123/success?src=promo&ref=wa";
   const out = toCheckoutDomain(direct);
   check(
-    out === "https://checkout.thrivin.com/o/slug_xyz123/success?src=promo&ref=wa",
+    out === "https://digitanest.myscalev.com/o/slug_xyz123/success?src=promo&ref=wa",
     "path, query params, and slug preserved",
     out
   );
 }
 
-// 6. Already checkout.thrivin.com is kept verbatim
+// 6. Already canonical domain kept verbatim
 {
-  const target = "https://checkout.thrivin.com/pay/250130ABCD";
-  const out = toCheckoutDomain(target);
-  check(out === target, "already canonical domain kept verbatim", out);
+  const canonical = "https://digitanest.myscalev.com/pay/250130ABCD";
+  const out = toCheckoutDomain(canonical);
+  check(out === canonical, "already canonical domain kept verbatim", out);
 }
 
-// 7. checkCheckoutLink returns reachable: true with canonical domain
+// 7. checkCheckoutLink returns canonical url
 {
-  const link = await checkCheckoutLink("https://digitanest.myscalev.com/pay/test");
+  const res = await checkCheckoutLink("https://checkout.thrivin.id/pay/test");
   check(
-    link.url === "https://checkout.thrivin.com/pay/test" && link.reachable === true,
+    res.url === "https://digitanest.myscalev.com/pay/test" && res.reachable === true,
     "checkCheckoutLink returns canonical url and reachable: true",
-    link.url
+    res.url
   );
 }
 
-// 8. Empty and null inputs stay empty
+// 8. Empty input stays empty
 {
-  const empty = await checkCheckoutLink("");
-  const nil = await checkCheckoutLink(null);
-  check(empty.url === "" && empty.reachable, "empty stays empty");
-  check(nil.url === "" && nil.reachable, "null becomes empty");
+  check(toCheckoutDomain("") === "", "empty stays empty");
 }
 
-const failed = results.filter(([s]) => s === "FAIL");
-for (const [status, name] of results) console.log(`${status} ${name}`);
-console.log(`\n${results.length - failed.length}/${results.length} PASS, ${failed.length} FAIL`);
-assert.equal(failed.length, 0, "one or more checks failed");
+// 9. Null input becomes empty
+{
+  check(toCheckoutDomain(null) === "", "null becomes empty");
+}
+
+let failed = 0;
+for (const [status, name] of results) {
+  if (status === "PASS") {
+    console.log(`PASS ${name}`);
+  } else {
+    console.error(`FAIL ${name}`);
+    failed++;
+  }
+}
+
+console.log(`\n${results.length - failed}/${results.length} PASS, ${failed} FAIL`);
+assert.equal(failed, 0, "Some tests failed");

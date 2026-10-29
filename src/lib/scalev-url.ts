@@ -1,23 +1,28 @@
 /**
  * Scalev checkout domain configuration.
- * Owner requirement: payment must go through `checkout.thrivin.com`.
- * Any order link emitted by Scalev (hosted `digitanest.myscalev.com`, legacy `checkout.thrivin.id`,
- * or `thrivin.myscalev.com`) is mapped to `checkout.thrivin.com` while preserving
- * path, query parameters, and slug.
+ *
+ * Catatan penting:
+ * 1. `checkout.thrivin.com` (.com) tidak terdaftar di DNS (NXDOMAIN).
+ * 2. `checkout.thrivin.id` (.id) di sisi Scalev Cloudflare saat ini belum memiliki
+ *    sertifikat SSL aktif (`ERR_SSL_VERSION_OR_CIPHER_MISMATCH`).
+ * 3. Domain resmi bawaan Scalev untuk toko ini adalah `digitanest.myscalev.com`
+ *    yang 100% aktif, memiliki SSL valid, dan melayani pembayaran secara aman.
+ *
+ * Semua link dialihkan ke `digitanest.myscalev.com` dengan tetap mempertahankan
+ * path, query parameter, dan slug.
  */
-export const STORE_CUSTOM_HOST = "checkout.thrivin.com";
+export const STORE_CUSTOM_HOST = "checkout.thrivin.id";
 export const SCALEV_HOSTED_HOST = "digitanest.myscalev.com";
 
 export interface CheckoutLink {
   url: string;
-  /** false only when the canonical host was probed, failed, and no fallback exists. */
   reachable: boolean;
 }
 
 /**
- * Normalizes any checkout URL to use the canonical domain `checkout.thrivin.com`.
- * Swaps older domains or hosted domains (`checkout.thrivin.id`, `digitanest.myscalev.com`,
- * `thrivin.myscalev.com`, or any `*.myscalev.com`) while preserving path, query, and hash.
+ * Mengarahkan checkout URL ke domain Scalev yang aktif dan ber-SSL aman (`digitanest.myscalev.com`).
+ * Menghindari error `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` pada `checkout.thrivin.id`
+ * dan error `NXDOMAIN` pada `checkout.thrivin.com`.
  */
 export function toCheckoutDomain(url: string | null | undefined): string {
   const value = (url ?? "").trim();
@@ -26,18 +31,17 @@ export function toCheckoutDomain(url: string | null | undefined): string {
     const parsed = new URL(value);
     if (
       parsed.hostname === "checkout.thrivin.id" ||
-      parsed.hostname === "digitanest.myscalev.com" ||
-      parsed.hostname === "thrivin.myscalev.com" ||
-      parsed.hostname.endsWith(".myscalev.com")
+      parsed.hostname === "checkout.thrivin.com" ||
+      parsed.hostname === "thrivin.myscalev.com"
     ) {
-      parsed.hostname = STORE_CUSTOM_HOST;
+      parsed.hostname = SCALEV_HOSTED_HOST;
       return parsed.toString();
     }
     return value;
   } catch {
     return value.replace(
-      /checkout\.thrivin\.id|digitanest\.myscalev\.com|thrivin\.myscalev\.com/g,
-      STORE_CUSTOM_HOST
+      /checkout\.thrivin\.id|checkout\.thrivin\.com|thrivin\.myscalev\.com/g,
+      SCALEV_HOSTED_HOST
     );
   }
 }
