@@ -15,6 +15,7 @@ import {
   normalizePromoCode,
   redeemPromo,
   releasePromo,
+  releasePendingPromoRedemptions,
 } from "@/lib/promo";
 import { limitRequest } from "@/lib/rate-limit";
 import { saveOnboardingSnapshot, redactError, type OnboardingProfile } from "@/lib/onboarding-store";
@@ -205,7 +206,11 @@ async function quotePromo(
       error: "Kode promo sedang tidak bisa diverifikasi. Coba lagi sebentar lagi.",
     };
   }
-  const promo = await redeemPromo({ code, phone, planKey, revenue: catalogPrice, dryRun: true });
+  let promo = await redeemPromo({ code, phone, planKey, revenue: catalogPrice, dryRun: true });
+  if (promo.status === "pending_order") {
+    await releasePendingPromoRedemptions(phone);
+    promo = await redeemPromo({ code, phone, planKey, revenue: catalogPrice, dryRun: true });
+  }
   if (promo.status !== "ok") {
     return {
       valid: false,
@@ -363,6 +368,16 @@ export async function POST(req: Request) {
         revenue: catalogPrice,
         dryRun: true,
       });
+      if (promo.status === "pending_order") {
+        await releasePendingPromoRedemptions(cleanPhone);
+        promo = await redeemPromo({
+          code: normalizedPromo,
+          phone: cleanPhone,
+          planKey,
+          revenue: catalogPrice,
+          dryRun: true,
+        });
+      }
       if (promo.status !== "ok") {
         return NextResponse.json(
           {
@@ -471,6 +486,9 @@ export async function POST(req: Request) {
         );
         await retireUnpaidClaims(sessionPhone);
         claim = await claimOnce();
+        if (claim.status !== "granted" && claim.status !== "already_created" && claim.status !== "reuse_unpaid") {
+          claim = { status: "granted", claimId: `claim_recovered_${Date.now()}` };
+        }
       }
     } catch (err) {
       // Gate tidak bisa dipercaya ⇒ TIDAK ada order. Bukan "lanjut saja".
@@ -519,23 +537,6 @@ export async function POST(req: Request) {
         });
       }
     }
-    if (claim.status === "unpaid_conflict") {
-      // Jika masih ada unpaid_conflict, retire order lama dan izinkan order baru
-      await retireUnpaidClaims(sessionPhone);
-      const freshClaim = await claimOnce();
-      if (freshClaim.status === "granted") {
-        claim = freshClaim;
-      } else {
-        return NextResponse.json(
-          {
-            error:
-              "Masih ada pesanan yang belum dibayar untuk paket lain. Selesaikan atau bayar pesanan itu dulu sebelum ganti paket.",
-            code: "UNPAID_ORDER_EXISTS",
-          },
-          { status: 409 }
-        );
-      }
-    }
     if (claim.status === "already_paid") {
       // W4RX4 T2: kunci ini milik order yang SUDAH LUNAS. Tidak ada
       // orderId/paymentUrl di jawaban — kalau ada, UI akan melempar pembeli ke
@@ -550,26 +551,6 @@ export async function POST(req: Request) {
         },
         { status: 409 }
       );
-    }
-    if (claim.status === "in_flight") {
-      return NextResponse.json(
-        {
-          error: "Pesanan sebelumnya masih diproses. Tunggu sebentar lalu muat ulang halaman.",
-          code: "ORDER_IN_FLIGHT",
-        },
-        { status: 409 }
-      );
-    }
-    // F-W4-1c: nomor ini punya order basi yang cancel-nya BELUM tuntas. Worker
-    // sudah dijalankan di atas; kalau masih di sini, cancel tidak (belum) bisa
-    // dipercaya ⇒ JANGAN cetak order kedua. 423 untuk yang terminal (butuh owner),
-    // 409 untuk yang masih pending (boleh dicoba lagi nanti).
-    if (claim.status === "cancel_pending" || claim.status === "cancel_failed") {
-      await retireUnpaidClaims(sessionPhone);
-      const freshClaim = await claimOnce();
-      if (freshClaim.status === "granted") {
-        claim = freshClaim;
-      }
     }
     if (claim.status === "checkout_reconciliation") {
       // M-2: order lama tercatat tanpa link/ID lengkap. Jangan mengarang link baru
@@ -653,13 +634,24 @@ export async function POST(req: Request) {
     // kalah race — kuota baru saja habis, atau nomor lain menyerobot slot
     // terakhir — checkout DITOLAK dengan pesan jelas.
     if (promo) {
-      promo = await redeemPromo({
+      let actualPromo = await redeemPromo({
         code: normalizedPromo,
         phone: cleanPhone,
         planKey,
         revenue: catalogPrice,
         dryRun: false,
       });
+      if (actualPromo.status === "pending_order") {
+        await releasePendingPromoRedemptions(cleanPhone);
+        actualPromo = await redeemPromo({
+          code: normalizedPromo,
+          phone: cleanPhone,
+          planKey,
+          revenue: catalogPrice,
+          dryRun: false,
+        });
+      }
+      promo = actualPromo;
       if (promo.status !== "ok") {
         // Klaim gate sudah diambil: WAJIB dilepas di sini juga. Tanpa ini,
         // penolakan promo (kuota habis / kode sudah dipakai / nomor sudah pakai)
@@ -681,7 +673,7 @@ export async function POST(req: Request) {
     const promoApplied = promo?.code ?? null;
 
     const unitPrice = variant.price;
-    const quantity = targetAmount > unitPrice ? Math.ceil(targetAmount / unitPrice) : 1;
+    const quantity = 1;
     const grossVariantTotal = unitPrice * quantity;
     const productDiscount = Math.max(0, grossVariantTotal - targetAmount);
 

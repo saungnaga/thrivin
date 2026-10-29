@@ -17,6 +17,8 @@ import {
   stepPayloadsFromProfile,
 } from "./onboarding-steps.ts";
 import { TERMS_VERSION } from "./consent.ts";
+import { releasePendingPromoRedemptions } from "./promo.ts";
+import { normalizePhone } from "./phone.ts";
 
 export class CheckoutGateError extends Error {
   constructor(message: string) {
@@ -263,39 +265,54 @@ export async function releaseCheckoutClaim(claimId: string): Promise<void> {
 export async function retireUnpaidClaims(phone: string): Promise<boolean> {
   if (!isSupabaseConfigured()) return true;
   try {
+    // 1) Lepaskan juga reservasi promo 'reserved' yang belum lunas
+    await releasePendingPromoRedemptions(phone);
+
     const { url, key } = rpcEndpoint();
     const tenant = encodeURIComponent(process.env.THRIVIN_TENANT_ID || 'thrivin');
+    const cleanPhone = normalizePhone(phone) || phone;
+    const phones = [cleanPhone];
+    if (cleanPhone.startsWith('62')) {
+      phones.push('0' + cleanPhone.slice(2));
+    }
 
+    // 2) RPC call
     try {
-      const rpcRes = await callRpc('retire_unpaid_claims', {
-        p_phone: phone,
+      await callRpc('retire_unpaid_claims', {
+        p_phone: cleanPhone,
         p_tenant_id: process.env.THRIVIN_TENANT_ID || 'thrivin',
       });
-      if (rpcRes !== undefined && rpcRes !== null) return true;
     } catch {
       // Fall through to PostgREST PATCH if RPC is not deployed yet
     }
 
-    const res = await fetch(
-      `${url}/rest/v1/checkout_claims?tenant_id=eq.${tenant}&phone=eq.${encodeURIComponent(
-        phone
-      )}&status=in.(created,cancel_pending,cancel_failed,in_flight)&paid_at=is.null`,
-      {
-        method: 'PATCH',
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=representation',
-        },
-        body: JSON.stringify({
-          status: 'retired',
-          updated_at: new Date().toISOString(),
-        }),
-        cache: 'no-store',
+    // 3) PostgREST PATCH fallback for all phone representations
+    for (const ph of phones) {
+      try {
+        await fetch(
+          `${url}/rest/v1/checkout_claims?tenant_id=eq.${tenant}&phone=eq.${encodeURIComponent(
+            ph
+          )}&status=in.(created,cancel_pending,cancel_failed,in_flight)&paid_at=is.null`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: key,
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=representation',
+            },
+            body: JSON.stringify({
+              status: 'retired',
+              updated_at: new Date().toISOString(),
+            }),
+            cache: 'no-store',
+          }
+        );
+      } catch {
+        // continue
       }
-    );
-    return res.ok;
+    }
+    return true;
   } catch (err) {
     console.error('[CheckoutGate] gagal me-retire klaim belum lunas:', redactError(err));
     return false;

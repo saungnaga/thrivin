@@ -11,6 +11,7 @@
  * akan membuka celah race, jadi jangan.
  */
 import { getSupabaseConfig, TENANT_ID, ConfigError, redactError } from "./onboarding-store";
+import { normalizePhone } from "./phone";
 
 export type DiscountType = "percentage" | "fixed" | "flat_price";
 
@@ -175,6 +176,53 @@ export async function releasePromo(redemptionId: string): Promise<void> {
     console.warn("[PromoStore] release_promo failed:", redactError(err));
   }
 }
+
+/**
+ * Lepas semua reservasi promo 'reserved' yang belum lunas milik nomor tertentu.
+ * Dipanggil saat:
+ * 1) Pembeli navigasi back / coba checkout ulang / pasang promo baru
+ * 2) quotePromo / redeemPromo mendeteksi status "pending_order"
+ * Mencegah nomor terkunci oleh reservasi promo lama yang ditinggalkan.
+ */
+export async function releasePendingPromoRedemptions(phone: string): Promise<boolean> {
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) return false;
+  let url: string;
+  let key: string;
+  try {
+    ({ url, key } = getSupabaseConfig());
+  } catch (err) {
+    console.warn("[PromoStore] releasePendingPromoRedemptions: config error:", redactError(err));
+    return false;
+  }
+  if (!url || !key) return false;
+
+  const phones = [cleanPhone];
+  if (cleanPhone.startsWith("62")) {
+    phones.push("0" + cleanPhone.slice(2));
+  }
+
+  for (const ph of phones) {
+    try {
+      const target = `${url}/rest/v1/promo_redemptions?phone=eq.${encodeURIComponent(
+        ph
+      )}&tenant_id=eq.${encodeURIComponent(TENANT_ID)}&status=eq.reserved`;
+      await fetch(target, {
+        method: "PATCH",
+        headers: { ...serviceHeaders(key), Prefer: "return=representation" },
+        body: JSON.stringify({
+          status: "released",
+          released_at: new Date().toISOString(),
+        }),
+        cache: "no-store",
+      });
+    } catch (err) {
+      console.warn("[PromoStore] releasePendingPromoRedemptions error:", redactError(err));
+    }
+  }
+  return true;
+}
+
 
 /**
  * Pembayaran diterima -> reservasi jadi 'consumed' (kunci 1x per nomor).

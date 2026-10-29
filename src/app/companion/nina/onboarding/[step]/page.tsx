@@ -727,6 +727,9 @@ export default function OnboardingStepPage({
       setCheckoutError("Centang persetujuan Syarat & Ketentuan dulu sebelum bayar.");
       return;
     }
+    if (!checkoutKeyRef.current || checkoutError) {
+      checkoutKeyRef.current = generateCheckoutKey();
+    }
     setIsCheckingOut(true);
     setCheckoutError("");
 
@@ -812,6 +815,7 @@ export default function OnboardingStepPage({
       setCheckoutComplete(true);
       window.location.href = checkoutUrl;
     } catch (err: any) {
+      checkoutKeyRef.current = generateCheckoutKey();
       setIsCheckingOut(false);
       console.error("Scalev checkout error:", err);
       setCheckoutError(
