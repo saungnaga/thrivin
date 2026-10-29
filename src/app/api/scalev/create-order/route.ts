@@ -37,6 +37,13 @@ import { NINA_WA_LINK } from "@/lib/wa-cloud";
 
 const DEFAULT_SCALEV_STORE_ID = "store_ius5tpSzfbS8SlB8GTjdGaBA";
 
+/**
+ * In-memory fallback cache untuk order pending per nomor telepon.
+ * Berguna saat Scalev mengembalikan error 'Duplicate order.' ketika Supabase
+ * sedang di-bypass atau baris klaim lama di-retire.
+ */
+const lastPendingOrders = new Map<string, { orderId: string; paymentUrl: string; updatedAt: number }>();
+
 // Test seam (M-7): the suite points this at a local mock so no test ever creates
 // a real order in the Scalev production account. Default is the real API.
 const SCALEV_API_BASE = process.env.SCALEV_API_BASE_URL || "https://api.scalev.com";
@@ -799,6 +806,24 @@ export async function POST(req: Request) {
       notes: orderNotes,
     };
 
+    // Baca cookie pesanan terakhir sebagai fallback jika Scalev membalas 'Duplicate order.'
+    let cookieFallbackUrl: string | null = null;
+    let cookieFallbackOrderId: string | null = null;
+    try {
+      const { cookies } = await import("next/headers");
+      const cookieStore = await cookies();
+      const rawCookie = cookieStore.get("scalev_pending_order")?.value;
+      if (rawCookie) {
+        const parsed = JSON.parse(rawCookie);
+        if (parsed?.paymentUrl && (parsed.phone === cleanPhone || normalizePhone(parsed.phone) === cleanPhone)) {
+          cookieFallbackUrl = parsed.paymentUrl;
+          cookieFallbackOrderId = parsed.orderId || "";
+        }
+      }
+    } catch {
+      // non-fatal di lingkungan non-Next atau test runner
+    }
+
     const { response: orderRes, data: orderData } = await createScalevOrder(orderPayload);
 
     if (!orderRes?.ok) {
@@ -808,14 +833,23 @@ export async function POST(req: Request) {
         redactError(orderData)
       );
 
-      // Jika Scalev membalas Duplicate order tapi ada paymentUrl sebelumnya dari klaim/sesi,
+      // Jika Scalev membalas Duplicate order tapi ada paymentUrl sebelumnya dari klaim/memory/cookie,
       // jangan blokir pengguna — langsung teruskan ke link bayar yang sudah terdaftar
       const isDup = String(orderData?.error || orderData?.message || "").toLowerCase().includes("duplicate");
-      if (isDup && existingPaymentUrl) {
+      const cached =
+        lastPendingOrders.get(cleanPhone) ||
+        (cleanPhone.startsWith("62")
+          ? lastPendingOrders.get("0" + cleanPhone.slice(2))
+          : lastPendingOrders.get("62" + cleanPhone.slice(1)));
+      const fallbackUrl = existingPaymentUrl || cached?.paymentUrl || cookieFallbackUrl;
+      const fallbackOrderId = existingOrderId || cached?.orderId || cookieFallbackOrderId;
+
+      if (isDup && fallbackUrl) {
+        console.log(`[scalev-order] duplicate order unblocked using existing paymentUrl for ${cleanPhone}`);
         return NextResponse.json({
-          orderId: existingOrderId || "",
-          paymentUrl: existingPaymentUrl,
-          redirectUrl: existingPaymentUrl,
+          orderId: fallbackOrderId || "",
+          paymentUrl: fallbackUrl,
+          redirectUrl: fallbackUrl,
           replay: true,
           paymentPageReachable: true,
         });
@@ -825,6 +859,19 @@ export async function POST(req: Request) {
       if (promo?.redemptionId) await releasePromo(promo.redemptionId);
       // Klaim gate juga dilepas: percobaan berikutnya boleh jalan lagi.
       await releaseActiveClaim();
+
+      if (isDup) {
+        return NextResponse.json(
+          {
+            error:
+              "Nomor WhatsApp ini sudah memiliki pesanan aktif di Scalev. Silakan selesaikan pembayaran sebelumnya atau hubungi CS via WhatsApp.",
+            code: "DUPLICATE_ORDER",
+            supportUrl: NINA_WA_LINK,
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           error:
@@ -922,9 +969,17 @@ export async function POST(req: Request) {
       activeClaimId = null;
     }
 
+    if (paymentUrl) {
+      const orderRef = createdOrderId || String(orderData.id || "");
+      lastPendingOrders.set(cleanPhone, { orderId: orderRef, paymentUrl, updatedAt: Date.now() });
+      if (cleanPhone.startsWith("62")) {
+        lastPendingOrders.set("0" + cleanPhone.slice(2), { orderId: orderRef, paymentUrl, updatedAt: Date.now() });
+      }
+    }
+
     const redirectUrl = paymentUrl;
 
-    return NextResponse.json({
+    const responseJson = NextResponse.json({
       orderId: orderData.order_id,
       uuid: orderData.id,
       paymentUrl,
@@ -936,6 +991,28 @@ export async function POST(req: Request) {
       supportUrl: NINA_WA_LINK,
       amount: orderData.gross_revenue,
     });
+
+    try {
+      responseJson.cookies.set(
+        "scalev_pending_order",
+        JSON.stringify({
+          phone: cleanPhone,
+          orderId: createdOrderId || String(orderData.id || ""),
+          paymentUrl,
+        }),
+        {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: 86400,
+        }
+      );
+    } catch {
+      // non-fatal
+    }
+
+    return responseJson;
   } catch (error: any) {
     console.error("Scalev API exception:", redactError(error));
     // Exception setelah klaim: lepas supaya tidak mengunci nomor ini.
