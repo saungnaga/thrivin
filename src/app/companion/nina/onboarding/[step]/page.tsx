@@ -187,6 +187,7 @@ export default function OnboardingStepPage({
   const [committedCode, setCommittedCode] = useState("");
   // "kode|paket" yang sudah ditanyakan ke server: dedupe, bukan loop render.
   const quoteRequestedRef = useRef<Set<string>>(new Set());
+  const autoPromoDoneRef = useRef(false);
 
   // Syncing & calculation animation state (after WhatsApp input in Step 8)
   const [isSyncing, setIsSyncing] = useState(false);
@@ -380,6 +381,19 @@ export default function OnboardingStepPage({
       cancelled = true;
     };
   }, [isLoaded]);
+
+  // Kode promo dipasang otomatis saat langkah 9 dibuka (permintaan owner:
+  // "kode kupon temanbaru harusnya otomatis terpasang"). Nilai diambil dari web.
+  useEffect(() => {
+    if (!isLoaded || stepNum !== 9) return;
+    if (autoPromoDoneRef.current) return;
+    autoPromoDoneRef.current = true;
+    const autoCode = TEMANBARU_PROMO.code;
+    if (data.promoCode.trim().toUpperCase() !== autoCode) {
+      updateData({ promoCode: autoCode });
+    }
+    setCommittedCode(autoCode);
+  }, [isLoaded, stepNum, data.promoCode]);
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {
@@ -706,9 +720,9 @@ export default function OnboardingStepPage({
       setCheckoutError("Centang persetujuan Syarat & Ketentuan dulu sebelum bayar.");
       return;
     }
-    if (!checkoutKeyRef.current || checkoutError) {
-      checkoutKeyRef.current = generateCheckoutKey();
-    }
+    // Selalu buat checkout key segar agar checkout ulang / navigasi back tidak nyangkut di pesanan lama
+    checkoutKeyRef.current = generateCheckoutKey();
+    setCheckoutError("");
     setIsCheckingOut(true);
     setCheckoutError("");
 

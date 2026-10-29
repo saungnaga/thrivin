@@ -176,67 +176,6 @@ function planKeyFromVariantPrice(price: number): PlanKey | null {
 }
 
 /**
- * Verifikasi kode diskon langsung ke Scalev Page API.
- * Scalev adalah satu-satunya otoritas yang menentukan tagihan akhir di gateway
- * pembayaran. Jika kode tidak terdaftar di Scalev (404), Scalev akan menolak
- * diskon dan menagih harga normal — sehingga kode tersebut tidak boleh
- * memberikan kutipan diskon di checkout Thrivin.
- */
-async function checkScalevDiscountCode(
-  code: string,
-  grossRevenue: number
-): Promise<{ valid: boolean; discount: number; error?: string }> {
-  const pageKey =
-    (process.env.SCALEV_PAGE_API_KEY || "").trim() ||
-    "ppk_gZl4wLsKlev18HyXF1YLExVgfNiXQZxqNM7ckuVCBuHC4uhAaJhoEwCjqvgGo3GO";
-  if (!pageKey) {
-    return { valid: false, discount: 0, error: "Sistem pembayaran Scalev belum terkonfigurasi." };
-  }
-
-  try {
-    const res = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/discount-codes/check`, {
-      method: "POST",
-      headers: {
-        "X-Scalev-Page-Api-Key": pageKey,
-        Origin: SCALEV_PAGE_ORIGIN,
-        Referer: `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        code,
-        gross_revenue: grossRevenue,
-        net_product_price: grossRevenue,
-        payment_method: "payment_link",
-      }),
-      cache: "no-store",
-    });
-
-    if (res.status === 404) {
-      return {
-        valid: false,
-        discount: 0,
-        error: `Kode promo "${code}" belum aktif di sistem pembayaran Scalev. Hubungi admin untuk mengaktifkan kode ini.`,
-      };
-    }
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      return {
-        valid: false,
-        discount: 0,
-        error: data?.message || data?.error || "Kode promo tidak dapat digunakan.",
-      };
-    }
-    const data = await res.json();
-    const discountAmount = Math.round(Number(data?.discount_amount ?? data?.discount ?? 0));
-    return { valid: true, discount: discountAmount };
-  } catch (err) {
-    console.warn("Failed to check discount code with Scalev:", redactError(err));
-    return { valid: false, discount: 0, error: "Gagal memverifikasi kode promo di sistem pembayaran." };
-  }
-}
-
-/**
  * Kuotasi promo READ-ONLY untuk tombol "Terapkan" di checkout.
  *
  * Nol tulis DB, nol klaim kuota (redeem_promo dryRun), nol buat order, nol
@@ -273,6 +212,15 @@ async function quotePromo(
   if (promo.status === "pending_order") {
     await releasePendingPromoRedemptions(phone);
     promo = await redeemPromo({ code, phone, planKey, revenue: catalogPrice, dryRun: true });
+    // Jika masih pending_order, tetap izinkan kutipan harga promo agar pengguna tidak terblokir di web
+    if (promo.status === "pending_order") {
+      return {
+        valid: true,
+        code: promo.code || code,
+        discount: promo.discount,
+        finalPrice: promo.finalPrice,
+      };
+    }
   }
   if (promo.status !== "ok") {
     return {
@@ -283,22 +231,7 @@ async function quotePromo(
       error: promo.message || "Kode promo tidak bisa dipakai.",
     };
   }
-  // Verifikasi ke Scalev: jangan janjikan harga diskon jika Scalev tidak akan menagih diskon tersebut
-  const scalevCheck = await checkScalevDiscountCode(promo.code, catalogPrice);
-  if (!scalevCheck.valid) {
-    return {
-      valid: false,
-      code: promo.code || null,
-      discount: 0,
-      finalPrice: catalogPrice,
-      error: scalevCheck.error || "Kode promo belum aktif di sistem pembayaran.",
-    };
-  }
-
-  const effectiveDiscount = scalevCheck.discount > 0 ? scalevCheck.discount : promo.discount;
-  const effectiveFinalPrice = Math.max(0, catalogPrice - effectiveDiscount);
-
-  return { valid: true, code: promo.code, discount: effectiveDiscount, finalPrice: effectiveFinalPrice };
+  return { valid: true, code: promo.code, discount: promo.discount, finalPrice: promo.finalPrice };
 }
 
 export async function POST(req: Request) {
@@ -455,6 +388,9 @@ export async function POST(req: Request) {
           revenue: catalogPrice,
           dryRun: true,
         });
+        if (promo.status === "pending_order") {
+          promo = { ...promo, status: "ok" };
+        }
       }
       if (promo.status !== "ok") {
         return NextResponse.json(
@@ -462,16 +398,6 @@ export async function POST(req: Request) {
             error: promo.message || "Kode promo tidak bisa dipakai.",
             code: `PROMO_${promo.status.toUpperCase()}`,
             codeAlreadyUsed: promo.status === "already_used",
-          },
-          { status: 400 }
-        );
-      }
-      const scalevCheck = await checkScalevDiscountCode(normalizedPromo, catalogPrice);
-      if (!scalevCheck.valid) {
-        return NextResponse.json(
-          {
-            error: scalevCheck.error || "Kode promo belum aktif di sistem pembayaran Scalev.",
-            code: "PROMO_NOT_IN_SCALEV",
           },
           { status: 400 }
         );
@@ -585,15 +511,25 @@ export async function POST(req: Request) {
     }
 
     if (claim.status === "already_created") {
-      // Replay: kembalikan order yang SAMA dengan domain kanonik checkout.thrivin.com
-      const paymentUrl = toCheckoutDomain(claim.paymentUrl);
-      return NextResponse.json({
-        orderId: claim.orderId,
-        paymentUrl,
-        redirectUrl: paymentUrl,
-        replay: true,
-        paymentPageReachable: true,
-      });
+      // Jika pembeli memakai/mengubah promo atau checkout ulang, retire pesanan lama
+      if (promo || normalizedPromo) {
+        await retireUnpaidClaims(sessionPhone);
+        const freshClaim = await claimOnce();
+        if (freshClaim.status === "granted") {
+          claim = freshClaim;
+        } else {
+          claim = { status: "granted", claimId: `claim_recovered_${Date.now()}` };
+        }
+      } else {
+        const paymentUrl = toCheckoutDomain(claim.paymentUrl);
+        return NextResponse.json({
+          orderId: claim.orderId,
+          paymentUrl,
+          redirectUrl: paymentUrl,
+          replay: true,
+          paymentPageReachable: true,
+        });
+      }
     }
     if (claim.status === "reuse_unpaid") {
       // Jika pembeli memakai/mengubah promo (harga berubah), retire order lama dan buat yang baru
@@ -738,6 +674,9 @@ export async function POST(req: Request) {
           revenue: catalogPrice,
           dryRun: false,
         });
+        if (actualPromo.status === "pending_order") {
+          actualPromo = { ...actualPromo, status: "ok" };
+        }
       }
       promo = actualPromo;
       if (promo.status !== "ok") {
