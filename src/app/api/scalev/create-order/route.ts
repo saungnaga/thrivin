@@ -63,6 +63,7 @@ async function createScalevOrder(input: {
   variantId: string;
   quantity: number;
   productDiscount: number;
+  customerPrice?: number;
   discountCode?: string | null;
   notes: string;
 }) {
@@ -106,34 +107,59 @@ async function createScalevOrder(input: {
   if (!pageKey) {
     return { response: null, data: { message: "SCALEV_PAGE_API_KEY is not configured" } };
   }
-  const payload = {
+
+  const makePayload = (phone: string, includeCustomerPrice: boolean) => ({
     customer_name: input.customerName,
-    customer_phone: input.customerPhone,
-    ordervariants: [{ variant_unique_id: input.variantId, quantity: input.quantity }],
+    customer_phone: phone,
+    ordervariants: [
+      {
+        variant_unique_id: input.variantId,
+        quantity: input.quantity,
+        ...(includeCustomerPrice && typeof input.customerPrice === "number"
+          ? { customer_price: input.customerPrice }
+          : {}),
+      },
+    ],
     product_discount: input.productDiscount,
     ...(input.discountCode ? { discount_code_code: input.discountCode } : {}),
     payment_method: "payment_link",
     notes: input.notes,
     is_post_payment_redirect_enabled: true,
     post_payment_redirect_url: POST_PAYMENT_REDIRECT_URL,
-  };
-  const pageUrl = `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`;
-  let response = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
-    method: "POST",
-    headers: {
-      "X-Scalev-Page-Api-Key": pageKey,
-      Origin: SCALEV_PAGE_ORIGIN,
-      Referer: pageUrl,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(payload),
-    cache: "no-store",
   });
-  let data = await response.json().catch(() => ({}));
+
+  const pageUrl = `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`;
+  const callPageApi = async (payloadObj: any) => {
+    const res = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
+      method: "POST",
+      headers: {
+        "X-Scalev-Page-Api-Key": pageKey,
+        Origin: SCALEV_PAGE_ORIGIN,
+        Referer: pageUrl,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payloadObj),
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({}));
+    return { response: res, data: json };
+  };
+
+  // Coba dengan customer_price (jika produk di Scalev bertipe "harga ditentukan pembeli")
+  let useCustomerPrice = typeof input.customerPrice === "number";
+  let { response, data } = await callPageApi(makePayload(input.customerPhone, useCustomerPrice));
+
+  // Jika Scalev menolak karena variant fixed-price ("customer_price must be absent for fixed-price variants"),
+  // otomatis retry tanpa customer_price
+  if (!response.ok && JSON.stringify(data).includes("must be absent for fixed-price variants")) {
+    useCustomerPrice = false;
+    const retry = await callPageApi(makePayload(input.customerPhone, false));
+    response = retry.response;
+    data = retry.data;
+  }
 
   // 3. Jika Scalev membalas 'Duplicate order.', otomatis retry dengan format nomor alternatif (08x vs 628x)
-  // Scalev membedakan string nomor telepon secara ketat; format alternatif membuat pesanan baru sukses
   if (!response.ok && String(data?.error || data?.message || "").toLowerCase().includes("duplicate")) {
     const origPhone = String(input.customerPhone || "").trim();
     const altPhone = origPhone.startsWith("62")
@@ -143,22 +169,10 @@ async function createScalevOrder(input: {
       : null;
 
     if (altPhone) {
-      const altPayload = { ...payload, customer_phone: altPhone };
-      const altRes = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
-        method: "POST",
-        headers: {
-          "X-Scalev-Page-Api-Key": pageKey,
-          Origin: SCALEV_PAGE_ORIGIN,
-          Referer: pageUrl,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(altPayload),
-        cache: "no-store",
-      });
-      if (altRes.ok) {
-        response = altRes;
-        data = await altRes.json().catch(() => ({}));
+      const altRes = await callPageApi(makePayload(altPhone, useCustomerPrice));
+      if (altRes.response.ok) {
+        response = altRes.response;
+        data = altRes.data;
       }
     }
   }
@@ -802,6 +816,7 @@ export async function POST(req: Request) {
       variantId: variant.uniqueId,
       quantity,
       productDiscount,
+      customerPrice: targetAmount,
       discountCode: promoApplied,
       notes: orderNotes,
     };
