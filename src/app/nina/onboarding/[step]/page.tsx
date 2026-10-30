@@ -55,7 +55,9 @@ import {
   BellRing,
   BrainCircuit,
   MessageCircle,
-  Smartphone
+  Smartphone,
+  Clock,
+  Timer
 } from "lucide-react";
 import { PLAN_CATALOG, type PlanKey } from "@/lib/plans";
 import {
@@ -73,6 +75,8 @@ import { planPricing, quoteFromMap, quoteKey, type PromoQuote } from "@/lib/prom
 
 const TOTAL_STEPS = 9;
 const STORAGE_KEY = "thrivin_onboarding_profile";
+const PROMO_COUNTDOWN_STORAGE_KEY = "thrivin_promo_deadline";
+const PROMO_DURATION_SECONDS = 3600; // 1 jam countdown
 interface OnboardingData {
   name: string;
   gender: "Laki-laki" | "Perempuan" | "";
@@ -192,6 +196,15 @@ export default function OnboardingStepPage({
   // "kode|paket" yang sudah ditanyakan ke server: dedupe, bukan loop render.
   const quoteRequestedRef = useRef<Set<string>>(new Set());
   const autoPromoDoneRef = useRef(false);
+  // Countdown 1 jam untuk kode promo terpasang (efek psikologis pembeli)
+  const [promoSecondsLeft, setPromoSecondsLeft] = useState<number | null>(null);
+
+  const formatPromoTime = (seconds: number | null): string => {
+    if (seconds === null || seconds <= 0) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
 
   // Syncing & calculation animation state (after WhatsApp input in Step 8)
   const [isSyncing, setIsSyncing] = useState(false);
@@ -398,6 +411,39 @@ export default function OnboardingStepPage({
     }
     setCommittedCode(autoCode);
   }, [isLoaded, stepNum, data.promoCode]);
+
+  // Countdown 1 jam untuk kode promo terpasang. Ketika countdown habis,
+  // kode promo otomatis dicopot namun tetap bisa dipasang lagi (efek psikologis pembeli).
+  useEffect(() => {
+    if (!isLoaded || stepNum !== 9 || !committedCode) {
+      setPromoSecondsLeft(null);
+      return;
+    }
+
+    const now = Date.now();
+    let deadline = Number(localStorage.getItem(PROMO_COUNTDOWN_STORAGE_KEY));
+    if (!deadline || isNaN(deadline) || deadline <= now) {
+      deadline = now + PROMO_DURATION_SECONDS * 1000;
+      localStorage.setItem(PROMO_COUNTDOWN_STORAGE_KEY, String(deadline));
+    }
+
+    const tick = () => {
+      const diff = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+      setPromoSecondsLeft(diff);
+      if (diff <= 0) {
+        localStorage.removeItem(PROMO_COUNTDOWN_STORAGE_KEY);
+        setCommittedCode("");
+        updateData({ promoCode: "" });
+        setCheckoutError(
+          "Waktu promo 1 jam telah berakhir. Kode promo otomatis dicopot, silakan masukkan kembali jika ingin menggunakannya."
+        );
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [isLoaded, stepNum, committedCode]);
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {
@@ -701,6 +747,8 @@ export default function OnboardingStepPage({
     setCheckoutError("");
     if (!typedCode) {
       setCommittedCode("");
+      localStorage.removeItem(PROMO_COUNTDOWN_STORAGE_KEY);
+      setPromoSecondsLeft(null);
       return;
     }
     const { quote, error } = await requestPromoQuote(
@@ -719,6 +767,11 @@ export default function OnboardingStepPage({
     setPromoQuotes((prev) => ({ ...prev, [quoteKey(quote.code, quote.planId)]: quote }));
     setCommittedCode(quote.code);
     updateData({ promoCode: quote.code });
+
+    // Mulai hitung mundur 1 jam baru saat kode promo berhasil dipasang ulang
+    const newDeadline = Date.now() + PROMO_DURATION_SECONDS * 1000;
+    localStorage.setItem(PROMO_COUNTDOWN_STORAGE_KEY, String(newDeadline));
+    setPromoSecondsLeft(PROMO_DURATION_SECONDS);
   };
 
   // Handle WhatsApp submission with calculation/syncing animation
@@ -2372,31 +2425,26 @@ export default function OnboardingStepPage({
                 })}
               </div>
 
-              {/* Paket 1 Bulan — tetap penawaran TERAKHIR setelah grid, tapi dibuat
-                  jelas & mudah dilihat (permintaan owner A1). Tombol nyata: keyboard,
-                  focus ring, dan nama aksesibel. Harga tetap dari katalog. */}
+              {/* Paket 1 Bulan — diperkecil agar tidak menjadi fokus utama (pembeli diarahkan ke paket 3/6/12 bulan) */}
               <div className="pt-1">
                 {data.selectedPlan === "month" ? (
-                  <div className="w-full rounded-3xl border-2 border-accent bg-brand-900 text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg">
-                    <div className="flex items-center gap-3 text-left">
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-accent text-brand-950 shrink-0">
+                  <div className="w-full rounded-2xl border border-brand-800 bg-brand-950 text-white p-3 sm:py-2.5 sm:px-4 flex items-center justify-between gap-3 text-xs shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-accent/25 text-accent border border-accent/40 shrink-0">
                         Coba Dulu
                       </span>
-                      <div>
-                        <div className="font-serif font-bold text-base sm:text-lg">{PLANS.month.name}</div>
-                        <div className="text-[11px] text-brand-200">{PLANS.month.desc}</div>
-                      </div>
+                      <div className="font-medium text-xs text-white">{PLANS.month.name}</div>
                     </div>
-                    <div className="flex items-center gap-3 self-start sm:self-auto">
-                      <span className="font-mono font-black text-lg sm:text-xl">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-bold text-xs text-accent">
                         Rp {formatIdr(getPlanPricing("month").discountedTotal)}
                       </span>
                       <button
                         type="button"
                         onClick={() => updateData({ selectedPlan: "quarter" })}
-                        className="text-accent underline text-[11px] hover:text-white cursor-pointer font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        className="text-accent underline text-[10px] hover:text-white cursor-pointer font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
-                        Pilih paket program 3 bulan &rarr;
+                        Pilih paket 3 bulan &rarr;
                       </button>
                     </div>
                   </div>
@@ -2406,24 +2454,22 @@ export default function OnboardingStepPage({
                     onClick={() => updateData({ selectedPlan: "month" })}
                     aria-pressed={false}
                     aria-label={`${PLANS.month.name} — Rp ${formatIdr(getPlanPricing("month").discountedTotal)}, coba 1 bulan dulu`}
-                    className="w-full rounded-3xl border-2 border-brand-200 bg-white hover:bg-brand-50 text-brand-950 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-2xs cursor-pointer text-left transition-colors group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    className="w-full rounded-2xl border border-surface-border bg-surface-muted/40 hover:bg-surface-muted/80 text-text-secondary hover:text-brand-950 p-3 sm:py-2.5 sm:px-4 flex items-center justify-between gap-3 text-xs shadow-2xs cursor-pointer transition-colors group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-slate-200 text-slate-700 shrink-0">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">
                         Coba dulu
                       </span>
-                      <div>
-                        <div className="font-serif font-bold text-base sm:text-lg">{PLANS.month.name}</div>
-                        <div className="text-[11px] text-text-secondary">
-                          Belum yakin dengan komitmen panjang? {PLANS.month.badge}.
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-xs text-brand-900">{PLANS.month.name}</span>
+                        <span className="hidden sm:inline text-[11px] text-text-muted">({PLANS.month.desc})</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 self-start sm:self-auto">
-                      <span className="font-mono font-black text-lg sm:text-xl">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono font-semibold text-xs text-text-secondary">
                         Rp {formatIdr(getPlanPricing("month").discountedTotal)}
                       </span>
-                      <span className="px-4 py-2 rounded-full bg-brand-900 group-hover:bg-brand-800 text-white text-xs font-bold whitespace-nowrap">
+                      <span className="px-2.5 py-1 rounded-lg border border-surface-border bg-white text-[11px] font-semibold text-text-secondary group-hover:text-brand-950 group-hover:border-slate-300">
                         Pilih 1 Bulan
                       </span>
                     </div>
@@ -2457,9 +2503,24 @@ export default function OnboardingStepPage({
                 </div>
 
                 {promoQuote && (
-                  <div className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 pt-1">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{promoAppliedNote(promoQuote.code, promoQuote.finalPrice)}</span>
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between flex-wrap gap-1.5 text-xs">
+                      <div className="text-emerald-700 font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{promoAppliedNote(promoQuote.code, promoQuote.finalPrice)}</span>
+                      </div>
+                      {promoSecondsLeft !== null && promoSecondsLeft > 0 && (
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 font-mono font-bold text-xs shadow-2xs">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse shrink-0" />
+                          <span>{formatPromoTime(promoSecondsLeft)}</span>
+                        </div>
+                      )}
+                    </div>
+                    {promoSecondsLeft !== null && promoSecondsLeft > 0 && (
+                      <p className="text-[11px] text-amber-800 font-medium flex items-center gap-1">
+                        <span>⚡ Diskon promo tersisa <strong className="font-mono font-bold">{formatPromoTime(promoSecondsLeft)}</strong>. Ambil paketmu sebelum waktu habis!</span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

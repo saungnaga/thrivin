@@ -141,10 +141,10 @@ check("negatif: banner 'Kode promo terpasang' tidak ada lagi", () => {
   assert.ok(!src.includes("Kode promo terpasang"), "success banner was removed");
   assert.ok(!src.includes("promoAppliedBanner"), "state was removed");
 });
-check("negatif: countdown 1 jam hilang dari state, localStorage, dan UI", () => {
-  assert.ok(!src.includes("promo_deadline"), "deadline localStorage key was removed");
-  assert.ok(!src.includes("timeLeft"), "timer state was removed");
-  assert.ok(!src.includes("formatTime"), "timer formatter was removed");
+check("countdown 1 jam aktif saat kode promo terpasang (efek psikologis)", () => {
+  assert.ok(src.includes("PROMO_COUNTDOWN_STORAGE_KEY"), "countdown storage key present");
+  assert.ok(src.includes("formatPromoTime"), "countdown timer formatter present");
+  assert.ok(src.includes("setPromoSecondsLeft"), "countdown state setter present");
 });
 check("ringkasan Subtotal / Potongan / Total Investasi TETAP ada", () => {
   assert.ok(src.includes("Subtotal ("), "summary must show base price");

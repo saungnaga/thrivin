@@ -29,8 +29,8 @@ if (!PORT) {
 
 const PRODUCTS = [
   { name: "Checkout Nina 1 Bulan", variants: [{ unique_id: "variant_vF4j4Pwv1wIizRu3VP6FVOgt", price: 99000 }] },
-  { name: "Checkout Nina 3 Bulan", variants: [{ unique_id: "variant_HQdTVIe99NfKi4yjdryOprFc", price: 219000, price_mode: "customer_defined" }] },
-  { name: "Checkout Nina 6 Bulan", variants: [{ unique_id: "variant_f_rx-DoyHQGghKA9LCQsaoz9", price: 359000 }] },
+  { name: "Checkout Nina 3 Bulan", variants: [{ unique_id: "variant_HQdTVIe99NfKi4yjdryOprFc", price: 231000, price_mode: "customer_defined" }] },
+  { name: "Checkout Nina 6 Bulan", variants: [{ unique_id: "variant_f_rx-DoyHQGghKA9LCQsaoz9", price: 357000 }] },
   { name: "Checkout Nina 12 Bulan", variants: [{ unique_id: "variant_Year12M0JKm9wXQp7ZbV2Nq", price: 465000 }] },
 ];
 

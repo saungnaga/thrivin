@@ -66,14 +66,14 @@ check("server quote numbers match the bug report", () => {
   assert.deepEqual(serverQuote("quarter"), {
     code: CODE,
     planId: "quarter",
-    discount: 43800,
-    finalPrice: 175200,
+    discount: 46200,
+    finalPrice: 184800,
   });
   assert.deepEqual(serverQuote("half"), {
     code: CODE,
     planId: "half",
-    discount: 71800,
-    finalPrice: 287200,
+    discount: 71400,
+    finalPrice: 285600,
   });
   assert.deepEqual(serverQuote("year"), {
     code: CODE,
@@ -123,22 +123,22 @@ check("quarter→year: total = Rp 465.000 − Rp 93.000 = Rp 372.000", () => {
   assert.equal(pricing.originalTotal - pricing.discountedTotal, 93000);
   assert.equal(pricing.hasDiscount, true);
 });
-check("quarter→half: total = Rp 359.000 − Rp 71.800 = Rp 287.200", () => {
-  assert.equal(shownAfterRevalidation("half").discountedTotal, 287200);
+check("quarter→half: total = Rp 357.000 − Rp 71.400 = Rp 285.600", () => {
+  assert.equal(shownAfterRevalidation("half").discountedTotal, 285600);
 });
-check("quarter quote is unchanged for quarter itself (Rp 175.200)", () => {
+check("quarter quote is unchanged for quarter itself (Rp 184.800)", () => {
   const pricing = shownAfterRevalidation("quarter");
-  assert.equal(pricing.discountedTotal, 175200);
-  assert.equal(pricing.originalTotal - pricing.discountedTotal, 43800);
+  assert.equal(pricing.discountedTotal, 184800);
+  assert.equal(pricing.originalTotal - pricing.discountedTotal, 46200);
 });
 
 // ── C: back and forth stays consistent ─────────────────────────────────────
-check("quarter→year→quarter: Rp 175.200 → Rp 372.000 → Rp 175.200", () => {
-  assert.equal(shownAfterRevalidation("quarter").discountedTotal, 175200);
+check("quarter→year→quarter: Rp 184.800 → Rp 372.000 → Rp 184.800", () => {
+  assert.equal(shownAfterRevalidation("quarter").discountedTotal, 184800);
   assert.equal(shownAfterRevalidation("year").discountedTotal, 372000);
-  assert.equal(shownAfterRevalidation("quarter").discountedTotal, 175200);
+  assert.equal(shownAfterRevalidation("quarter").discountedTotal, 184800);
   // …and a year quote never leaks back onto the 3-month plan either.
-  assert.equal(shown("year", "quarter").discountedTotal, 219000);
+  assert.equal(shown("year", "quarter").discountedTotal, 231000);
 });
 
 // ── D: displayed total is never below (catalog − max possible discount) ────
