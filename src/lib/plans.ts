@@ -29,6 +29,8 @@ export interface PlanDefinition {
   fallbackVariantPrice: number;
 }
 
+export const SHARED_SCALEV_CUSTOMER_PRICE_VARIANT_ID = "variant_HQdTVIe99NfKi4yjdryOprFc";
+
 export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
   month: {
     key: "month",
@@ -37,7 +39,7 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     basePrice: 99000,
     subscriptionPlanId: 1,
     tokenLimit: 100000,
-    fallbackVariantId: "variant_vF4j4Pwv1wIizRu3VP6FVOgt",
+    fallbackVariantId: SHARED_SCALEV_CUSTOMER_PRICE_VARIANT_ID,
     fallbackVariantPrice: 99000,
   },
   quarter: {
@@ -47,7 +49,7 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     basePrice: 219000,
     subscriptionPlanId: 2,
     tokenLimit: 500000,
-    fallbackVariantId: "variant_HQdTVIe99NfKi4yjdryOprFc",
+    fallbackVariantId: SHARED_SCALEV_CUSTOMER_PRICE_VARIANT_ID,
     fallbackVariantPrice: 219000,
   },
   half: {
@@ -57,7 +59,7 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     basePrice: 359000,
     subscriptionPlanId: 3,
     tokenLimit: 2000000,
-    fallbackVariantId: "variant_f_rx-DoyHQGghKA9LCQsaoz9",
+    fallbackVariantId: SHARED_SCALEV_CUSTOMER_PRICE_VARIANT_ID,
     fallbackVariantPrice: 359000,
   },
   year: {
@@ -67,8 +69,8 @@ export const PLAN_CATALOG: Record<PlanKey, PlanDefinition> = {
     basePrice: 465000,
     subscriptionPlanId: 3,
     tokenLimit: 2000000,
-    fallbackVariantId: "variant_f_rx-DoyHQGghKA9LCQsaoz9",
-    fallbackVariantPrice: 359000,
+    fallbackVariantId: SHARED_SCALEV_CUSTOMER_PRICE_VARIANT_ID,
+    fallbackVariantPrice: 465000,
   },
 };
 

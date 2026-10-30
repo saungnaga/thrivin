@@ -29,7 +29,7 @@ if (!PORT) {
 
 const PRODUCTS = [
   { name: "Checkout Nina 1 Bulan", variants: [{ unique_id: "variant_vF4j4Pwv1wIizRu3VP6FVOgt", price: 99000 }] },
-  { name: "Checkout Nina 3 Bulan", variants: [{ unique_id: "variant_HQdTVIe99NfKi4yjdryOprFc", price: 219000 }] },
+  { name: "Checkout Nina 3 Bulan", variants: [{ unique_id: "variant_HQdTVIe99NfKi4yjdryOprFc", price: 219000, price_mode: "customer_defined" }] },
   { name: "Checkout Nina 6 Bulan", variants: [{ unique_id: "variant_f_rx-DoyHQGghKA9LCQsaoz9", price: 359000 }] },
   { name: "Checkout Nina 12 Bulan", variants: [{ unique_id: "variant_Year12M0JKm9wXQp7ZbV2Nq", price: 465000 }] },
 ];
@@ -209,12 +209,18 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body.ordervariants) || !body.ordervariants.length) {
       return send(res, 400, { error: "Product or Bundle is required" });
     }
-    const unitPrice = variantPrice(body.ordervariants[0].variant_unique_id);
+    const customerPrice = Number(body.ordervariants[0].customer_price);
+    const hasCustomerPrice = !isNaN(customerPrice) && customerPrice > 0;
+    const unitPrice = hasCustomerPrice
+      ? customerPrice
+      : variantPrice(body.ordervariants[0].variant_unique_id);
     if (unitPrice === null) {
       return send(res, 400, { error: `unknown variant ${body.ordervariants[0].variant_unique_id}` });
     }
     const quantity = Number(body.ordervariants[0].quantity || 1);
-    const gross = unitPrice * quantity - Number(body.product_discount || 0);
+    const gross = hasCustomerPrice
+      ? customerPrice
+      : unitPrice * quantity - Number(body.product_discount || 0);
     const orderId = `test_${createdOrders.length + 1}_${Date.now().toString(36)}`;
     const redirect = `https://digitanest.myscalev.com/pay/${orderId}`;
     createdOrders.push({

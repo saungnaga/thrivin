@@ -78,7 +78,13 @@ async function createScalevOrder(input: {
         store_unique_id: storeId,
         customer_name: input.customerName,
         customer_phone: input.customerPhone,
-        ordervariants: [{ variant_unique_id: input.variantId, quantity: input.quantity }],
+        ordervariants: [
+          {
+            variant_unique_id: input.variantId,
+            quantity: input.quantity,
+            ...(typeof input.customerPrice === "number" ? { customer_price: input.customerPrice } : {}),
+          },
+        ],
         product_discount: input.productDiscount,
         payment_method: "payment_link",
         notes: input.notes,
@@ -220,9 +226,13 @@ async function lookupVariant(
   apiKey: string,
   plan: PlanKey
 ): Promise<{ uniqueId: string; price: number }> {
+  const customerPriceVariantId =
+    process.env.SCALEV_CUSTOMER_PRICE_VARIANT_ID ||
+    PLAN_CATALOG[plan].fallbackVariantId;
+
   const fallback = {
-    uniqueId: PLAN_CATALOG[plan].fallbackVariantId,
-    price: PLAN_CATALOG[plan].fallbackVariantPrice,
+    uniqueId: customerPriceVariantId,
+    price: resolvePlanPrice(plan).price,
   };
   try {
     const res = await fetch(`${SCALEV_API_BASE}/v3/stores/${storeId}/products`, {
@@ -232,15 +242,19 @@ async function lookupVariant(
     if (!res.ok) return fallback;
     const json = await res.json();
     const products: any[] = json?.data || [];
-    const keywords = PLAN_LOOKUP_KEYWORDS[plan];
+    // Semua paket menggunakan varian produk Scalev yang sama (mode 'customer_defined' / Checkout Nina 3 Bulan)
+    // agar harga yang ditagihkan dapat ditentukan dinamis dari web (termasuk promo).
     const match = products.find((p) =>
-      keywords.some((kw) => String(p.name || "").toLowerCase().includes(kw))
+      p.variants?.some((v: any) => v.price_mode === "customer_defined") ||
+      String(p.name || "").toLowerCase().includes("3 bulan")
     );
-    const variant = match?.variants?.[0];
+    const variant =
+      match?.variants?.find((v: any) => v.price_mode === "customer_defined") ||
+      match?.variants?.[0];
     if (!variant?.unique_id) return fallback;
     return {
       uniqueId: variant.unique_id,
-      price: Math.round(Number(variant.price)) || fallback.price,
+      price: resolvePlanPrice(plan).price,
     };
   } catch (err) {
     console.warn("Scalev product lookup fallback used:", redactError(err));

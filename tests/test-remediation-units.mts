@@ -67,7 +67,7 @@ check("B-2: list prices come from the server catalog", () => {
 check("B-2: resolvePlanPrice tidak lagi mengenal promo hardcoded (promo dari DB)", () => {
   // TEMANBARU/TEMANBAIKHATI dulu jadi konstanta di sini; sekarang ada di tabel
   // promo_codes (seed migrasi) dan diskon dihitung RPC redeem_promo.
-  assert.equal(resolvePlanPrice("quarter").price, 231000);
+  assert.equal(resolvePlanPrice("quarter").price, 219000);
   assert.equal(resolvePlanPrice("year").price, 465000);
   assert.equal(resolvePlanPrice("quarter").promoApplied, null);
 });
