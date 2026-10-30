@@ -2503,23 +2503,16 @@ export default function OnboardingStepPage({
                 </div>
 
                 {promoQuote && (
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between flex-wrap gap-1.5 text-xs">
-                      <div className="text-emerald-700 font-bold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{promoAppliedNote(promoQuote.code, promoQuote.finalPrice)}</span>
-                      </div>
-                      {promoSecondsLeft !== null && promoSecondsLeft > 0 && (
-                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 font-mono font-bold text-xs shadow-2xs">
-                          <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse shrink-0" />
-                          <span>{formatPromoTime(promoSecondsLeft)}</span>
-                        </div>
-                      )}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pt-1 text-xs">
+                    <div className="text-emerald-700 font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{promoAppliedNote(promoQuote.code, promoQuote.finalPrice)}</span>
                     </div>
                     {promoSecondsLeft !== null && promoSecondsLeft > 0 && (
-                      <p className="text-[11px] text-amber-800 font-medium flex items-center gap-1">
-                        <span>⚡ Diskon promo tersisa <strong className="font-mono font-bold">{formatPromoTime(promoSecondsLeft)}</strong>. Ambil paketmu sebelum waktu habis!</span>
-                      </p>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 font-mono font-bold text-xs shadow-2xs">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse shrink-0" />
+                        <span>{formatPromoTime(promoSecondsLeft)}</span>
+                      </div>
                     )}
                   </div>
                 )}
