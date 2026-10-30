@@ -33,7 +33,7 @@ import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
 export default function NinaLearningHubPage() {
-  const ninaCtaUrl = "/companion/nina/onboarding/1";
+  const ninaCtaUrl = "/nina/onboarding/1";
   const [selectedTrackId, setSelectedTrackId] = useState<TrackInfo["id"]>("workout");
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
 
@@ -215,7 +215,7 @@ export default function NinaLearningHubPage() {
             {/* Breadcrumb back to Nina */}
             <div className="flex justify-center mb-4">
               <Link
-                href="/companion/nina"
+                href="/nina"
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-brand-900 transition-colors py-1 px-3 rounded-full bg-surface-muted border border-surface-border shadow-2xs"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />

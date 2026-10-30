@@ -941,7 +941,7 @@ async function main() {
     // ═══ F. A6/A7 di UI (pemeriksaan sumber) ══════════════════════════════
     section("F. UI: dua checkbox terpisah + halaman legal");
     const stepPage = fs.readFileSync(
-      path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
+      path.join(REPO, "src/app/nina/onboarding/[step]/page.tsx"),
       "utf-8"
     );
     assertOk(/id="consent-terms"/.test(stepPage), "checkbox T&C punya id");
@@ -1017,7 +1017,7 @@ async function main() {
     // jadi helper/konstanta yang menyelipkan nominal tetap tertangkap.
     for (const [label, pathname] of [
       ["/", "/"],
-      ["/companion/nina", "/companion/nina"],
+      ["/nina", "/nina"],
     ] as const) {
       const html = (await (await fetch(`${APP_URL}${pathname}`)).text()).replace(/<!--.*?-->/g, "");
       assertOk(html.length > 1000, `${label} dirender`);
@@ -1029,7 +1029,7 @@ async function main() {
     }
     // Batas tegas: langkah checkout TETAP menampilkan nominal (orang sedang bayar).
     const checkoutSource = fs.readFileSync(
-      path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
+      path.join(REPO, "src/app/nina/onboarding/[step]/page.tsx"),
       "utf-8"
     );
     assertOk(/Rp \{formatIdr\(/.test(checkoutSource), "checkout tetap menampilkan nominal");

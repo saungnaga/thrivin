@@ -46,7 +46,7 @@ interface LockedModalInfo {
 }
 
 export default function Home() {
-  const ninaCtaUrl = "/companion/nina";
+  const ninaCtaUrl = "/nina";
   const [lockedModal, setLockedModal] = useState<LockedModalInfo | null>(null);
   const [wordIndex, setWordIndex] = useState(0);
 
@@ -616,7 +616,7 @@ export default function Home() {
           <div className="relative z-10 flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full sm:w-auto">
             {/* Rule 8: CTA Button Text: Inter Semibold */}
             <Link
-              href="/companion/nina/learning"
+              href="/nina/learning"
               className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-accent hover:bg-accent-dark text-white font-sans font-semibold text-xs sm:text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer text-center group"
             >
               <BookOpen className="w-4 h-4 text-white" />

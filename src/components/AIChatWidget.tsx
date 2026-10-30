@@ -53,7 +53,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
       text: "Nina adalah AI Companion pertama Thrivin untuk Wellness & Fitness. Nina hidup 24/7 di WhatsApp-mu untuk menemani diet, evaluasi foto makanan, cek record data Strava, dan proaktif mengingatkan jadwal olahraga tanpa kamu harus cari duluan!",
       cta: {
         label: "Kenali Nina Lebih Dekat",
-        href: "/companion/nina",
+        href: "/nina",
       },
     };
   }
@@ -70,7 +70,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
       text: `Investasi Thrivin sekali bayar, tanpa tagihan otomatis: ${planPriceLine()}. Kode promo '${TEMANBARU_PROMO.code}' diskon ${TEMANBARU_PROMO.discountPercent}% di paket ${TEMANBARU_PROMO.minMonths} bulan ke atas, 1x per nomor WhatsApp. Semua paket ada garansi uang kembali 3 hari.`,
       cta: {
         label: "Mulai Onboarding & Pilih Paket",
-        href: "/companion/nina/onboarding/1",
+        href: "/nina/onboarding/1",
       },
     };
   }
@@ -86,7 +86,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
       text: "Kamu TIDAK PERLU menginstal aplikasi baru! Nina langsung aktif di WhatsApp pribadimu. Chatting santai layaknya kontak teman akrab yang selalu siap menyapa dan merespons 24/7.",
       cta: {
         label: "Coba Nina di WhatsApp",
-        href: "/companion/nina",
+        href: "/nina",
       },
     };
   }
@@ -114,7 +114,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
       text: "Cukup kirim foto piring makanmu ke WhatsApp Nina, dan Nina akan mengestimasi kalori & proteinnya. Kamu juga bisa kirim tangkapan layar lari Strava untuk dievaluasi pace, detak jantung (HR), dan saran pemulihannya!",
       cta: {
         label: "Lihat Fitur Lengkap",
-        href: "/companion/nina",
+        href: "/nina",
       },
     };
   }
@@ -124,7 +124,7 @@ function getBotReply(input: string): { text: string; cta?: { label: string; href
       text: "Proses setup hanya butuh 5 menit via onboarding singkat. Setelah itu, akun pendampingan aktif dan Nina langsung menyapamu di nomor WhatsApp yang kamu daftarkan.",
       cta: {
         label: "Mulai Onboarding Sekarang",
-        href: "/companion/nina/onboarding/1",
+        href: "/nina/onboarding/1",
       },
     };
   }

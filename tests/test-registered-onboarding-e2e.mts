@@ -277,7 +277,7 @@ async function main() {
 
   try {
     await assertMockOwner(MOCK_PORT, mock.pid);
-    await waitFor(`${APP_URL}/companion/nina/status`);
+    await waitFor(`${APP_URL}/nina/status`);
 
     // ── data dummy: pelanggan lama (snapshot + langganan) ────────────────────
     const idActive = insertUser(P.active, "Dummy Active");

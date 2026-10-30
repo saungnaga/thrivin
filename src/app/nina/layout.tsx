@@ -15,13 +15,13 @@ export const metadata: Metadata = {
     "Akuntabilitas Olahraga",
   ],
   alternates: {
-    canonical: "/companion/nina",
+    canonical: "/nina",
   },
   openGraph: {
     title: "Meet Nina — AI Companion Pribadimu di WhatsApp | Thrivin",
     description:
       "Teman yang tumbuh bareng kamu. Baca foto makanan, evaluasi Strava, reach out proaktif di jam genting, langsung di WhatsApp.",
-    url: "/companion/nina",
+    url: "/nina",
   },
 };
 

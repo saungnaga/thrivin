@@ -6,7 +6,7 @@ import { Footer } from "@/components/Footer";
 import { FeedbackForm } from "./FeedbackForm";
 
 /**
- * /companion/nina/kritiksaran — A8 (kontrak §6).
+ * /nina/kritiksaran — A8 (kontrak §6).
  * Link target for the STOP/BERHENTI flow (B2) — URL sudah ditetapkan di kontrak §11.
  *
  * noindex: ini kotak masuk keluhan, bukan halaman marketing.
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   description:
     "Kirim kritik atau saran soal Nina dan Thrivin. Tulisanmu dibaca tim Thrivin dan dipakai buat perbaikan.",
   robots: { index: false, follow: false },
-  alternates: { canonical: "/companion/nina/kritiksaran" },
+  alternates: { canonical: "/nina/kritiksaran" },
 };
 
 export default function KritikSaranPage() {
@@ -25,7 +25,7 @@ export default function KritikSaranPage() {
       <Navbar />
       <main className="mx-auto w-full max-w-2xl px-4 py-12 sm:py-16">
         <Link
-          href="/companion/nina"
+          href="/nina"
           className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />

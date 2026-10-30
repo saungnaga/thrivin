@@ -24,8 +24,8 @@ const { stepPayloadsFromProfile, REQUIRED_STEPS, STEP_FIELDS } = await import(
 );
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
-const REPO = path.resolve(HERE, "..");
-const PAGE = path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx");
+const REPO = path.resolve(import.meta.dirname, "..");
+const PAGE = path.join(REPO, "src/app/nina/onboarding/[step]/page.tsx");
 const PROGRESS_ROUTE = path.join(REPO, "src/app/api/onboarding/progress/route.ts");
 
 const pageSrc = fs.readFileSync(PAGE, "utf-8");

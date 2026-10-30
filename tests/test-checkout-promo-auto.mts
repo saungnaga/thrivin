@@ -30,7 +30,7 @@ function check(name: string, fn: () => void) {
 }
 
 const REPO = path.resolve(import.meta.dirname, "..");
-const PAGE = path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx");
+const PAGE = path.join(REPO, "src/app/nina/onboarding/[step]/page.tsx");
 const src = fs.readFileSync(PAGE, "utf8");
 const CODE = TEMANBARU_PROMO.code;
 

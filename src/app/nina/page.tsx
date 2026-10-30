@@ -409,7 +409,7 @@ export default function NinaPage() {
             {/* CTAs with Guaranteed Clear White Font & Crisp Contrast (Rule 8: Inter Semibold) */}
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
               <Link
-                href="/companion/nina/onboarding/1"
+                href="/nina/onboarding/1"
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span className="text-white font-semibold">
@@ -419,7 +419,7 @@ export default function NinaPage() {
               </Link>
 
               <Link
-                href="/companion/nina/learning"
+                href="/nina/learning"
                 className="w-full sm:w-auto px-6 py-4 rounded-full bg-white hover:bg-slate-100 border border-slate-300 text-[#071F2D] font-bold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs cursor-pointer group"
               >
                 <BookOpen className="w-4 h-4 text-accent-dark" />
@@ -702,7 +702,7 @@ export default function NinaPage() {
             {/* Bottom CTA with Guaranteed White Text Contrast on Deep Accent/Navy (Rule 8: Inter Semibold) */}
             <div className="pt-2">
               <Link
-                href="/companion/nina/onboarding/1"
+                href="/nina/onboarding/1"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-[#082132] hover:bg-[#041622] border-2 border-accent text-white font-sans font-semibold text-sm transition-all shadow-glow hover:scale-105 cursor-pointer"
               >
                 <span className="text-white font-semibold">

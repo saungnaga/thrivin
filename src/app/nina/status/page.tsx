@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /companion/nina/status — cek status langganan WA-first (TANPA OTP).
+ * /nina/status — cek status langganan WA-first (TANPA OTP).
  *
  * Keputusan owner 20/10: nomor WhatsApp diketik → server cek database → satu
  * dari tiga cabang. Tidak ada kode verifikasi, tidak ada hitung mundur, tidak
@@ -31,7 +31,7 @@ const inputClass =
 const buttonClass =
   "mt-4 w-full min-h-11 rounded-xl bg-neutral-900 px-4 py-2 text-base font-medium text-white disabled:opacity-50";
 
-const ONBOARDING_URL = "/companion/nina/onboarding/1";
+const ONBOARDING_URL = "/nina/onboarding/1";
 
 function dayLabel(value: number | null, suffix: string): string {
   return value === null ? "-" : `${value} hari ${suffix}`;

@@ -20,7 +20,7 @@ import {
 } from "../src/lib/feedback.ts";
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
-const REPO = path.resolve(HERE, "..");
+const REPO = path.resolve(import.meta.dirname, "..");
 
 let pass = 0;
 const failures: string[] = [];
@@ -118,8 +118,8 @@ check(
 
 // ── Part 2: shipped-source properties ────────────────────────────────────────
 console.log("── static: client bundle must not carry the service key ──");
-const formSrc = fs.readFileSync(path.join(REPO, "src/app/companion/nina/kritiksaran/FeedbackForm.tsx"), "utf-8");
-const pageSrc = fs.readFileSync(path.join(REPO, "src/app/companion/nina/kritiksaran/page.tsx"), "utf-8");
+const formSrc = fs.readFileSync(path.join(REPO, "src/app/nina/kritiksaran/FeedbackForm.tsx"), "utf-8");
+const pageSrc = fs.readFileSync(path.join(REPO, "src/app/nina/kritiksaran/page.tsx"), "utf-8");
 const routeSrc = fs.readFileSync(path.join(REPO, "src/app/api/feedback/route.ts"), "utf-8");
 const libSrc = fs.readFileSync(path.join(REPO, "src/lib/feedback.ts"), "utf-8");
 

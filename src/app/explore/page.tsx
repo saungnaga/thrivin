@@ -88,7 +88,7 @@ const ALL_DOMAINS: DomainItem[] = [
 ];
 
 export default function ExplorePage() {
-  const ninaCtaUrl = "/companion/nina";
+  const ninaCtaUrl = "/nina";
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredDomains = ALL_DOMAINS.filter((d) => {

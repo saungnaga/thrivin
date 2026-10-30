@@ -53,14 +53,14 @@ export function Navbar() {
             aria-label="Main Navigation"
           >
             <Link
-              href="/companion/nina"
+              href="/nina"
               className="text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors"
             >
               Companion Nina
             </Link>
 
             <Link
-              href="/companion/nina/learning"
+              href="/nina/learning"
               className="text-sm font-medium text-text-secondary hover:text-brand-900 transition-colors flex items-center gap-1.5 group"
             >
               <span>Knowledge Base</span>
@@ -92,7 +92,7 @@ export function Navbar() {
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center">
               <Link
-                href="/companion/nina/onboarding/1"
+                href="/nina/onboarding/1"
                 className="rounded-full bg-brand-900 text-white px-5 py-2.5 text-xs sm:text-sm font-bold shadow-xs hover:bg-brand-800 hover:shadow-glow hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 flex items-center gap-2 cursor-pointer"
               >
                 <span>Mulai Sekarang</span>
@@ -125,7 +125,7 @@ export function Navbar() {
           >
             <nav className="flex flex-col space-y-3 pt-2">
               <Link
-                href="/companion/nina"
+                href="/nina"
                 onClick={() => setIsOpen(false)}
                 className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
               >
@@ -134,7 +134,7 @@ export function Navbar() {
               </Link>
 
               <Link
-                href="/companion/nina/learning"
+                href="/nina/learning"
                 onClick={() => setIsOpen(false)}
                 className="font-sans text-xl font-bold text-brand-900 py-2.5 border-b border-surface-border/60 flex items-center justify-between"
               >
@@ -182,7 +182,7 @@ export function Navbar() {
 
             <div className="pt-6 pb-4 flex flex-col gap-3">
               <Link
-                href="/companion/nina/onboarding/1"
+                href="/nina/onboarding/1"
                 onClick={() => setIsOpen(false)}
                 className="w-full text-center rounded-full bg-brand-900 text-white font-bold py-3.5 text-sm shadow-md flex items-center justify-center gap-2"
               >

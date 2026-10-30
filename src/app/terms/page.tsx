@@ -249,7 +249,7 @@ export default function TermsPage() {
                 wa.me/6287788141388
               </a>
               . Kritik dan saran juga bisa dikirim lewat halaman{" "}
-              <Link href="/companion/nina/kritiksaran" className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
+              <Link href="/nina/kritiksaran" className="font-bold text-emerald-700 hover:text-emerald-800 underline underline-offset-2">
                 Kritik &amp; Saran
               </Link>
               .

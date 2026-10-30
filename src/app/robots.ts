@@ -10,8 +10,8 @@ export default function robots(): MetadataRoute.Robots {
         disallow: [
           "/dashboard",
           "/dashboard/*",
-          "/companion/nina/onboarding",
-          "/companion/nina/onboarding/*",
+          "/nina/onboarding",
+          "/nina/onboarding/*",
           "/login",
           "/signup",
           "/api/*",

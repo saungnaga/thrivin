@@ -21,10 +21,10 @@ const root = process.env.COPY_ROOT
 
 const UI_FILES = {
   home: "src/app/page.tsx",
-  nina: "src/app/companion/nina/page.tsx",
+  nina: "src/app/nina/page.tsx",
   chat: "src/components/AIChatWidget.tsx",
   jsonLd: "src/components/JsonLd.tsx",
-  checkout: "src/app/companion/nina/onboarding/[step]/page.tsx",
+  checkout: "src/app/nina/onboarding/[step]/page.tsx",
 } as const;
 
 function read(rel: string): string {

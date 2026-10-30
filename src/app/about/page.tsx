@@ -64,7 +64,7 @@ const problemCards = [
 ];
 
 export default function AboutPage() {
-  const ninaCtaUrl = "/companion/nina";
+  const ninaCtaUrl = "/nina";
 
   return (
     <div className="min-h-screen bg-surface font-sans text-brand-950 flex flex-col selection:bg-brand-100 selection:text-brand-900">

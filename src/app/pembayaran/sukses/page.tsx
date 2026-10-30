@@ -46,7 +46,7 @@ export default function PaymentSuccessPage() {
 
         <p className="mt-6 text-sm leading-relaxed text-neutral-600">
           Belum dapat pesan setelah beberapa menit?{" "}
-          <Link className="font-medium text-neutral-900 underline" href="/companion/nina/status">
+          <Link className="font-medium text-neutral-900 underline" href="/nina/status">
             Cek status langgananmu
           </Link>
           .

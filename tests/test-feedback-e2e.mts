@@ -1,5 +1,5 @@
 /**
- * End-to-end tests for /api/feedback + /companion/nina/kritiksaran (A8).
+ * End-to-end tests for /api/feedback + /nina/kritiksaran (A8).
  *
  *   npm run build && node --experimental-strip-types tests/test-feedback-e2e.mts
  *
@@ -568,7 +568,7 @@ async function main() {
 
     // ── served HTML: a11y, noindex, no key in the client bundle ─────────────
     console.log("\n── served page: a11y + noindex + no client-side key ──");
-    const pageRes = await fetch(`${BASE_URL}/companion/nina/kritiksaran`);
+    const pageRes = await fetch(`${BASE_URL}/nina/kritiksaran`);
     assertEq(pageRes.status, 200, "page renders");
     const html = await pageRes.text();
     assertOk(/id="message"/.test(html), "textarea id present in SSR output");

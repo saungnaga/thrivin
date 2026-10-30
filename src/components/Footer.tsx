@@ -16,13 +16,13 @@ export function Footer() {
           className="font-sans font-normal flex flex-wrap items-center justify-center sm:justify-end gap-5 text-xs sm:text-sm text-text-muted"
         >
           <Link
-            href="/companion/nina"
+            href="/nina"
             className="hover:text-brand-900 transition-colors"
           >
             Companion Nina
           </Link>
           <Link
-            href="/companion/nina/learning"
+            href="/nina/learning"
             className="hover:text-brand-900 transition-colors"
           >
             Knowledge Base

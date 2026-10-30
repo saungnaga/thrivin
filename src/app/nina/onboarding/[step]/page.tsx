@@ -401,11 +401,11 @@ export default function OnboardingStepPage({
 
   const goToStep = (targetStep: number) => {
     if (targetStep < 1) {
-      router.push("/companion/nina");
+      router.push("/nina");
       return;
     }
     if (targetStep > TOTAL_STEPS) return;
-    router.push(`/companion/nina/onboarding/${targetStep}`);
+    router.push(`/nina/onboarding/${targetStep}`);
   };
 
   // CTA "Perpanjang sekarang" menggulir ke daftar paket di halaman yang sama
@@ -972,7 +972,7 @@ export default function OnboardingStepPage({
           {stepNum === 1 && waLookup === null ? (
             <>
               <button
-                onClick={() => router.push("/companion/nina")}
+                onClick={() => router.push("/nina")}
                 className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"
                 aria-label="Kembali"
               >
@@ -992,7 +992,7 @@ export default function OnboardingStepPage({
                   if (introSlide > 0) {
                     setIntroSlide(introSlide - 1);
                   } else {
-                    router.push("/companion/nina");
+                    router.push("/nina");
                   }
                 }}
                 className="p-1.5 -ml-1.5 rounded-full hover:bg-surface-muted text-text-secondary hover:text-brand-900 transition-colors cursor-pointer"

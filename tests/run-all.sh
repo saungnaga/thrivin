@@ -164,7 +164,7 @@ node --experimental-strip-types "$HERE/test-webhook-purge-acl.mts"
 
 echo
 echo "=============================================================="
-echo "12/13 end-to-end: /api/feedback + /companion/nina/kritiksaran (A8)"
+echo "12/13 end-to-end: /api/feedback + /nina/kritiksaran (A8)"
 echo "=============================================================="
 node --experimental-strip-types "$HERE/test-feedback-e2e.mts"
 

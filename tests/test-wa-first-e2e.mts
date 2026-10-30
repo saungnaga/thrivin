@@ -136,7 +136,7 @@ async function startApp(
     env: merged as Record<string, string>,
     stdio: ["ignore", logFd, logFd],
   });
-  await waitFor(`http://127.0.0.1:${port}/companion/nina/status`);
+  await waitFor(`http://127.0.0.1:${port}/nina/status`);
   return {
     stop: () => {
       try {
@@ -403,7 +403,7 @@ async function main() {
 
     // ══ 8. UI: tanpa kode OTP, tetap ramah keyboard/mobile ═════════════════
     section("UI: tiga cabang, tanpa input kode");
-    const page = await fetch(`${BASE_URL}/companion/nina/status`);
+    const page = await fetch(`${BASE_URL}/nina/status`);
     const html = await page.text();
     assertEq(page.status, 200, "ui: halaman status -> 200");
     assertOk(
@@ -429,7 +429,7 @@ async function main() {
 
     // ══ 8b. Urutan funnel: nomor WA di langkah 1, bukan di langkah akhir ═══
     section("Funnel: nomor WA di langkah 1, hilang dari langkah akhir");
-    const step1 = await fetch(`${BASE_URL}/companion/nina/onboarding/1`);
+    const step1 = await fetch(`${BASE_URL}/nina/onboarding/1`);
     const step1Html = await step1.text();
     assertEq(step1.status, 200, "funnel: /onboarding/1 -> 200");
     assertOk(
@@ -447,7 +447,7 @@ async function main() {
     // pemeriksaan "tidak ada input nomor lagi" dilakukan di SUMBER komponen —
     // kalau tidak, HTML kosong akan selalu lolos dan test-nya tidak bergigi.
     const pageSrc = fs.readFileSync(
-      path.join(REPO, "src/app/companion/nina/onboarding/[step]/page.tsx"),
+      path.join(REPO, "src/app/nina/onboarding/[step]/page.tsx"),
       "utf-8"
     );
     const step8Block = pageSrc.split("{stepNum === 8 && (")[1]?.split("{stepNum === 9 && (")[0] ?? "";
@@ -465,7 +465,7 @@ async function main() {
       /fetch\("\/api\/wa\/session\/request"/.test(pageSrc),
       "funnel: komponen benar-benar memanggil endpoint lookup (bukan cuma UI)"
     );
-    const step9Html = await (await fetch(`${BASE_URL}/companion/nina/onboarding/9`)).text();
+    const step9Html = await (await fetch(`${BASE_URL}/nina/onboarding/9`)).text();
     assertOk(
       !step9Html.includes('id="wa-phone"') && !/type="tel"/i.test(step9Html),
       "funnel: langkah 9 (checkout) TIDAK memuat input nomor"
