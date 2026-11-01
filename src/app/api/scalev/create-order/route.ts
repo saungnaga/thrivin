@@ -300,13 +300,15 @@ async function quotePromo(
     };
   }
 
-  // Khusus testing internal / owner: TESTINGDULU -> semua paket Rp 0 (diskon 100%)
+  // Khusus testing internal / owner: TESTINGDULU -> semua paket Rp 10.000 (minimum Scalev untuk pengetesan nyata)
   if (code === "TESTINGDULU") {
+    const finalPrice = 10000;
+    const discount = Math.max(0, catalogPrice - finalPrice);
     return {
       valid: true,
       code: "TESTINGDULU",
-      discount: catalogPrice,
-      finalPrice: 0,
+      discount,
+      finalPrice,
     };
   }
 
@@ -474,13 +476,15 @@ export async function POST(req: Request) {
     // terjadi tepat sebelum order dibuat dan dilepas lagi kalau Scalev menolak.
     let promo: Awaited<ReturnType<typeof redeemPromo>> | null = null;
     if (normalizedPromo === "TESTINGDULU") {
+      const finalPrice = 10000;
+      const discount = Math.max(0, catalogPrice - finalPrice);
       promo = {
         status: "ok",
         code: "TESTINGDULU",
-        discount: catalogPrice,
-        finalPrice: 0,
+        discount,
+        finalPrice,
         redemptionId: "test_redemption_" + Date.now(),
-        message: "Kode promo TESTINGDULU berhasil diterapkan.",
+        message: "Kode promo TESTINGDULU berhasil diterapkan (Rp 10.000).",
       };
     } else if (normalizedPromo) {
       if (!isPromoStoreConfigured()) {
@@ -832,9 +836,9 @@ export async function POST(req: Request) {
     // identitas di order = identitas yang diverifikasi, bukan ketikan bebas.
     const cleanName = authoritative.name.substring(0, 60);
 
-    // Pesanan Rp 0 (khusus testing: kode promo TESTINGDULU):
+    // Pesanan Rp 0:
     // Bypass Scalev (karena gateway Scalev menolak < Rp 10.000) dan langsung aktifkan pesanan ke halaman sukses
-    if (targetAmount === 0 || normalizedPromo === "TESTINGDULU") {
+    if (targetAmount === 0) {
       const testOrderId = "free_test_" + Date.now();
       const successUrl = "https://thrivin.id/pembayaran/sukses";
       if (activeClaimId) {
