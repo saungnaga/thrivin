@@ -2707,13 +2707,19 @@ export default function OnboardingStepPage({
                 className="w-full rounded-full bg-brand-900 hover:bg-brand-800 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold py-4 text-sm sm:text-base transition-all shadow-xl border border-brand-700 hover:scale-102 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
               >
                 {isCheckingOut ? (
-                  <span className="text-white font-bold">Menyiapkan Halaman Pembayaran...</span>
+                  <span className="text-white font-bold">
+                    {finalPrice === 0 ? "Mengaktifkan Paket Kamu..." : "Menyiapkan Halaman Pembayaran..."}
+                  </span>
                 ) : checkoutComplete ? (
-                  <span className="text-white font-bold">✓ Mengalihkan ke checkout.thrivin.com...</span>
+                  <span className="text-white font-bold">
+                    {finalPrice === 0 ? "✓ Berhasil! Membuka halaman sukses..." : "✓ Mengalihkan ke checkout.thrivin.com..."}
+                  </span>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4 text-accent" />
-                    <span>Ambil Paket & Bayar Sekarang</span>
+                    <span>
+                      {finalPrice === 0 ? "Aktifkan Paket Sekarang (Gratis)" : "Ambil Paket & Bayar Sekarang"}
+                    </span>
                     <ArrowRight className="w-4 h-4 text-accent" />
                   </>
                 )}

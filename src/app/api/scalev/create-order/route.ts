@@ -18,7 +18,7 @@ import {
   releasePendingPromoRedemptions,
 } from "@/lib/promo";
 import { limitRequest } from "@/lib/rate-limit";
-import { saveOnboardingSnapshot, redactError, type OnboardingProfile } from "@/lib/onboarding-store";
+import { saveOnboardingSnapshot, activateUserSubscription, redactError, type OnboardingProfile } from "@/lib/onboarding-store";
 import { getWaSessionPhone } from "@/lib/wa-session";
 import {
   authoritativeProfile,
@@ -299,6 +299,17 @@ async function quotePromo(
       error: "Format kode promo tidak valid.",
     };
   }
+
+  // Khusus testing internal / owner: TESTINGDULU -> semua paket Rp 0 (diskon 100%)
+  if (code === "TESTINGDULU") {
+    return {
+      valid: true,
+      code: "TESTINGDULU",
+      discount: catalogPrice,
+      finalPrice: 0,
+    };
+  }
+
   // Fail closed: toko promo mati ⇒ kode TIDAK dianggap valid (bukan "diam-diam
   // harga penuh").
   if (!isPromoStoreConfigured()) {
@@ -462,7 +473,16 @@ export async function POST(req: Request) {
     // request yang ditolak tidak pernah menggerus kuota. Klaim sungguhan
     // terjadi tepat sebelum order dibuat dan dilepas lagi kalau Scalev menolak.
     let promo: Awaited<ReturnType<typeof redeemPromo>> | null = null;
-    if (normalizedPromo) {
+    if (normalizedPromo === "TESTINGDULU") {
+      promo = {
+        status: "ok",
+        code: "TESTINGDULU",
+        discount: catalogPrice,
+        finalPrice: 0,
+        redemptionId: "test_redemption_" + Date.now(),
+        message: "Kode promo TESTINGDULU berhasil diterapkan.",
+      };
+    } else if (normalizedPromo) {
       if (!isPromoStoreConfigured()) {
         // Fail closed: promo tidak bisa diverifikasi -> ditolak, bukan
         // "diam-diam harga penuh" dan bukan "diam-diam dapat diskon".
@@ -522,7 +542,7 @@ export async function POST(req: Request) {
         const grantedCode = normalizePromoCode(entry.slice(separator + 1));
         return grantedPhone === cleanPhone && grantedCode === normalizedPromo;
       });
-    if (promo && promo.finalPrice <= 10000 && !reuseGrant) {
+    if (normalizedPromo !== "TESTINGDULU" && promo && promo.finalPrice <= 10000 && !reuseGrant) {
       try {
         const historyRes = await fetch(
           `${SCALEV_API_BASE}/v3/orders?search_field=customer_phone&search=${encodeURIComponent(
@@ -766,7 +786,7 @@ export async function POST(req: Request) {
     // Klaim kuota: atomik di dalam RPC (baris promo dikunci FOR UPDATE). Kalau
     // kalah race — kuota baru saja habis, atau nomor lain menyerobot slot
     // terakhir — checkout DITOLAK dengan pesan jelas.
-    if (promo) {
+    if (promo && normalizedPromo !== "TESTINGDULU") {
       let actualPromo = await redeemPromo({
         code: normalizedPromo,
         phone: cleanPhone,
@@ -808,14 +828,37 @@ export async function POST(req: Request) {
     const targetAmount = promo ? promo.finalPrice : catalogPrice;
     const promoApplied = promo?.code ?? null;
 
+    // Nama diambil dari profil tersimpan (bukan `body.customerName`) supaya
+    // identitas di order = identitas yang diverifikasi, bukan ketikan bebas.
+    const cleanName = authoritative.name.substring(0, 60);
+
+    // Pesanan Rp 0 (khusus testing: kode promo TESTINGDULU):
+    // Bypass Scalev (karena gateway Scalev menolak < Rp 10.000) dan langsung aktifkan pesanan ke halaman sukses
+    if (targetAmount === 0 || normalizedPromo === "TESTINGDULU") {
+      const testOrderId = "free_test_" + Date.now();
+      const successUrl = "https://thrivin.id/pembayaran/sukses";
+      if (activeClaimId) {
+        await completeCheckoutClaim(activeClaimId, testOrderId, successUrl, 0, null);
+        activeClaimId = null;
+      }
+      try {
+        await activateUserSubscription(cleanPhone, cleanName, authoritative.profile as OnboardingProfile, plan);
+      } catch (err) {
+        console.warn("Free test activation note:", redactError(err));
+      }
+      return NextResponse.json({
+        orderId: testOrderId,
+        paymentUrl: successUrl,
+        redirectUrl: successUrl,
+        paymentPageReachable: true,
+        freePromo: true,
+      });
+    }
+
     const unitPrice = variant.price;
     const quantity = 1;
     const grossVariantTotal = unitPrice * quantity;
     const productDiscount = Math.max(0, grossVariantTotal - targetAmount);
-
-    // Nama diambil dari profil tersimpan (bukan `body.customerName`) supaya
-    // identitas di order = identitas yang diverifikasi, bukan ketikan bebas.
-    const cleanName = authoritative.name.substring(0, 60);
 
     // B-2: PII (weight/height/gender/age) is deliberately NOT written to the
     // Scalev order notes — that is a third-party system with its own retention.
