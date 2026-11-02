@@ -1,6 +1,6 @@
 /**
  * Unit checks for the Scalev checkout-link domain mapping.
- * Target domain: digitanest.myscalev.com (working, valid SSL host)
+ * Target domain: checkout.thrivin.id (official store custom domain)
  */
 import assert from "node:assert/strict";
 import {
@@ -15,67 +15,67 @@ function check(ok: boolean, name: string, detail = "") {
   results.push([ok ? "PASS" : "FAIL", `${name}${detail ? " — " + detail : ""}`]);
 }
 
-// 1. Target hosted host is digitanest.myscalev.com
+// 1. Target store custom host is checkout.thrivin.id
 {
-  check(SCALEV_HOSTED_HOST === "digitanest.myscalev.com", "target host is digitanest.myscalev.com", SCALEV_HOSTED_HOST);
+  check(STORE_CUSTOM_HOST === "checkout.thrivin.id", "target custom host is checkout.thrivin.id", STORE_CUSTOM_HOST);
 }
 
-// 2. Swaps legacy checkout.thrivin.id to digitanest.myscalev.com
+// 2. Swaps Scalev hosted domain digitanest.myscalev.com to checkout.thrivin.id
 {
-  const legacy = "https://checkout.thrivin.id/pay/250130ABCD";
-  const out = toCheckoutDomain(legacy);
+  const hosted = "https://digitanest.myscalev.com/pay/250130ABCD";
+  const out = toCheckoutDomain(hosted);
   check(
-    out === "https://digitanest.myscalev.com/pay/250130ABCD",
-    "legacy checkout.thrivin.id maps to digitanest.myscalev.com",
+    out === "https://checkout.thrivin.id/pay/250130ABCD",
+    "digitanest.myscalev.com maps to checkout.thrivin.id",
     out
   );
 }
 
-// 3. Swaps non-existent checkout.thrivin.com to digitanest.myscalev.com
+// 3. Swaps non-existent checkout.thrivin.com to checkout.thrivin.id
 {
   const wrong = "https://checkout.thrivin.com/pay/order_123";
   const out = toCheckoutDomain(wrong);
   check(
-    out === "https://digitanest.myscalev.com/pay/order_123",
-    "checkout.thrivin.com maps to digitanest.myscalev.com",
+    out === "https://checkout.thrivin.id/pay/order_123",
+    "checkout.thrivin.com maps to checkout.thrivin.id",
     out
   );
 }
 
-// 4. Swaps thrivin.myscalev.com to digitanest.myscalev.com
+// 4. Swaps thrivin.myscalev.com to checkout.thrivin.id
 {
   const wrong = "https://thrivin.myscalev.com/pay/order_456";
   const out = toCheckoutDomain(wrong);
   check(
-    out === "https://digitanest.myscalev.com/pay/order_456",
-    "thrivin.myscalev.com maps to digitanest.myscalev.com",
+    out === "https://checkout.thrivin.id/pay/order_456",
+    "thrivin.myscalev.com maps to checkout.thrivin.id",
     out
   );
 }
 
-// 5. Preserves path, query parameters, and slug
+// 5. Preserves path, query parameters, and slug on checkout.thrivin.id
 {
   const direct = "https://checkout.thrivin.id/o/slug_xyz123/success?src=promo&ref=wa";
   const out = toCheckoutDomain(direct);
   check(
-    out === "https://digitanest.myscalev.com/o/slug_xyz123/success?src=promo&ref=wa",
+    out === "https://checkout.thrivin.id/o/slug_xyz123/success?src=promo&ref=wa",
     "path, query params, and slug preserved",
     out
   );
 }
 
-// 6. Already canonical domain kept verbatim
+// 6. Already canonical checkout.thrivin.id domain kept verbatim
 {
-  const canonical = "https://digitanest.myscalev.com/pay/250130ABCD";
+  const canonical = "https://checkout.thrivin.id/pay/250130ABCD";
   const out = toCheckoutDomain(canonical);
   check(out === canonical, "already canonical domain kept verbatim", out);
 }
 
 // 7. checkCheckoutLink returns canonical url
 {
-  const res = await checkCheckoutLink("https://checkout.thrivin.id/pay/test");
+  const res = await checkCheckoutLink("https://digitanest.myscalev.com/pay/test");
   check(
-    res.url === "https://digitanest.myscalev.com/pay/test" && res.reachable === true,
+    res.url === "https://checkout.thrivin.id/pay/test" && res.reachable === true,
     "checkCheckoutLink returns canonical url and reachable: true",
     res.url
   );

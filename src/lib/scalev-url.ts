@@ -1,15 +1,11 @@
 /**
  * Scalev checkout domain configuration.
  *
- * Catatan penting:
- * 1. `checkout.thrivin.com` (.com) tidak terdaftar di DNS (NXDOMAIN).
- * 2. `checkout.thrivin.id` (.id) di sisi Scalev Cloudflare saat ini belum memiliki
- *    sertifikat SSL aktif (`ERR_SSL_VERSION_OR_CIPHER_MISMATCH`).
- * 3. Domain resmi bawaan Scalev untuk toko ini adalah `digitanest.myscalev.com`
- *    yang 100% aktif, memiliki SSL valid, dan melayani pembayaran secara aman.
+ * Domain kustom resmi toko: `checkout.thrivin.id`
+ * Domain bawaan Scalev: `digitanest.myscalev.com`
  *
- * Semua link dialihkan ke `digitanest.myscalev.com` dengan tetap mempertahankan
- * path, query parameter, dan slug.
+ * Mengarahkan seluruh tautan pembayaran ke domain kustom resmi: `checkout.thrivin.id`
+ * dengan tetap mempertahankan path, query parameter, dan slug.
  */
 export const STORE_CUSTOM_HOST = "checkout.thrivin.id";
 export const SCALEV_HOSTED_HOST = "digitanest.myscalev.com";
@@ -20,9 +16,7 @@ export interface CheckoutLink {
 }
 
 /**
- * Mengarahkan checkout URL ke domain Scalev yang aktif dan ber-SSL aman (`digitanest.myscalev.com`).
- * Menghindari error `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` pada `checkout.thrivin.id`
- * dan error `NXDOMAIN` pada `checkout.thrivin.com`.
+ * Mengarahkan checkout URL ke custom domain resmi toko (`checkout.thrivin.id`).
  */
 export function toCheckoutDomain(url: string | null | undefined): string {
   const value = (url ?? "").trim();
@@ -30,18 +24,18 @@ export function toCheckoutDomain(url: string | null | undefined): string {
   try {
     const parsed = new URL(value);
     if (
-      parsed.hostname === "checkout.thrivin.id" ||
+      parsed.hostname === "digitanest.myscalev.com" ||
       parsed.hostname === "checkout.thrivin.com" ||
       parsed.hostname === "thrivin.myscalev.com"
     ) {
-      parsed.hostname = SCALEV_HOSTED_HOST;
+      parsed.hostname = STORE_CUSTOM_HOST;
       return parsed.toString();
     }
     return value;
   } catch {
     return value.replace(
-      /checkout\.thrivin\.id|checkout\.thrivin\.com|thrivin\.myscalev\.com/g,
-      SCALEV_HOSTED_HOST
+      /digitanest\.myscalev\.com|checkout\.thrivin\.com|thrivin\.myscalev\.com/g,
+      STORE_CUSTOM_HOST
     );
   }
 }

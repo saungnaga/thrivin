@@ -50,7 +50,7 @@ const SCALEV_API_BASE = process.env.SCALEV_API_BASE_URL || "https://api.scalev.c
 
 const POST_PAYMENT_REDIRECT_URL = "https://thrivin.id/pembayaran/sukses";
 const SCALEV_PAGE_ID = process.env.SCALEV_PAGE_ID || "page_cc17802cd39f34cd";
-const SCALEV_PAGE_ORIGIN = process.env.SCALEV_PAGE_ORIGIN || "https://digitanest.myscalev.com";
+const SCALEV_PAGE_ORIGIN = process.env.SCALEV_PAGE_ORIGIN || "https://checkout.thrivin.id";
 const SCALEV_PAGE_SLUG = process.env.SCALEV_PAGE_SLUG || "nina-api-redirect-bridge";
 
 /**
@@ -67,48 +67,13 @@ async function createScalevOrder(input: {
   discountCode?: string | null;
   notes: string;
 }) {
-  const apiKey = (process.env.SCALEV_API_KEY || "").trim();
-  const storeId = process.env.SCALEV_STORE_ID || DEFAULT_SCALEV_STORE_ID;
+  // Business API (POST /v3/orders) DINONAKTIFKAN:
+  // Business API tidak mendukung `post_payment_redirect_url` dan tidak mengirim
+  // Origin header, sehingga Scalev menghasilkan URL di domain default
+  // (digitanest.myscalev.com) yang sudah 404 sejak custom domain
+  // checkout.thrivin.id diaktifkan. Semua order HARUS lewat Page API.
 
-  // 1. Coba Business API lebih dulu jika ada SCALEV_API_KEY (sk_...)
-  // Karena Business API natively memotong gross_revenue dengan product_discount
-  if (apiKey && apiKey.startsWith("sk_")) {
-    try {
-      const bizPayload = {
-        store_unique_id: storeId,
-        customer_name: input.customerName,
-        customer_phone: input.customerPhone,
-        ordervariants: [
-          {
-            variant_unique_id: input.variantId,
-            quantity: input.quantity,
-            ...(typeof input.customerPrice === "number" ? { customer_price: input.customerPrice } : {}),
-          },
-        ],
-        product_discount: input.productDiscount,
-        payment_method: "payment_link",
-        notes: input.notes,
-      };
-      const bizRes = await fetch(`${SCALEV_API_BASE}/v3/orders`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(bizPayload),
-        cache: "no-store",
-      });
-      if (bizRes.ok) {
-        const data = await bizRes.json();
-        return { response: bizRes, data };
-      }
-    } catch (bizErr) {
-      console.warn("Scalev business API order fallback to page API:", redactError(bizErr));
-    }
-  }
-
-  // 2. Fallback ke HTML Page Mode (/v3/pages/:page_id/orders)
+  // Page API (HTML Mode /v3/pages/:page_id/orders)
   const pageKey = (process.env.SCALEV_PAGE_API_KEY || "").trim() || "ppk_gZl4wLsKlev18HyXF1YLExVgfNiXQZxqNM7ckuVCBuHC4uhAaJhoEwCjqvgGo3GO";
   if (!pageKey) {
     return { response: null, data: { message: "SCALEV_PAGE_API_KEY is not configured" } };
@@ -134,22 +99,33 @@ async function createScalevOrder(input: {
     post_payment_redirect_url: POST_PAYMENT_REDIRECT_URL,
   });
 
-  const pageUrl = `${SCALEV_PAGE_ORIGIN}/${SCALEV_PAGE_SLUG}`;
   const callPageApi = async (payloadObj: any) => {
-    const res = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
-      method: "POST",
-      headers: {
-        "X-Scalev-Page-Api-Key": pageKey,
-        Origin: SCALEV_PAGE_ORIGIN,
-        Referer: pageUrl,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payloadObj),
-      cache: "no-store",
-    });
-    const json = await res.json().catch(() => ({}));
-    return { response: res, data: json };
+    const tryCall = async (origin: string) => {
+      const pageUrl = `${origin}/${SCALEV_PAGE_SLUG}`;
+      const res = await fetch(`${SCALEV_API_BASE}/v3/pages/${SCALEV_PAGE_ID}/orders`, {
+        method: "POST",
+        headers: {
+          "X-Scalev-Page-Api-Key": pageKey,
+          Origin: origin,
+          Referer: pageUrl,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payloadObj),
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      return { response: res, data: json };
+    };
+
+    let result = await tryCall(SCALEV_PAGE_ORIGIN);
+    if (!result.response.ok && JSON.stringify(result.data).toLowerCase().includes("cors")) {
+      const altOrigin = SCALEV_PAGE_ORIGIN.includes("checkout.thrivin.id")
+        ? "https://digitanest.myscalev.com"
+        : "https://checkout.thrivin.id";
+      result = await tryCall(altOrigin);
+    }
+    return result;
   };
 
   // Coba dengan customer_price (jika produk di Scalev bertipe "harga ditentukan pembeli")
